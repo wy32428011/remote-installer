@@ -1,0 +1,2137 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using RemoteInstaller.Models;
+
+namespace RemoteInstaller.Services;
+
+/// <summary>
+/// 安装服务
+/// 负责执行远程应用的安装、卸载和状态检测
+/// </summary>
+public class InstallerService
+{
+    private readonly SshService _sshService;
+    private readonly ILogger _logger;
+    private readonly DatabaseService _databaseService;
+    private readonly FileLoggerService _fileLogger;
+
+    public InstallerService(SshService sshService, ILogger logger)
+    {
+        _sshService = sshService;
+        _logger = logger;
+        _databaseService = new DatabaseService();
+        _fileLogger = new FileLoggerService();
+
+        _fileLogger.Info("InstallerService", $"InstallerService 初始化，SSH服务: {sshService.GetType().Name}");
+    }
+
+    /// <summary>
+    /// 执行安装
+    /// </summary>
+    public async Task<InstallTask> InstallAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        Dictionary<string, string> parameters,
+        string? localPackagePath = null,
+        IProgress<InstallTask>? progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        
+        var task = new InstallTask
+        {
+            HostId = host.Id,
+            HostName = host.Name,
+            AppId = app.Id,
+            AppName = app.Name,
+            AppVersion = app.Version
+        };
+
+        // 创建日志收集器
+        var logCollector = new LogCollector(_logger, task.Id);
+        
+        // 监听进度更新
+        logCollector.ProgressUpdated += (stage, progressVal) =>
+        {
+                        task.UpdateProgress(ParseStage(stage), progressVal);
+            progressReporter?.Report(task);
+            
+            // 实时更新数据库中的任务状态
+            try { _databaseService.SaveTask(task); } catch { /* 忽略更新错误 */ }
+        };
+
+        string? remoteWorkDir = null;
+        try
+        {
+            task.Start();
+                        
+            // 初始保存任务记录，确保外键一致性
+            _databaseService.SaveTask(task);
+
+            // 1. 连接服务器
+            task.UpdateProgress(InstallStage.Connecting, 5);
+            progressReporter?.Report(task);
+            _logger.Info($"正在连接 {host.Name}...");
+            await _sshService.ConnectAsync(host, cancellationToken);
+            _logger.Success("连接成功");
+
+            // 1.5 创建远程工作目录
+            var workDirName = $"{app.Id}_{Guid.NewGuid():N}";
+            remoteWorkDir = host.OsType == OperatingSystemType.Windows 
+                ? $"C:\\Windows\\Temp\\remote_install\\{workDirName}"
+                : $"/tmp/remote_install/{workDirName}";
+            
+            _logger.Info($"创建远程工作目录: {remoteWorkDir}");
+            if (host.OsType == OperatingSystemType.Windows)
+            {
+                await _sshService.ExecuteCommandAsync($"New-Item -ItemType Directory -Force -Path \"{remoteWorkDir}\"", cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await _sshService.ExecuteCommandAsync($"mkdir -p \"{remoteWorkDir}\"", cancellationToken: cancellationToken);
+            }
+
+            // 2. 检查并上传安装脚本
+            string? remoteScriptPath = null;
+            var version = parameters.ContainsKey("version") ? parameters["version"] : app.Version;
+            var localScriptPath = GetLocalScriptPath(app.Id, version, host.OsType);
+            if (!string.IsNullOrEmpty(localScriptPath) && File.Exists(localScriptPath))
+            {
+                _logger.Info($"发现本地安装脚本：{Path.GetFileName(localScriptPath)}，准备上传...");
+                var remoteScriptFileName = Path.GetFileName(localScriptPath);
+                remoteScriptPath = host.OsType == OperatingSystemType.Windows
+                    ? Path.Combine(remoteWorkDir, remoteScriptFileName).Replace("/", "\\")
+                    : $"{remoteWorkDir}/{remoteScriptFileName}";
+
+                if (host.OsType != OperatingSystemType.Windows)
+                {
+                    // Linux 脚本需要处理换行符 (CRLF -> LF)，否则会导致 shebang 解析错误
+                    var content = await File.ReadAllTextAsync(localScriptPath);
+                    await _sshService.UploadTextAsync(content, remoteScriptPath, host.OsType, cancellationToken);
+                    await _sshService.ExecuteCommandAsync($"chmod +x \"{remoteScriptPath}\"", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await _sshService.UploadFileAsync(localScriptPath, remoteScriptPath);
+                }
+                
+                _logger.Success($"安装脚本上传完成");
+            }
+
+            // 3. 上传安装包（如果使用本地包）
+            string? remotePackagePath = null;
+            
+            if (!string.IsNullOrEmpty(localPackagePath))
+            {
+                var localPackageIsFile = File.Exists(localPackagePath);
+                var localPackageIsDirectory = Directory.Exists(localPackagePath);
+
+                if (!localPackageIsFile && !localPackageIsDirectory)
+                {
+                    throw new FileNotFoundException($"本地安装包不存在：{localPackagePath}");
+                }
+
+                task.UpdateProgress(InstallStage.Uploading, 15);
+                progressReporter?.Report(task);
+
+                if (localPackageIsDirectory)
+                {
+                    var directoryName = Path.GetFileName(localPackagePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    var uniqueDirectoryName = $"{directoryName}_{Guid.NewGuid():N}";
+                    remotePackagePath = host.OsType == OperatingSystemType.Windows
+                        ? Path.Combine(remoteWorkDir, uniqueDirectoryName).Replace("/", "\\")
+                        : $"{remoteWorkDir}/{uniqueDirectoryName}";
+
+                    var fileCount = Directory.GetFiles(localPackagePath, "*", SearchOption.AllDirectories).Length;
+                    _logger.Info($"正在上传目录型本地安装包：{directoryName} (文件数：{fileCount})...");
+
+                    await _sshService.UploadDirectoryAsync(
+                        localPackagePath,
+                        remotePackagePath,
+                        progress =>
+                        {
+                            var currentProgress = 15 + (progress * 0.25);
+                            task.UpdateProgress(InstallStage.Uploading, currentProgress);
+                            progressReporter?.Report(task);
+                        },
+                        cancellationToken);
+
+                    _logger.Success($"目录上传完成：{remotePackagePath}");
+                }
+                else
+                {
+                    var fileSize = new FileInfo(localPackagePath).Length;
+                    var fileSizeMB = fileSize / (1024.0 * 1024.0);
+                    _logger.Info($"正在上传 {Path.GetFileName(localPackagePath)} (大小：{fileSizeMB:F2} MB)...");
+
+                    var fileName = Path.GetFileNameWithoutExtension(localPackagePath);
+                    var extension = Path.GetExtension(localPackagePath);
+                    var uniqueFileName = $"{fileName}_{Guid.NewGuid():N}{extension}";
+                    remotePackagePath = host.OsType == OperatingSystemType.Windows
+                        ? Path.Combine(remoteWorkDir, uniqueFileName).Replace("/", "\\")
+                        : $"{remoteWorkDir}/{uniqueFileName}";
+
+                    await _sshService.UploadFileAsync(
+                        localPackagePath,
+                        remotePackagePath,
+                        progress =>
+                        {
+                            var currentProgress = 15 + (progress * 0.25);
+                            task.UpdateProgress(InstallStage.Uploading, currentProgress);
+                            progressReporter?.Report(task);
+                        },
+                        cancellationToken);
+
+                    _logger.Success($"上传完成：{remotePackagePath}");
+
+                    if (host.OsType != OperatingSystemType.Windows &&
+                        app.Id.Equals("rabbitmq", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var localPackageExt = Path.GetExtension(localPackagePath);
+                        if (localPackageExt.Equals(".rpm", StringComparison.OrdinalIgnoreCase) ||
+                            localPackageExt.Equals(".deb", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var localPackageDir = Path.GetDirectoryName(localPackagePath);
+                            if (!string.IsNullOrEmpty(localPackageDir) && Directory.Exists(localPackageDir))
+                            {
+                                var dependencyFiles = Directory.GetFiles(localPackageDir, "*.*")
+                                    .Where(path => !path.Equals(localPackagePath, StringComparison.OrdinalIgnoreCase))
+                                    .Where(path => localPackageExt.Equals(".rpm", StringComparison.OrdinalIgnoreCase)
+                                        ? path.EndsWith(".rpm", StringComparison.OrdinalIgnoreCase) ||
+                                          path.EndsWith(".asc", StringComparison.OrdinalIgnoreCase) ||
+                                          path.EndsWith(".key", StringComparison.OrdinalIgnoreCase)
+                                        : path.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
+                                    .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                                    .ToList();
+
+                                if (localPackageExt.Equals(".deb", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var dependencyFileNames = dependencyFiles
+                                        .Select(Path.GetFileName)
+                                        .Where(name => !string.IsNullOrEmpty(name))
+                                        .ToList();
+
+                                    var requiredDebPrefixes = new[] { "erlang-base", "logrotate" };
+                                    var missingDependencies = requiredDebPrefixes
+                                        .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                                        .ToList();
+
+                                    if (missingDependencies.Count > 0)
+                                    {
+                                        throw new InvalidOperationException($"RabbitMQ Ubuntu 离线安装缺少依赖：{string.Join(", ", missingDependencies)}。请确保所选 rabbitmq-server*.deb 所在目录包含对应 .deb 文件后再上传。");
+                                    }
+                                }
+
+                                _logger.Info($"RabbitMQ 离线依赖文件列表：{string.Join(", ", dependencyFiles.Select(Path.GetFileName))}");
+
+                                foreach (var dependencyPath in dependencyFiles)
+                                {
+                                    var dependencyFileName = Path.GetFileName(dependencyPath);
+                                    var remoteDependencyPath = $"{remoteWorkDir}/{dependencyFileName}";
+                                    _logger.Info($"正在上传 RabbitMQ 离线依赖文件：{dependencyFileName}");
+                                    await _sshService.UploadFileAsync(dependencyPath, remoteDependencyPath, cancellationToken: cancellationToken);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                parameters["PACKAGE_PATH"] = remotePackagePath;
+            }
+            else
+            {
+                _logger.Info("未指定本地包，将使用在线安装或脚本自定义逻辑");
+            }
+
+            // 4. 执行安装
+            if (remoteScriptPath != null || !string.IsNullOrEmpty(app.GetInstallScript(host.OsType)))
+            {
+                task.UpdateProgress(InstallStage.Installing, 40);
+                progressReporter?.Report(task);
+                _logger.Info("正在执行安装脚本...");
+                await ExecuteInstallScriptAsync(host, app, parameters, logCollector, remoteScriptPath, cancellationToken);
+                _logger.Success("安装脚本执行完成");
+            }
+            else if (remotePackagePath != null)
+            {
+                // 如果没有脚本但有包，使用默认的解压安装逻辑
+                task.UpdateProgress(InstallStage.Extracting, 40);
+                progressReporter?.Report(task);
+                _logger.Info("未发现安装脚本，使用默认包安装逻辑...");
+                await ExtractPackageAsync(host, remotePackagePath, app.Name, logCollector, remoteWorkDir, cancellationToken);
+                _logger.Success("包安装完成");
+            }
+            else
+            {
+                throw new Exception("没有可用的安装脚本或安装包");
+            }
+
+            // 5. 验证安装
+            task.UpdateProgress(InstallStage.Verifying, 90);
+            progressReporter?.Report(task);
+            _logger.Info("正在验证安装状态...");
+
+            // 智能等待：轮询检测应用状态，最长10秒，每500ms检测一次
+            var maxWaitMs = 10000;
+            var checkIntervalMs = 500;
+            var elapsed = 0;
+            ApplicationStatus? status = null;
+
+            while (elapsed < maxWaitMs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                status = await CheckStatusAsync(host, app, cancellationToken);
+
+                if (status.IsInstalled)
+                {
+                    _logger.Info($"应用已检测到（等待{elapsed}ms），正在确认运行状态...");
+                    // 如果已安装，再多等1秒让服务完全启动
+                    await Task.Delay(1000, cancellationToken);
+                    status = await CheckStatusAsync(host, app, cancellationToken);
+                    break;
+                }
+
+                await Task.Delay(checkIntervalMs, cancellationToken);
+                elapsed += checkIntervalMs;
+            }
+
+            // 如果超时未检测到，尝试最后检测一次
+            if (status == null || !status.IsInstalled)
+            {
+                status = await CheckStatusAsync(host, app, cancellationToken);
+            }
+
+            
+            if (status?.IsInstalled == true)
+            {
+                task.Complete();
+                progressReporter?.Report(task);
+                _logger.Success($"安装完成！{app.Name} { (status?.IsRunning == true ? "已成功启动" : "已安装但未运行") }");
+            }
+            else
+            {
+                task.Fail("安装验证失败，请查看日志");
+                progressReporter?.Report(task);
+                _logger.Error("安装验证失败");
+            }
+            
+            // 更新最终任务状态
+            _databaseService.SaveTask(task);
+            
+            // 保存任务日志
+            _databaseService.SaveTaskLogs(task.Id, logCollector.GetLogs());
+        }
+        catch (OperationCanceledException)
+        {
+            task.Cancel();
+            _databaseService.SaveTask(task);
+            progressReporter?.Report(task);
+            _logger.Warning("安装已取消");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"安装发生致命错误: {ex}");
+            task.Fail(ex.Message);
+            _databaseService.SaveTask(task);
+            progressReporter?.Report(task);
+            _logger.Error($"安装失败：{ex.Message}");
+        }
+        finally
+        {
+            // 尝试清理远程临时工作目录 (如果已创建)
+            // 只有在安装成功或手动取消的情况下才清理。
+            // 如果安装失败，则保留该目录，以便用户查看日志文件。
+            if (!string.IsNullOrEmpty(remoteWorkDir))
+            {
+                if (task.Status == Models.TaskStatus.Failed)
+                {
+                    _logger.Warning($"安装失败，已保留远程工作目录以供排查: {remoteWorkDir}");
+                }
+                else
+                {
+                    try
+                    {
+                        if (host.OsType == OperatingSystemType.Windows)
+                        {
+                            await _sshService.ExecuteCommandAsync($"Remove-Item -Recurse -Force -Path \"{remoteWorkDir}\"", cancellationToken: CancellationToken.None);
+                        }
+                        else
+                        {
+                            await _sshService.ExecuteCommandAsync($"rm -rf \"{remoteWorkDir}\"", cancellationToken: CancellationToken.None);
+                        }
+                        _logger.Info($"已清理远程工作目录: {remoteWorkDir}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"清理远程目录失败: {ex.Message}");
+                    }
+                }
+            }
+            
+            logCollector.Dispose();
+        }
+
+        return task;
+    }
+
+    /// <summary>
+    /// 解析进度上报的阶段名称为 InstallStage 枚举
+    /// </summary>
+    private InstallStage ParseStage(string stageName)
+    {
+        var stage = stageName.ToLower();
+        return stage switch
+        {
+            "检查依赖" or "dependencies" or "initializing" or "preparing" => InstallStage.Preparing,
+            "下载安装包" or "download" or "connecting" or "uploading" => InstallStage.Connecting,
+            "解压安装包" or "extract" or "extracting" => InstallStage.Extracting,
+            "安装" or "install" or "installing" or "uninstalling" or "uninstall" or "stopping" => InstallStage.Installing,
+            "配置" or "config" or "configuring" or "settingpassword" or "cleaning" => InstallStage.Configuring,
+            "启动服务" or "start" or "starting" => InstallStage.Starting,
+            "验证安装" or "verifying" => InstallStage.Verifying,
+            "完成" or "complete" or "completed" or "finished" or "success" => InstallStage.Completed,
+            _ => InstallStage.Installing
+        };
+    }
+
+    /// <summary>
+    /// 执行卸载
+    /// </summary>
+    public async Task<InstallTask> UninstallAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        bool keepData = false,
+        IProgress<InstallTask>? progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        _fileLogger.Info("UninstallAsync", $"========== 卸载任务开始 ==========");
+        _fileLogger.Info("UninstallAsync", $"任务ID: {taskId}");
+        _fileLogger.Info("UninstallAsync", $"主机: {host.Name} ({host.IpAddress}:{host.Port})");
+        _fileLogger.Info("UninstallAsync", $"应用: {app.Name} v{app.Version} (ID: {app.Id})");
+        _fileLogger.Info("UninstallAsync", $"保留数据: {keepData}");
+        _fileLogger.Info("UninstallAsync", $"操作系统: {host.OsType}");
+
+        var task = new InstallTask
+        {
+            Id = taskId,
+            HostId = host.Id,
+            HostName = host.Name,
+            AppId = app.Id,
+            AppName = app.Name,
+            AppVersion = app.Version
+        };
+
+        // 创建进度收集器
+        var logCollector = new LogCollector(_logger, task.Id);
+
+        // 监听进度更新
+        logCollector.ProgressUpdated += (stage, progressVal) =>
+        {
+            task.UpdateProgress(ParseStage(stage), progressVal);
+            progressReporter?.Report(task);
+            try { _databaseService.SaveTask(task); } catch { }
+        };
+
+        string? remoteWorkDir = null;
+        try
+        {
+            task.Start();
+            // 初始保存
+            _databaseService.SaveTask(task);
+
+            _fileLogger.Info("UninstallAsync", "正在连接远程服务器...");
+            await _sshService.ConnectAsync(host, cancellationToken);
+            _fileLogger.Info("UninstallAsync", "连接成功");
+
+            _fileLogger.Info("UninstallAsync", $"正在执行 {app.Name} 卸载...");
+
+            // 获取卸载脚本路径
+            var scriptPath = GetLocalScriptPath(app.Id, app.Version, host.OsType, "uninstall");
+            _fileLogger.Info("UninstallAsync", $"脚本路径: {scriptPath ?? "未找到"}");
+
+            string scriptContent = "";
+
+            if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath))
+            {
+                scriptContent = await File.ReadAllTextAsync(scriptPath, cancellationToken);
+                _fileLogger.Info("UninstallAsync", $"从文件加载卸载脚本成功，长度: {scriptContent.Length} 字符");
+            }
+            else
+            {
+                // 如果没有找到对应的脚本文件，尝试使用 ApplicationInfo 中的默认脚本
+                scriptContent = app.GetUninstallScript(host.OsType);
+                _fileLogger.Info("UninstallAsync", $"使用内置卸载脚本，长度: {scriptContent.Length} 字符");
+            }
+
+            if (!string.IsNullOrEmpty(scriptContent))
+            {
+                // 创建远程工作目录 (兼容多操作系统)
+                var workDirName = $"{app.Id}_{Guid.NewGuid():N}";
+                remoteWorkDir = host.OsType == OperatingSystemType.Windows
+                    ? $"C:\\Windows\\Temp\\remote_install\\{workDirName}"
+                    : $"/tmp/remote_install/{workDirName}";
+
+                _fileLogger.Info("UninstallAsync", $"创建远程工作目录: {remoteWorkDir}");
+
+                if (host.OsType == OperatingSystemType.Windows)
+                {
+                    await _sshService.ExecuteCommandAsync($"New-Item -ItemType Directory -Force -Path \"{remoteWorkDir}\"", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await _sshService.ExecuteCommandAsync($"mkdir -p \"{remoteWorkDir}\"", cancellationToken: cancellationToken);
+                }
+
+                var scriptExt = host.OsType == OperatingSystemType.Windows ? "ps1" : "sh";
+                var remoteScriptPath = host.OsType == OperatingSystemType.Windows
+                    ? $"{remoteWorkDir}\\uninstall.{scriptExt}"
+                    : $"{remoteWorkDir}/uninstall.{scriptExt}";
+
+                _fileLogger.Info("UninstallAsync", $"上传卸载脚本到: {remoteScriptPath}");
+                await _sshService.UploadTextAsync(scriptContent, remoteScriptPath, host.OsType, cancellationToken);
+
+                if (host.OsType != OperatingSystemType.Windows)
+                {
+                    _fileLogger.Info("UninstallAsync", "设置脚本执行权限...");
+                    await _sshService.ExecuteCommandAsync($"chmod +x \"{remoteScriptPath}\"", cancellationToken: cancellationToken);
+                }
+
+                string command;
+                if (host.OsType != OperatingSystemType.Windows)
+                {
+                    var keepDataArg = keepData ? "--keep-data" : "--no-keep-data";
+
+                    // 直接尝试用sudo执行脚本，让脚本自己检查权限
+                    // 移除过于严格的 sudo -n true 检查（该检查会导致合法的免密sudo配置被误判）
+                    // 如果sudo不可用，脚本会自己报错并输出错误信息
+                    _fileLogger.Info("UninstallAsync", "使用 sudo 执行卸载脚本...");
+
+                    // 关键修复：不使用 timeout 外层包裹，因为 timeout 会干扰 sudo 的执行
+                    // 改为直接执行脚本，让脚本内部自己处理超时
+                    // 添加 2>&1 确保 stderr 被捕获
+                    command = $"cd \"{remoteWorkDir}\" && sudo bash \"{remoteScriptPath}\" {keepDataArg} 2>&1";
+
+                                    }
+                else
+                {
+                    // Windows PowerShell: 直接传递开关参数，不要用环境变量
+                    var keepDataSwitch = keepData ? "$true" : "$false";
+                    command = $"Set-Location \"{remoteWorkDir}\"; & \"{remoteScriptPath}\" -KeepData:${keepDataSwitch}";
+                }
+                
+                var outputBuilder = new StringBuilder();
+                _fileLogger.Info("UninstallAsync", $"执行卸载命令: {command}");
+                await _sshService.ExecuteCommandAsync(command,
+                    line =>
+                    {
+                        logCollector.ProcessOutput(line);
+                        outputBuilder.AppendLine(line);
+                    },
+                    cancellationToken,
+                    throwOnError: true);
+
+                // 记录脚本执行输出
+                _fileLogger.Info("UninstallAsync", $"脚本执行输出:\n{outputBuilder}");
+
+                // 尝试解析最终状态（如果脚本提供了机器可读输出）
+                // 更加严谨的做法是：即使脚本运行完了，也主动调用 CheckStatusAsync 来验证真实状态
+                try
+                {
+                    var checkStatus = await CheckStatusAsync(host, app, cancellationToken);
+                    _fileLogger.Info("UninstallAsync", $"卸载后状态检测结果: IsInstalled={checkStatus.IsInstalled}, IsRunning={checkStatus.IsRunning}, Version={checkStatus.InstalledVersion}");
+
+                    app.IsInstalled = checkStatus.IsInstalled;
+                    app.IsRunning = checkStatus.IsRunning;
+                    if (!string.IsNullOrEmpty(checkStatus.InstalledVersion) && checkStatus.InstalledVersion != "未知")
+                    {
+                        app.InstalledVersion = checkStatus.InstalledVersion;
+                    }
+
+                    // 根据实际检测结果判断卸载是否成功
+                    if (checkStatus.IsInstalled)
+                    {
+                        task.Fail("卸载后检测到应用仍已安装，请查看日志排查问题");
+                        _logger.Error($"{app.Name} 卸载后检测到应用仍已安装");
+                    }
+                    else
+                    {
+                        task.Complete();
+                        _logger.Success($"{app.Name} 卸载完成");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"卸载后的状态验证失败：{ex.Message}");
+                    _fileLogger.Error("UninstallAsync", "卸载后状态验证失败", ex);
+                    // 如果主动检查失败，回退到尝试解析脚本输出
+                    var finalStatus = new ApplicationStatus();
+                    ParseCheckOutput(outputBuilder.ToString(), finalStatus);
+                    app.IsInstalled = finalStatus.IsInstalled;
+                    app.IsRunning = finalStatus.IsRunning;
+
+                    // 根据脚本输出来判断卸载是否成功
+                    // 即使验证检查失败，只要脚本输出显示已卸载，就标记为成功
+                    if (finalStatus.IsInstalled)
+                    {
+                        task.Fail($"卸载后验证失败，应用可能仍已安装：{ex.Message}");
+                        _fileLogger.Warning("UninstallAsync", $"卸载未完全成功，脚本输出显示仍已安装");
+                    }
+                    else
+                    {
+                        // 验证检查异常，但脚本输出显示已卸载，标记为成功
+                        task.Complete();
+                        _logger.Success($"{app.Name} 卸载完成（验证检查异常：{ex.Message}）");
+                        _fileLogger.Success("UninstallAsync", $"{app.Name} 卸载完成");
+                    }
+                }
+            }
+            else
+            {
+                task.Fail("未找到卸载脚本");
+                _logger.Warning($"{app.Name} 未找到卸载脚本");
+                _fileLogger.Error("UninstallAsync", "未找到卸载脚本");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            task.Cancel();
+            _logger.Warning("卸载已取消");
+            _fileLogger.Warning("UninstallAsync", "卸载操作被取消");
+        }
+        catch (Exception ex)
+        {
+            task.Fail($"卸载失败: {ex.Message}");
+            _logger.Error($"{app.Name} 卸载失败: {ex.Message}");
+            _fileLogger.Error("UninstallAsync", $"卸载失败: {ex.Message}", ex);
+        }
+        finally
+        {
+            _fileLogger.Info("UninstallAsync", $"任务最终状态: {task.Status}, 错误信息: {task.ErrorMessage ?? "无"}");
+
+            if (!string.IsNullOrEmpty(remoteWorkDir))
+            {
+                if (task.Status == RemoteInstaller.Models.TaskStatus.Failed)
+                {
+                    _logger.Warning($"卸载失败，已保留远程工作目录以供排查: {remoteWorkDir}");
+                    _fileLogger.Warning("UninstallAsync", $"卸载失败，保留远程工作目录以供排查: {remoteWorkDir}");
+                }
+                else
+                {
+                    try
+                    {
+                        if (host.OsType == OperatingSystemType.Windows)
+                        {
+                            await _sshService.ExecuteCommandAsync($"Remove-Item -Recurse -Force -Path \"{remoteWorkDir}\"", cancellationToken: CancellationToken.None);
+                        }
+                        else
+                        {
+                            await _sshService.ExecuteCommandAsync($"rm -rf \"{remoteWorkDir}\"", cancellationToken: CancellationToken.None);
+                        }
+                        _logger.Info($"已清理远程工作目录: {remoteWorkDir}");
+                        _fileLogger.Info("UninstallAsync", $"已清理远程工作目录: {remoteWorkDir}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _fileLogger.Error("UninstallAsync", $"清理远程工作目录失败: {ex.Message}", ex);
+                    }
+                }
+            }
+
+            _databaseService.SaveTaskLogs(task.Id, logCollector.GetLogs());
+            _databaseService.SaveTask(task);
+            progressReporter?.Report(task);
+            logCollector.Dispose();
+
+            _fileLogger.Info("UninstallAsync", "========== 卸载任务结束 ==========");
+        }
+
+        return task;
+    }
+
+    /// <summary>
+    /// 检查应用状态
+    /// </summary>
+    public async Task<ApplicationStatus> CheckStatusAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        CancellationToken cancellationToken = default)
+    {
+        // 确保已连接（内部会检查是否已连接）
+        await _sshService.ConnectAsync(host, cancellationToken);
+
+        var status = new ApplicationStatus();
+
+        var script = app.GetCheckScript(host.OsType);
+        string? checkCommand = null;
+
+        _fileLogger.Info("CheckStatusAsync", $"开始检测 {app.Name} 状态, OS: {host.OsType}");
+        _fileLogger.Info("CheckStatusAsync", $"检测脚本路径: {script}");
+
+        // 如果 script 指向一个本地存在的脚本文件，读取其内容执行
+        if (!string.IsNullOrEmpty(script))
+        {
+            try
+            {
+                // 尝试多个可能的本地路径
+                var pathsToTry = new List<string>
+                {
+                    Path.IsPathRooted(script) ? script : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, script),
+                    Path.Combine(Directory.GetCurrentDirectory(), script),
+                    Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", script),
+                    // 针对 IDE 调试环境
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", script),
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", script)
+                };
+
+                foreach (var path in pathsToTry)
+                {
+                    try
+                    {
+                        if (File.Exists(path))
+                        {
+                            checkCommand = await File.ReadAllTextAsync(path, cancellationToken);
+                            _fileLogger.Info("CheckStatusAsync", $"从文件加载检测脚本: {path}");
+                            break;
+                        }
+                    }
+                    catch { /* 忽略单个路径错误 */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"尝试加载本地脚本出错 ({script}): {ex.Message}");
+                _fileLogger.Error("CheckStatusAsync", $"加载脚本失败: {ex.Message}");
+            }
+
+            // 如果没找到本地文件，且 script 看起来是一个路径（包含斜杠或后缀），则不应作为命令执行
+            if (checkCommand == null && (script.Contains('/') || script.Contains('\\') || script.EndsWith(".sh") || script.EndsWith(".ps1")))
+            {
+                _logger.Error($"[CheckStatusAsync] 无法定位检测脚本文件：{script}");
+                _fileLogger.Error("CheckStatusAsync", $"无法定位检测脚本文件: {script}");
+                // 即使找不到脚本，也尝试执行默认检测逻辑
+                checkCommand = null;
+            }
+            else if (checkCommand == null)
+            {
+                checkCommand = script; // 可能是简单的 shell 命令，如 "ls"
+            }
+        }
+
+        _fileLogger.Info("CheckStatusAsync", $"检测命令: {checkCommand ?? "null"}");
+
+        if (string.IsNullOrEmpty(checkCommand))
+        {
+            // 使用优化的组合检查脚本，一次 SSH 调用获取所有信息
+            var combinedScript = GetCombinedCheckScript(host, app);
+            if (combinedScript != null)
+            {
+                try
+                {
+                    var output = await _sshService.ExecuteCommandAsync(combinedScript, cancellationToken: cancellationToken);
+                    ParseCombinedCheckOutput(output, status);
+                }
+                catch
+                {
+                    // 组合脚本失败时回退到分别检查
+                    status.IsInstalled = await IsInstalledAsync(host, app, cancellationToken);
+                    if (status.IsInstalled)
+                    {
+                        status.InstalledVersion = await GetVersionAsync(host, app, cancellationToken);
+                        status.IsRunning = await IsRunningAsync(host, app, cancellationToken, status);
+                    }
+                }
+            }
+            else
+            {
+                // 默认检查逻辑
+                _fileLogger.Info("CheckStatusAsync", "使用默认检测逻辑");
+                status.IsInstalled = await IsInstalledAsync(host, app, cancellationToken);
+                if (status.IsInstalled)
+                {
+                    status.InstalledVersion = await GetVersionAsync(host, app, cancellationToken);
+                    status.IsRunning = await IsRunningAsync(host, app, cancellationToken, status);
+                }
+                _fileLogger.Info("CheckStatusAsync", $"默认检测结果: INSTALLED={status.IsInstalled}, VERSION={status.InstalledVersion}, RUNNING={status.IsRunning}");
+            }
+        }
+        else
+        {
+            var output = await _sshService.ExecuteCommandAsync(checkCommand, cancellationToken: cancellationToken);
+            _fileLogger.Info("CheckStatusAsync", $"检测命令输出:\n{output}");
+            ParseCheckOutput(output, status);
+        }
+
+        _fileLogger.Info("CheckStatusAsync", $"最终检测结果: INSTALLED={status.IsInstalled}, RUNNING={status.IsRunning}, VERSION={status.InstalledVersion}");
+        return status;
+    }
+
+    /// <summary>
+    /// 生成组合检查脚本 - 一次性获取安装状态、版本和运行状态
+    /// </summary>
+    private string? GetCombinedCheckScript(RemoteHost host, ApplicationInfo app)
+    {
+        var appName = app.Name.ToLower();
+
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            return appName switch
+            {
+                "elasticsearch" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+$esHome = [Environment]::GetEnvironmentVariable('ES_HOME','Machine')
+$defaultPath = 'C:\Program Files\Elasticsearch'
+$altPath = 'C:\elasticsearch'
+if ($esHome -and (Test-Path ""$esHome\bin\elasticsearch.exe"" -or Test-Path ""$esHome\bin\elasticsearch.bat"")) { $isInstalled=$true; $defaultPath=$esHome }
+if (Test-Path ""$defaultPath\bin\elasticsearch.exe"") { $isInstalled=$true }
+if (Test-Path ""$altPath\bin\elasticsearch.exe"") { $isInstalled=$true }
+$svc = Get-Service -Name 'Elasticsearch*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($esHome -and (Test-Path ""$esHome\bin\elasticsearch.bat"" -or Test-Path ""$esHome\bin\elasticsearch.exe"")) { $isInstalled=$true }
+if ($isInstalled) {
+    $exe = if (Test-Path ""$defaultPath\bin\elasticsearch.exe"") { ""$defaultPath\bin\elasticsearch.exe"" } elseif (Test-Path ""$esHome\bin\elasticsearch.exe"") { ""$esHome\bin\elasticsearch.exe"" } elseif (Test-Path ""$altPath\bin\elasticsearch.exe"") { ""$altPath\bin\elasticsearch.exe"" } else { $null }
+    if ($exe -and (Test-Path $exe)) { $v = & $exe --version 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] } }
+    $esProc = Get-CimInstance Win32_Process -Filter ""Name='java.exe'"" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*elasticsearch*' -or $_.CommandLine -like '*org.elasticsearch.bootstrap.Elasticsearch*' }
+    if ($esProc) { $isRunning=$true }
+    $port9200 = Get-NetTCPConnection -LocalPort 9200 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port9200) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                "redis" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+if (Get-Command redis-server -ErrorAction SilentlyContinue) { $isInstalled=$true }
+if (Test-Path 'C:\Program Files\Redis\redis-server.exe') { $isInstalled=$true }
+if (Test-Path 'C:\Redis\redis-server.exe') { $isInstalled=$true }
+$svc = Get-Service -Name 'Redis*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($isInstalled) {
+    $v = redis-server --version 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] }
+    $proc = Get-Process redis-server -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($proc) { $isRunning=$true }
+    $port6379 = Get-NetTCPConnection -LocalPort 6379 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port6379) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                "nginx" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+if (Get-Command nginx -ErrorAction SilentlyContinue) { $isInstalled=$true }
+if (Test-Path 'C:\Program Files\Nginx\nginx.exe') { $isInstalled=$true }
+if (Test-Path 'C:\nginx\nginx.exe') { $isInstalled=$true }
+$svc = Get-Service -Name 'Nginx*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($isInstalled) {
+    $v = nginx -v 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] }
+    $proc = Get-Process nginx -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($proc) { $isRunning=$true }
+    $port80 = Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port80) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                "mysql" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+if (Get-Command mysqld -ErrorAction SilentlyContinue) { $isInstalled=$true }
+if (Test-Path 'C:\Program Files\MySQL\MySQL Server*\bin\mysqld.exe') { $isInstalled=$true }
+if (Test-Path 'C:\Program Files (x86)\MySQL\MySQL Server*\bin\mysqld.exe') { $isInstalled=$true }
+$svc = Get-Service -Name 'MySQL*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($isInstalled) {
+    $v = mysqld --version 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] }
+    $proc = Get-Process mysqld -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($proc) { $isRunning=$true }
+    $port3306 = Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port3306) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                "rabbitmq" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+if (Get-Command rabbitmq-server -ErrorAction SilentlyContinue) { $isInstalled=$true }
+if (Test-Path 'C:\Program Files\RabbitMQ Server\rabbitmq_server*\sbin\rabbitmq-server.bat') { $isInstalled=$true }
+$svc = Get-Service -Name 'RabbitMQ*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($isInstalled) {
+    $v = rabbitmqctl version 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] }
+    $proc = Get-CimInstance Win32_Process -Filter ""Name='erl.exe'"" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*rabbit*' }
+    if ($proc) { $isRunning=$true }
+    $port5672 = Get-NetTCPConnection -LocalPort 5672 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port5672) { $isRunning=$true }
+    $port15672 = Get-NetTCPConnection -LocalPort 15672 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port15672) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                "nacos" => @"
+$isInstalled=$false; $version='未知'; $isRunning=$false
+if (Test-Path 'C:\nacos\bin\startup.cmd') { $isInstalled=$true }
+if (Test-Path 'D:\nacos\bin\startup.cmd') { $isInstalled=$true }
+$svc = Get-Service -Name 'Nacos*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($svc) { $isInstalled=$true }
+if ($isInstalled) {
+    $jar = Get-ChildItem 'C:\nacos\target\*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($jar) { $version = $jar.BaseName -replace 'nacos-server-', '' }
+    $proc = Get-CimInstance Win32_Process -Filter ""Name='java.exe'"" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*nacos*' -and ($_.CommandLine -like '*nacos.nacos*' -or $_.CommandLine -like '*nacos-server.jar*') }
+    if ($proc) { $isRunning=$true }
+    $port8848 = Get-NetTCPConnection -LocalPort 8848 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($port8848) { $isRunning=$true }
+    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
+}
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+
+                _ => null
+            };
+        }
+
+        // Linux 组合检查脚本
+        return appName switch
+        {
+            "elasticsearch" => @"
+INSTALLED=false; VERSION='未知'; RUNNING=false;
+# 检查安装状态（多种方式）
+if [ -f /usr/share/elasticsearch/bin/elasticsearch ] || [ -f /opt/elasticsearch/bin/elasticsearch ]; then INSTALLED=true; fi
+if which elasticsearch >/dev/null 2>&1; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'elasticsearch(\.service)?' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei 'elasticsearch' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei 'elasticsearch' | grep -qE 'elasticsearch'; then INSTALLED=true; fi
+if [ -d /etc/elasticsearch ] && [ -f /etc/elasticsearch/elasticsearch.yml ]; then INSTALLED=true; fi
+# 检查数据目录（仅在非保留数据模式时表明仍安装）
+if [ -d /var/lib/elasticsearch ] && [ -n ""$(ls -A /var/lib/elasticsearch 2>/dev/null)"" ]; then INSTALLED=true; fi
+if [ -d /opt/elasticsearch ]; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    ES_BIN=''
+    if [ -f /usr/share/elasticsearch/bin/elasticsearch ]; then ES_BIN='/usr/share/elasticsearch/bin/elasticsearch'; fi
+    if [ -f /opt/elasticsearch/bin/elasticsearch ]; then ES_BIN='/opt/elasticsearch/bin/elasticsearch'; fi
+    if [ -n ""$ES_BIN"" ]; then
+        VER_OUT=$($ES_BIN --version 2>/dev/null || echo '')
+        VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    fi
+    if [ -z ""$VERSION"" ]; then VERSION='未知'; fi
+    # 检查运行状态
+    HTTP_PORT=9200
+    if [ -f /etc/elasticsearch/elasticsearch.yml ]; then
+        EXTRACTED_PORT=$(grep -E '^[[:space:]]*http\.port:' /etc/elasticsearch/elasticsearch.yml | awk '{print $2}')
+        if [ -n ""$EXTRACTED_PORT"" ]; then HTTP_PORT=$EXTRACTED_PORT; fi
+    fi
+    if pgrep -a java 2>/dev/null | grep -q elasticsearch; then RUNNING=true; fi
+    if curl -s -k --connect-timeout 3 http://127.0.0.1:$HTTP_PORT 2>/dev/null | grep -qi 'elasticsearch'; then RUNNING=true; fi
+    if systemctl is-active --quiet elasticsearch 2>/dev/null; then RUNNING=true; fi
+    if ss -tulnp 2>/dev/null | grep "":$HTTP_PORT"" | grep -q java; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"redis" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态
+if which redis-server >/dev/null 2>&1 || [ -f /usr/bin/redis-server ] || [ -f /usr/sbin/redis-server ] || [ -f /usr/local/bin/redis-server ]; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'redis|redis-server' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei 'redis-server|redis-tools' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei 'redis|redis-server' | grep -q 'redis'; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    VER_OUT=$(redis-server --version 2>/dev/null || echo '')
+    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    REDIS_PORT=6379
+    if pgrep -x redis-server >/dev/null 2>&1 || pgrep -f ""redi[s]-server"" >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet redis 2>/dev/null || systemctl is-active --quiet redis-server 2>/dev/null; then RUNNING=true; fi
+    if ss -tulnp 2>/dev/null | grep -q "":$REDIS_PORT""; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"nginx" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态
+if which nginx >/dev/null 2>&1 || [ -f /usr/sbin/nginx ] || [ -f /usr/bin/nginx ]; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nginx' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei 'nginx' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei 'nginx' | grep -q 'nginx'; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    VER_OUT=$(nginx -v 2>&1 || echo '')
+    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    if pgrep -x nginx >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet nginx 2>/dev/null; then RUNNING=true; fi
+    if ss -tulnp 2>/dev/null | grep -q "":80""; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"mysql" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态
+if which mysqld >/dev/null 2>&1 || [ -x /usr/sbin/mysqld ] || [ -x /usr/bin/mysqld ]; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mysql|mysqld' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mariadb-server|mysql-community-server' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server|mariadb-server' | grep -qE 'server'; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    VER_OUT=$(mysql --version 2>/dev/null || mysqld --version 2>/dev/null || echo '')
+    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    if pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then RUNNING=true; fi
+    if ss -tulnp 2>/dev/null | grep -q "":3306""; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"rabbitmq" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态
+if which rabbitmq-server >/dev/null 2>&1 || which rabbitmqctl >/dev/null 2>&1; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'rabbitmq-server' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -i 'rabbitmq-server' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -q 'rabbitmq-server'; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    VER_OUT=$(rabbitmqctl version 2>/dev/null || echo '')
+    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    if pgrep -x beam.smp >/dev/null 2>&1 || pgrep -f ""[b]eam.smp"" >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet rabbitmq-server 2>/dev/null; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"nacos" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态
+for dir in /opt/nacos /usr/local/nacos /usr/share/nacos; do
+    if [ -d ""$dir/conf"" ] && [ -f ""$dir/conf/application.properties"" ]; then INSTALLED=true; break; fi
+done
+if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then INSTALLED=true; fi
+if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nacos(-server)?(\.service)?' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    NACOS_JAR=$(find /opt/nacos /usr/local/nacos /usr/share/nacos -name 'nacos-server.jar' 2>/dev/null | head -n 1)
+    if [ -n ""$NACOS_JAR"" ]; then
+        VERSION=$(echo ""$NACOS_JAR"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    fi
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet nacos 2>/dev/null || systemctl is-active --quiet nacos-server 2>/dev/null; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+_ => null
+        };
+    }
+
+    /// <summary>
+    /// 解析组合检查输出
+    /// </summary>
+    private void ParseCombinedCheckOutput(string output, ApplicationStatus status)
+    {
+        if (string.IsNullOrEmpty(output)) return;
+
+        foreach (var line in output.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("INSTALLED:", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = trimmed.Substring(10).Trim().ToLower();
+                status.IsInstalled = val == "true" || val == "1" || val == "installed";
+            }
+            else if (trimmed.StartsWith("VERSION:", StringComparison.OrdinalIgnoreCase))
+            {
+                status.InstalledVersion = trimmed.Substring(8).Trim();
+            }
+            else if (trimmed.StartsWith("RUNNING:", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = trimmed.Substring(8).Trim().ToLower();
+                status.IsRunning = val == "true" || val == "1" || val == "running" || val == "active";
+            }
+        }
+    }
+
+    private async Task<bool> IsInstalledAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
+    {
+        var appName = app.Name.ToLower();
+        string checkCommand;
+        
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            var executableName = GetExecutableName(app);
+            var serviceName = GetServiceName(app.Name);
+            checkCommand = $@"
+                # 检查服务是否存在
+                $service = Get-Service '{serviceName}' -ErrorAction SilentlyContinue
+                if ($service) {{
+                    # 检查服务路径是否有效（防止残留服务项）
+                    $binPath = (Get-ItemProperty -Path ""HKLM:\SYSTEM\CurrentControlSet\Services\$($service.Name)"").ImagePath
+                    if ($binPath) {{
+                        # 简单清理路径中的引号和参数
+                        $path = $binPath -replace '^""', '' -replace '"" .*$', '' -replace ' .*$', ''
+                        if (Test-Path $path) {{ echo 'installed'; exit 0 }}
+                    }}
+                }}
+                # MySQL 常见服务名备选检测
+                if ('{appName}' -eq 'mysql') {{
+                    $mysqlServices = Get-Service 'MySQL*' -ErrorAction SilentlyContinue
+                    foreach ($s in $mysqlServices) {{
+                         $bp = (Get-ItemProperty -Path ""HKLM:\SYSTEM\CurrentControlSet\Services\$($s.Name)"").ImagePath
+                         if ($bp) {{
+                            $p = $bp -replace '^""', '' -replace '"" .*$', '' -replace ' .*$', ''
+                            if (Test-Path $p) {{ echo 'installed'; exit 0 }}
+                         }}
+                    }}
+                }}
+                # Redis 常见服务名备选检测
+                if ('{appName}' -eq 'redis') {{
+                    $redisServices = Get-Service 'Redis*' -ErrorAction SilentlyContinue
+                    foreach ($s in $redisServices) {{
+                         $bp = (Get-ItemProperty -Path ""HKLM:\SYSTEM\CurrentControlSet\Services\$($s.Name)"").ImagePath
+                         if ($bp) {{
+                            $p = $bp -replace '^""', '' -replace '"" .*$', '' -replace ' .*$', ''
+                            if (Test-Path $p) {{ echo 'installed'; exit 0 }}
+                         }}
+                    }}
+                }}
+                # 检查命令是否存在
+                if (Get-Command '{executableName}' -ErrorAction SilentlyContinue) {{ echo 'installed'; exit 0 }}
+                # 检查特定可执行文件路径
+                if (Test-Path 'C:\Program Files\{app.Name}') {{ 
+                    if (Get-ChildItem -Path 'C:\Program Files\{app.Name}' -Filter '{executableName}.exe' -Recurse -ErrorAction SilentlyContinue) {{ echo 'installed'; exit 0 }}
+                }}
+                if (Test-Path 'C:\Program Files (x86)\{app.Name}') {{ 
+                    if (Get-ChildItem -Path 'C:\Program Files (x86)\{app.Name}' -Filter '{executableName}.exe' -Recurse -ErrorAction SilentlyContinue) {{ echo 'installed'; exit 0 }}
+                }}
+                echo 'not_installed'
+            ";
+        }
+        else
+        {
+            switch (appName)
+            {
+                case "elasticsearch":
+                    checkCommand = @"
+                        # 1. 检查二进制文件路径
+                        if [ -f /usr/share/elasticsearch/bin/elasticsearch ] || which elasticsearch >/dev/null 2>&1; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 2. 检查系统服务
+                        # 使用 systemctl list-units --all 并过滤加载状态，排除 not-found 和 masked
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'elasticsearch(\.service)?' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 3. 检查包管理器 (ii 表示已安装，排除仅包含 libs 的情况)
+                        if dpkg -l 2>/dev/null | grep -Ei 'elasticsearch' | grep -q '^ii' || \
+                           rpm -qa 2>/dev/null | grep -Ei 'elasticsearch' | grep -qE 'elasticsearch'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 4. 检查配置文件
+                        if [ -d /etc/elasticsearch ] && [ -f /etc/elasticsearch/elasticsearch.yml ]; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                case "rabbitmq":
+                    checkCommand = @"
+                        if which rabbitmq-server >/dev/null 2>&1 || which rabbitmqctl >/dev/null 2>&1 || test -f /usr/sbin/rabbitmq-server; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'rabbitmq-server' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if dpkg -l 2>/dev/null | grep -i 'rabbitmq-server' | grep -q '^ii' || \
+                           rpm -qa 2>/dev/null | grep -q 'rabbitmq-server'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                case "nacos":
+                    checkCommand = @"
+                        # 1. 检查常见安装目录
+                        for dir in /opt/nacos /usr/local/nacos /usr/share/nacos; do
+                            if [ -d ""$dir/conf"" ] && [ -f ""$dir/conf/application.properties"" ]; then
+                                echo 'installed'
+                                exit 0
+                            fi
+                        done
+                        # 2. 检查进程中是否存在 nacos 相关字样 (使用 [n] 技巧避免匹配当前脚本进程)
+                        if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 3. 检查系统服务
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nacos(-server)?(\.service)?' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                case "mysql":
+                    checkCommand = @"
+                        # 1. 检查 mysqld 二进制文件（服务端）
+                        if which mysqld >/dev/null 2>&1 || [ -x /usr/sbin/mysqld ] || [ -x /usr/bin/mysqld ] || [ -x /usr/local/mysql/bin/mysqld ]; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 2. 检查系统服务是否存在
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mysql|mysqld' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 3. 检查包管理器中是否存在服务端包 (ii 表示已安装)
+                        if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mariadb-server|mysql-community-server|percona-server-server' | grep -q '^ii'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 针对 RPM，优先匹配 server 包，排查仅包含 libs 的情况
+                        if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server|mariadb-server|percona-server-server' | grep -qE 'server'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                case "redis":
+                    checkCommand = @"
+                        # 1. 检查二进制文件
+                        if which redis-server >/dev/null 2>&1 || test -f /usr/bin/redis-server || test -f /usr/sbin/redis-server || test -f /usr/local/bin/redis-server || test -f /opt/redis/bin/redis-server || test -f /snap/bin/redis-server; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 2. 检查系统服务
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'redis|redis-server' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 3. 检查包管理器 (ii 表示已安装)
+                        if dpkg -l 2>/dev/null | grep -Ei 'redis-server|redis-tools' | grep -q '^ii'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if rpm -qa 2>/dev/null | grep -Ei 'redis|redis-server' | grep -q 'redis'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                case "nginx":
+                    checkCommand = @"
+                        # 1. 检查二进制文件
+                        if which nginx >/dev/null 2>&1 || test -f /usr/sbin/nginx || test -f /usr/bin/nginx || test -f /usr/local/nginx/sbin/nginx; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 2. 检查系统服务
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nginx' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        # 3. 检查包管理器
+                        if dpkg -l 2>/dev/null | grep -Ei 'nginx' | grep -q '^ii' || \
+                           rpm -qa 2>/dev/null | grep -Ei 'nginx' | grep -q 'nginx'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+                    
+                default:
+                    var executable = GetExecutableName(app);
+                    checkCommand = $"if which {executable} >/dev/null 2>&1; then echo 'installed'; else echo 'not_installed'; fi";
+                    break;
+            }
+        }
+
+                
+        try
+        {
+            var output = await _sshService.ExecuteCommandAsync(checkCommand, cancellationToken: cancellationToken);
+            var trimmedOutput = output?.Trim();
+                        
+            // 使用 Contains 更加鲁棒，防止输出中包含多余的换行或提示语
+            var isInstalled = trimmedOutput != null && (
+                trimmedOutput.Equals("installed", StringComparison.OrdinalIgnoreCase) || 
+                trimmedOutput.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Any(line => line.Trim().Equals("installed", StringComparison.OrdinalIgnoreCase))
+            );
+                        return isInstalled;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"检测 {app.Name} 是否安装异常：{ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<string> GetVersionAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
+    {
+        var versionCommands = app.Name.ToLower() switch
+        {
+            "mysql" => host.OsType == OperatingSystemType.Windows 
+                ? "mysql --version 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\Program Files\\MySQL' -Filter 'mysql.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName --version } else { echo '未知' } }"
+                : "mysql --version 2>/dev/null || /usr/local/mysql/bin/mysql --version 2>/dev/null || /usr/bin/mysql --version 2>/dev/null || /usr/sbin/mysqld --version 2>/dev/null || mysqld --version 2>/dev/null",
+            
+            "redis" => host.OsType == OperatingSystemType.Windows
+                ? "redis-server --version 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\Program Files\\Redis' -Filter 'redis-server.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName --version } else { echo '未知' } }"
+                : "redis-server --version 2>/dev/null || /usr/local/bin/redis-server --version 2>/dev/null || /usr/bin/redis-server --version 2>/dev/null || /usr/sbin/redis-server --version 2>/dev/null || /opt/redis/bin/redis-server --version 2>/dev/null || /snap/bin/redis-server --version 2>/dev/null",
+            
+            "elasticsearch" => host.OsType == OperatingSystemType.Windows
+                ? "(Get-ChildItem -Path 'C:\\Program Files\\Elastic' -Filter 'elasticsearch.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName + ' --version' | iex"
+                : "/usr/share/elasticsearch/bin/elasticsearch --version 2>/dev/null || elasticsearch --version 2>/dev/null",
+            
+            "nginx" => host.OsType == OperatingSystemType.Windows
+                ? "nginx -v 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\' -Filter 'nginx.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName -v } else { echo '未知' } }"
+                : "nginx -v 2>&1 || /usr/sbin/nginx -v 2>&1 || /usr/bin/nginx -v 2>&1 || /usr/local/nginx/sbin/nginx -v 2>&1",
+            
+            "nacos" => "find /opt/nacos /usr/local/nacos -name 'nacos-server.jar' 2>/dev/null | head -n 1 | xargs -I {} dirname {} | xargs -I {} ls {}/../lib/ 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || echo '未知'",
+            _ => null
+        };
+
+        if (versionCommands != null)
+        {
+            try
+            {
+                var output = await _sshService.ExecuteCommandAsync(versionCommands, cancellationToken: cancellationToken);
+                return ExtractVersion(output);
+            }
+            catch
+            {
+                return "未知";
+            }
+        }
+
+        return "未知";
+    }
+
+    private async Task<bool> IsRunningAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken, ApplicationStatus? status = null)
+    {
+        var appName = app.Name.ToLower();
+        string checkCommand;
+        
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            var processName = GetProcessName(app);
+            var serviceName = GetServiceName(app.Name);
+            checkCommand = $@"
+                # 1. 检查进程
+                if ('{appName}' -eq 'nacos') {{
+                    if (Get-CimInstance Win32_Process -Filter ""name = 'java.exe'"" -ErrorAction SilentlyContinue | Where-Object {{ $_.CommandLine -like '*nacos*' }}) {{ echo 'running'; exit 0 }}
+                }} else {{
+                    if (Get-Process {processName} -ErrorAction SilentlyContinue) {{ echo 'running'; exit 0 }}
+                }}
+                
+                # 2. 检查服务
+                if (Get-Service '{serviceName}' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
+                # MySQL 特殊处理：常见服务名如 MySQL80, MySQL57 等
+                if ('{appName}' -eq 'mysql') {{
+                    if (Get-Service 'MySQL*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
+                }}
+                # Redis 特殊处理：常见服务名如 Redis, redis-server 等
+                if ('{appName}' -eq 'redis') {{
+                    if (Get-Service 'Redis*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
+                }}
+                # Nginx 特殊处理：部分安装包可能以 Nginx 或 nginx-service 命名
+                if ('{appName}' -eq 'nginx') {{
+                    if (Get-Service 'Nginx*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
+                }}
+                # 3. 备选进程检查 (tasklist / command line)
+                if ('{appName}' -eq 'nacos') {{
+                     if (wmic process where ""name='java.exe'"" get commandline 2>$null | findstr /i ""nacos"") {{ echo 'running'; exit 0 }}
+                }} else {{
+                     if (tasklist /FI ""IMAGENAME eq {processName}.exe"" | findstr {processName}) {{ echo 'running'; exit 0 }}
+                }}
+                echo 'not_running'
+            ";
+        }
+        else
+        {
+            switch (appName)
+            {
+                case "elasticsearch":
+                    checkCommand = @"
+                        # 1. 尝试从配置文件中获取 HTTP 端口 (默认为 9200)
+                        HTTP_PORT=9200
+                        CONFIG_FILE=""/etc/elasticsearch/elasticsearch.yml""
+                        if [ -f ""$CONFIG_FILE"" ]; then
+                            # 提取 http.port 配置（处理空格和注释）
+                            EXTRACTED_PORT=$(grep -E '^[[:space:]]*http\.port:' ""$CONFIG_FILE"" | awk '{print $2}')
+                            if [ ! -z ""$EXTRACTED_PORT"" ]; then
+                                HTTP_PORT=$EXTRACTED_PORT
+                            fi
+                        fi
+
+                        # 2. 检查进程 (更精确匹配 java 进程且包含 elasticsearch 关键词)
+                        if pgrep -a java 2>/dev/null | grep -q ""elasticsearch""; then
+                            echo 'running'
+                            echo ""PORT:$HTTP_PORT""
+                            exit 0
+                        fi
+
+                        # 3. 检查 HTTP 端口响应 (使用发现或默认的端口)
+                        if curl -s -k ""http://127.0.0.1:$HTTP_PORT"" 2>/dev/null | grep -qi 'elasticsearch'; then
+                            echo 'running'
+                            echo ""PORT:$HTTP_PORT""
+                            exit 0
+                        fi
+
+                        # 4. 检查服务状态
+                        if systemctl is-active --quiet elasticsearch 2>/dev/null; then
+                            echo 'running'
+                            echo ""PORT:$HTTP_PORT""
+                            exit 0
+                        fi
+
+                        # 5. 检查监听端口 (如果上述失败，尝试通过端口检测确认)
+                        if ss -tulnp 2>/dev/null | grep -E "":$HTTP_PORT[[:space:]]"" | grep -q java; then
+                            echo 'running'
+                            echo ""PORT:$HTTP_PORT""
+                            exit 0
+                        fi
+
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                case "rabbitmq":
+                    checkCommand = @"
+                        if pgrep -x beam.smp >/dev/null 2>&1 || pgrep -f ""[b]eam.smp"" >/dev/null 2>&1 || rabbitmqctl status >/dev/null 2>&1 || systemctl is-active --quiet rabbitmq-server 2>/dev/null; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                case "nacos":
+                    checkCommand = @"
+                        # 1. 默认端口
+                        DEFAULT_PORT=8848
+                        NACOS_PORT=$DEFAULT_PORT
+                        
+                        # 2. 尝试从配置文件中获取 server.port
+                        CONFIG_FILE=$(find /opt/nacos /usr/local/nacos /usr/share/nacos -name application.properties 2>/dev/null | head -n 1)
+                        if [ -z ""$CONFIG_FILE"" ]; then
+                             # 如果通过 find 没找到，尝试从进程路径推断
+                             NACOS_CONF=$(ps -ef | grep -i nacos | grep -i java | grep -oE '/[^ ]+/conf/application\.properties' | head -n 1)
+                             if [ ! -z ""$NACOS_CONF"" ]; then
+                                 CONFIG_FILE=""$NACOS_CONF""
+                             fi
+                        fi
+                        
+                        if [ -f ""$CONFIG_FILE"" ]; then
+                            EXTRACTED_PORT=$(grep -E '^[[:space:]]*server\.port=' ""$CONFIG_FILE"" | cut -d'=' -f2 | tr -d ' \r\n')
+                            if [ ! -z ""$EXTRACTED_PORT"" ]; then
+                                NACOS_PORT=$EXTRACTED_PORT
+                            fi
+                        fi
+
+                        # 3. 检查进程
+                        if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then
+                            echo 'running'
+                            echo ""PORT:$NACOS_PORT""
+                            exit 0
+                        fi
+
+                        # 4. 检查服务状态
+                        if systemctl is-active --quiet nacos 2>/dev/null || systemctl is-active --quiet nacos-server 2>/dev/null; then
+                            echo 'running'
+                            echo ""PORT:$NACOS_PORT""
+                            exit 0
+                        fi
+
+                        # 5. 检查端口监听
+                        if ss -tulnp 2>/dev/null | grep -qE "":$NACOS_PORT[[:space:]]"" | grep -qi java; then
+                            echo 'running'
+                            echo ""PORT:$NACOS_PORT""
+                            exit 0
+                        fi
+
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                case "mysql":
+                    checkCommand = @"
+                        # 1. 优先检查端口监听 (最可靠)
+                        if ss -tulnp 2>/dev/null | grep -qE ':3306|:33060 ' || netstat -tulnp 2>/dev/null | grep -qE ':3306|:33060 '; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        # 2. 检查服务端进程 (排除 mysql 客户端干扰，确保进程确实在运行)
+                        if pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1 || pgrep -f ""/usr/sbin/mysqld"" >/dev/null 2>&1; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        # 3. 检查服务状态
+                        if systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mariadb 2>/dev/null; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                case "redis":
+                    checkCommand = @"
+                        # 1. 默认端口
+                        REDIS_PORT=6379
+                        
+                        # 2. 尝试从常见路径配置文件中获取端口
+                        for conf in /etc/redis/redis.conf /etc/redis.conf /usr/local/etc/redis.conf /opt/redis/etc/redis.conf /opt/redis/redis.conf /var/snap/redis/common/redis.conf; do
+                            if [ -f ""$conf"" ]; then
+                                EXTRACTED_PORT=$(grep -E '^[[:space:]]*port[[:space:]]+[0-9]+' ""$conf"" | head -n 1 | awk '{print $2}' | tr -d ';\r\n')
+                                if [ ! -z ""$EXTRACTED_PORT"" ]; then
+                                    REDIS_PORT=$EXTRACTED_PORT
+                                    break
+                                fi
+                            fi
+                        done
+
+                        # 3. 检查进程 (使用 [r] 技巧避免匹配当前脚本，并确保是服务端进程)
+                        if pgrep -x redis-server >/dev/null 2>&1 || pgrep -f ""redi[s]-server"" >/dev/null 2>&1 || pgrep -x redis >/dev/null 2>&1; then
+                            echo 'running'
+                            echo ""PORT:$REDIS_PORT""
+                            exit 0
+                        fi
+
+                        # 4. 检查服务状态
+                        if systemctl is-active --quiet redis 2>/dev/null || systemctl is-active --quiet redis-server 2>/dev/null || \
+                           systemctl list-units --type=service --state=running 2>/dev/null | grep -Eiwq 'redis|redis-server'; then
+                            echo 'running'
+                            echo ""PORT:$REDIS_PORT""
+                            exit 0
+                        fi
+
+                        # 5. 检查端口监听
+                        if ss -tulnp 2>/dev/null | grep -qE "":$REDIS_PORT[[:space:]]"" | grep -qi redis || \
+                           netstat -tulnp 2>/dev/null | grep -qE "":$REDIS_PORT[[:space:]]"" | grep -qi redis; then
+                            echo 'running'
+                            echo ""PORT:$REDIS_PORT""
+                            exit 0
+                        fi
+
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                case "nginx":
+                    checkCommand = @"
+                        # 1. 默认端口
+                        NGINX_PORT=80
+                        
+                        # 2. 尝试从配置文件提取端口 (优先 Ubuntu/Debian 路径)
+                        CONF_FILES=""/etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf /etc/nginx/nginx.conf /usr/local/nginx/conf/nginx.conf""
+                        for f in $CONF_FILES; do
+                            if [ -f ""$f"" ]; then
+                                # 提取 listen 后的数字 (排除 IPv6 [::])
+                                EXTRACTED_PORT=$(grep -E '^[[:space:]]*listen[[:space:]]+[0-9]+' ""$f"" | head -n 1 | awk '{print $2}' | tr -d ';')
+                                if [ ! -z ""$EXTRACTED_PORT"" ]; then
+                                    NGINX_PORT=$EXTRACTED_PORT
+                                    break
+                                fi
+                            fi
+                        done
+
+                        # 3. 检查进程 (优先使用精确匹配)
+                        if pgrep -x nginx >/dev/null 2>&1 || pgrep -x nginx-server >/dev/null 2>&1; then
+                            echo 'running'
+                            echo ""PORT:$NGINX_PORT""
+                            exit 0
+                        fi
+
+                        # 4. 检查服务状态
+                        if systemctl is-active --quiet nginx 2>/dev/null; then
+                            echo 'running'
+                            echo ""PORT:$NGINX_PORT""
+                            exit 0
+                        fi
+
+                        # 5. 检查端口监听
+                        if ss -tulnp 2>/dev/null | grep -qE "":$NGINX_PORT[[:space:]]"" | grep -qi nginx || \
+                           netstat -tulnp 2>/dev/null | grep -qE "":$NGINX_PORT[[:space:]]"" | grep -qi nginx; then
+                            echo 'running'
+                            echo ""PORT:$NGINX_PORT""
+                            exit 0
+                        fi
+
+                        echo 'not_running'
+                    ";
+                    break;
+                    
+                default:
+                    var procName = GetProcessName(app);
+                    checkCommand = $"if pgrep -x {procName} >/dev/null 2>&1; then echo 'running'; else echo 'not_running'; fi";
+                    break;
+            }
+        }
+
+                
+        try
+        {
+            var output = await _sshService.ExecuteCommandAsync(checkCommand, cancellationToken: cancellationToken);
+            var trimmedOutput = output?.Trim();
+                        
+            // 改进解析逻辑：只要有任何一行完全匹配 'running' (忽略空格和大小写)
+            var isRunning = trimmedOutput != null && trimmedOutput.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Any(line => line.Trim().Equals("running", StringComparison.OrdinalIgnoreCase));
+            
+            // 提取端口 (如果有 PORT:xxx)
+            if (status != null && !string.IsNullOrEmpty(trimmedOutput))
+            {
+                ParseCheckOutput(trimmedOutput, status);
+            }
+            
+                        return isRunning;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"检测 {app.Name} 是否运行异常：{ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task ExtractPackageAsync(
+        RemoteHost host, 
+        string? remotePackagePath, 
+        string appName, 
+        LogCollector logCollector,
+        string remoteWorkDir,
+        CancellationToken cancellationToken)
+    {
+        var extractDir = host.OsType == OperatingSystemType.Windows
+            ? Path.Combine(remoteWorkDir, "extract").Replace("/", "\\")
+            : $"{remoteWorkDir}/extract";
+
+        // 创建解压目录
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            await _sshService.ExecuteCommandAsync($"New-Item -ItemType Directory -Force -Path \"{extractDir}\"", cancellationToken: cancellationToken);
+        }
+        else
+        {
+            await _sshService.ExecuteCommandAsync($"mkdir -p \"{extractDir}\"", cancellationToken: cancellationToken);
+        }
+        _logger.Info($"创建解压目录：{extractDir}");
+
+        if (string.IsNullOrEmpty(remotePackagePath))
+        {
+            _logger.Warning("未指定远程包路径，尝试自动查找");
+            var searchPattern = host.OsType == OperatingSystemType.Windows
+                ? $"{remoteWorkDir}\\*"
+                : $"{remoteWorkDir}/*";
+            
+            var findCommand = host.OsType == OperatingSystemType.Windows
+                ? $"Get-ChildItem -Path \"{searchPattern}\" -Include *.zip,*.tar.gz,*.tgz,*.rpm,*.deb | Select-Object -ExpandProperty FullName"
+                : $"ls -la {remoteWorkDir}/*.zip {remoteWorkDir}/*.tar.gz {remoteWorkDir}/*.tgz {remoteWorkDir}/*.rpm {remoteWorkDir}/*.deb 2>/dev/null";
+
+            var findResult = await _sshService.ExecuteCommandAsync(findCommand, cancellationToken: cancellationToken);
+            
+            if (string.IsNullOrWhiteSpace(findResult))
+            {
+                _logger.Info("未找到安装包文件，跳过解压步骤");
+                return;
+            }
+            
+            var lines = findResult.Split('\n');
+            foreach (var line in lines)
+            {
+                if (line.Contains(remoteWorkDir))
+                {
+                    if (host.OsType == OperatingSystemType.Windows)
+                    {
+                        remotePackagePath = line.Trim();
+                        break;
+                    }
+                    else
+                    {
+                        var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length > 8)
+                        {
+                            remotePackagePath = parts[parts.Length - 1];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (string.IsNullOrEmpty(remotePackagePath))
+        {
+            _logger.Info("没有找到可解压的包文件");
+            return;
+        }
+
+        _logger.Info($"准备解压：{remotePackagePath}");
+        
+        if (remotePackagePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) || 
+            remotePackagePath.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase))
+        {
+            await _sshService.ExecuteCommandAsync(
+                $"tar -xzf {remotePackagePath} -C {extractDir}",
+                cancellationToken: cancellationToken,
+                throwOnError: true);
+            _logger.Info($"已解压 tar.gz 文件到 {extractDir}");
+        }
+        else if (remotePackagePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            await _sshService.ExecuteCommandAsync(
+                $"unzip -o {remotePackagePath} -d {extractDir}",
+                cancellationToken: cancellationToken,
+                throwOnError: true);
+            _logger.Info($"已解压 zip 文件到 {extractDir}");
+        }
+        else if (remotePackagePath.EndsWith(".rpm", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Info($"正在安装 RPM 包：{remotePackagePath}");
+            await _sshService.ExecuteCommandAsync(
+                $"rpm -ivh --force {remotePackagePath}",
+                output => logCollector.ProcessOutput(output),
+                cancellationToken: cancellationToken,
+                throwOnError: true);
+            _logger.Info($"已安装 RPM 包");
+            
+            var serviceName = GetServiceName(appName);
+            _logger.Info($"正在启动服务：{serviceName}");
+            await _sshService.ExecuteCommandAsync(
+                $"systemctl daemon-reload && systemctl enable {serviceName} && systemctl start {serviceName}",
+                output => logCollector.ProcessOutput(output),
+                cancellationToken: cancellationToken,
+                throwOnError: true);
+            _logger.Info($"服务已启动：{serviceName}");
+        }
+        else if (remotePackagePath.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Info($"使用 apt install 安装 DEB 包：{remotePackagePath}");
+                        
+            try
+            {
+                                var installOutput = await _sshService.ExecuteCommandAsync(
+                    $"apt update && apt install -y {remotePackagePath}",
+                    output => 
+                    {
+                                                logCollector.ProcessOutput(output);
+                    },
+                    cancellationToken: cancellationToken,
+                    throwOnError: true);
+                                _logger.Info($"已安装 DEB 包");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"apt install 失败，尝试 dpkg -i: {ex.Message}");
+                _logger.Warning($"apt install 失败，尝试 dpkg -i: {ex.Message}");
+                
+                try
+                {
+                    await _sshService.ExecuteCommandAsync(
+                        $"dpkg -i {remotePackagePath}",
+                        output => logCollector.ProcessOutput(output),
+                        cancellationToken: cancellationToken,
+                        throwOnError: true);
+                    
+                    await _sshService.ExecuteCommandAsync(
+                        "apt-get install -f -y",
+                        output => logCollector.ProcessOutput(output),
+                        cancellationToken: cancellationToken,
+                        throwOnError: true);
+                    
+                    _logger.Info($"已安装 DEB 包（使用 dpkg）");
+                }
+                catch (Exception dpkgEx)
+                {
+                                        throw new Exception($"安装 DEB 包失败：{dpkgEx.Message}");
+                }
+            }
+            
+            var serviceName = GetServiceName(appName);
+            _logger.Info($"正在启动服务：{serviceName}");
+                        
+            try
+            {
+                var serviceOutput = await _sshService.ExecuteCommandAsync(
+                    $"systemctl daemon-reload && systemctl enable {serviceName} && systemctl start {serviceName}",
+                    output => logCollector.ProcessOutput(output),
+                    cancellationToken: cancellationToken,
+                    throwOnError: true);
+                                _logger.Info($"服务已启动：{serviceName}");
+                
+                await Task.Delay(10000, cancellationToken);
+                var statusOutput = await _sshService.ExecuteCommandAsync(
+                    $"systemctl status {serviceName} || echo '服务状态未知'",
+                    output => logCollector.ProcessOutput(output),
+                    cancellationToken: cancellationToken);
+                            }
+            catch (Exception serviceEx)
+            {
+                _logger.Warning($"启动服务失败：{serviceEx.Message}");
+                _logger.Warning($"启动服务失败：{serviceEx.Message}");
+            }
+        }
+        else if (host.OsType == OperatingSystemType.Windows && 
+                 (remotePackagePath.EndsWith(".msi", StringComparison.OrdinalIgnoreCase) ||
+                  remotePackagePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (remotePackagePath.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            {
+                await _sshService.ExecuteCommandAsync(
+                    $"msiexec /i {remotePackagePath} /qn",
+                    output => logCollector.ProcessOutput(output),
+                    cancellationToken: cancellationToken);
+                _logger.Info($"已安装 MSI 包");
+            }
+            else
+            {
+                await _sshService.ExecuteCommandAsync(
+                    $"{remotePackagePath} /S",
+                    output => logCollector.ProcessOutput(output),
+                    cancellationToken: cancellationToken);
+                _logger.Info($"已安装 EXE 包");
+            }
+        }
+        else
+        {
+            _logger.Warning($"未知包类型：{Path.GetExtension(remotePackagePath)}，跳过解压");
+        }
+
+        try
+        {
+            await _sshService.ExecuteCommandAsync(
+                $"rm -f {remotePackagePath}",
+                cancellationToken: cancellationToken);
+            _logger.Info($"已清理临时文件：{remotePackagePath}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"清理临时文件失败：{ex.Message}");
+        }
+    }
+
+    private async Task ConfigureParametersAsync(RemoteHost host, ApplicationInfo app, Dictionary<string, string> parameters, CancellationToken cancellationToken)
+    {
+        var configPath = host.OsType == OperatingSystemType.Windows
+            ? $"C:\\ProgramData\\{app.Name}\\config.ini"
+            : $"/etc/{app.Name.ToLower()}/config.ini";
+
+        var configContent = new System.Text.StringBuilder();
+        foreach (var param in parameters)
+        {
+            configContent.AppendLine($"{param.Key}={param.Value}");
+        }
+
+        var writeCommand = host.OsType == OperatingSystemType.Windows
+            ? $"echo {configContent} > {configPath}"
+            : $"mkdir -p $(dirname {configPath}) && echo '{configContent}' > {configPath}";
+
+        await _sshService.ExecuteCommandAsync(writeCommand, cancellationToken: cancellationToken);
+    }
+
+    private async Task ExecuteInstallScriptAsync(
+        RemoteHost host, 
+        ApplicationInfo app, 
+        Dictionary<string, string> parameters,
+        LogCollector logCollector,
+        string? remoteScriptPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        string script;
+        bool isFilePath = !string.IsNullOrEmpty(remoteScriptPath);
+        
+        if (isFilePath)
+        {
+            script = remoteScriptPath!;
+        }
+        else
+        {
+            script = app.GetInstallScript(host.OsType);
+        }
+
+        if (string.IsNullOrEmpty(script))
+        {
+            _logger.Warning("未找到安装脚本");
+            return;
+        }
+
+                
+        if (host.OsType != OperatingSystemType.Windows)
+        {
+            // 使用 && 连接所有命令，确保环境变量作用域正确传递
+            var envExports = string.Join(" && ", parameters.Keys.Select(k => 
+                $"export {k}=\"{parameters[k].Replace("\"", "\\\"")}\""));
+            
+            string command;
+            if (isFilePath)
+            {
+                // 脚本文件：先 cd 到脚本目录，然后设置环境变量，最后执行脚本
+                // 转换路径分隔符为 Linux 风格
+                var scriptPathLinux = script!.Replace("\\", "/");
+                var scriptDir = Path.GetDirectoryName(scriptPathLinux)?.Replace("\\", "/") ?? "/tmp";
+                var scriptName = Path.GetFileName(scriptPathLinux);
+                
+                // 使用 && 连接，确保在同一个 bash 子 shell 中执行
+                command = $"cd \"{scriptDir}\" && {envExports} && ./{scriptName}";
+            }
+            else
+            {
+                // 字符串脚本：在当前目录设置环境变量并执行
+                command = $"{envExports} && {script.Trim().Replace("\\r\n", "\\n")}";
+            }
+            
+                        
+            _logger.Info($"准备执行远程安装脚本...");
+            foreach (var param in parameters)
+            {
+                            }
+            
+            await _sshService.ExecuteCommandAsync(
+                $"bash -c '{command.Replace("'", "'\"'\"'")}'", 
+                output => 
+                {
+                    logCollector.ProcessOutput(output);
+                }, 
+                cancellationToken,
+                throwOnError: true);
+        }
+        else
+        {
+            var envVars = string.Join("; ", parameters.Keys.Select(k => 
+                $"$env:{k}=\"{parameters[k]}\""));
+            
+            string command;
+            if (isFilePath)
+            {
+                // 先 cd 到脚本所在目录，再设置变量，最后执行脚本
+                var scriptDir = Path.GetDirectoryName(script);
+                command = $"Set-Location \"{scriptDir}\"; {envVars}; & \"{script}\"";
+            }
+            else
+            {
+                command = $"{envVars}; {script.Trim()}";
+            }
+            
+            await _sshService.ExecuteCommandAsync(command, 
+                output => logCollector.ProcessOutput(output), 
+                cancellationToken,
+                throwOnError: true);
+        }
+        
+        _logger.Success("脚本执行完成");
+    }
+
+    /// <summary>
+    /// 获取本地脚本路径
+    /// </summary>
+    private string? GetLocalScriptPath(string appId, string version, OperatingSystemType osType, string scriptPrefix = "install")
+    {
+        var extension = osType == OperatingSystemType.Windows ? "ps1" : "sh";
+        var osSuffix = osType == OperatingSystemType.Windows ? "windows" : "linux";
+        
+        // 1. 尝试相对于运行目录的路径
+        var searchRoots = new List<string>
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", appId),
+            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", appId),
+            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", appId),
+            // 针对 IDE 调试环境
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", appId),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", appId)
+        };
+
+        var searchPatterns = new List<string>();
+        
+        // 1. 优先找版本特定的脚本 (例如: Scripts/Elasticsearch/8.11.0/install_linux.sh)
+        if (!string.IsNullOrEmpty(version))
+        {
+            searchPatterns.Add(Path.Combine(version, $"{scriptPrefix}_{osSuffix}.{extension}"));
+            searchPatterns.Add(Path.Combine(version, $"{scriptPrefix}.{extension}"));
+            
+            // 处理 v1.2.3 这种形式
+            var versionWithV = version.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? version : "v" + version;
+            var versionWithoutV = version.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? version.Substring(1) : version;
+            
+            if (versionWithV != version)
+            {
+                searchPatterns.Add(Path.Combine(versionWithV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                searchPatterns.Add(Path.Combine(versionWithV, $"{scriptPrefix}.{extension}"));
+            }
+            if (versionWithoutV != version)
+            {
+                searchPatterns.Add(Path.Combine(versionWithoutV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                searchPatterns.Add(Path.Combine(versionWithoutV, $"{scriptPrefix}.{extension}"));
+            }
+        }
+        
+        // 2. 其次找通用的脚本 (例如: Scripts/Elasticsearch/install_linux.sh)
+        searchPatterns.Add($"{scriptPrefix}_{osSuffix}.{extension}");
+        searchPatterns.Add($"{scriptPrefix}.{extension}");
+
+        foreach (var root in searchRoots)
+        {
+            foreach (var pattern in searchPatterns)
+            {
+                try 
+                {
+                    var fullPath = Path.Combine(root, pattern);
+                    if (File.Exists(fullPath))
+                    {
+                                                return fullPath;
+                    }
+                }
+                catch
+                {
+                    // 路径拼接可能抛出异常，忽略继续
+                }
+            }
+        }
+
+                return null;
+    }
+
+    private async Task StartServiceAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
+    {
+        var serviceName = app.Name.ToLower() switch
+        {
+            "mysql" => host.OsType == OperatingSystemType.Windows ? "mysql" : "mysqld",
+            "redis" => host.OsType == OperatingSystemType.Windows ? "redis-server" : "redis",
+            "elasticsearch" => "elasticsearch",
+            "rabbitmq" => "rabbitmq-server",
+            "nacos" => "nacos",
+            "nginx" => "nginx",
+            "consul" => "consul",
+            "traefik" => "traefik",
+            _ => app.Name.ToLower()
+        };
+        
+                
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            await _sshService.ExecuteCommandAsync(
+                $"Start-Service {serviceName} -ErrorAction SilentlyContinue",
+                cancellationToken: cancellationToken);
+        }
+        else
+        {
+            await _sshService.ExecuteCommandAsync(
+                $"systemctl restart {serviceName} || systemctl start {serviceName}",
+                cancellationToken: cancellationToken);
+        }
+    }
+
+    private string GetExecutableName(ApplicationInfo app)
+    {
+        return app.Name.ToLower() switch
+        {
+            "mysql" => "mysql",
+            "redis" => "redis-server",
+            "elasticsearch" => "elasticsearch",
+            "rabbitmq" => "rabbitmq-server",
+            "nacos" => "nacos",
+            "nginx" => "nginx",
+            "consul" => "consul",
+            "traefik" => "traefik",
+            _ => app.Name.ToLower()
+        };
+    }
+
+    private string GetProcessName(ApplicationInfo app)
+    {
+        return app.Name.ToLower() switch
+        {
+            "mysql" => "mysqld",
+            "redis" => "redis-server",
+            "elasticsearch" => "elasticsearch",
+            "rabbitmq" => "beam.smp",
+            "nacos" => "java",
+            "nginx" => "nginx",
+            "consul" => "consul",
+            "traefik" => "traefik",
+            _ => app.Name.ToLower()
+        };
+    }
+
+    private string GetServiceName(string appName)
+    {
+        appName = appName.ToLower();
+        
+        if (appName.Contains("elasticsearch"))
+        {
+            return "elasticsearch";
+        }
+        
+        return appName switch
+        {
+            "mysql" => "mysqld",
+            "redis" => "redis",
+            "elasticsearch" => "elasticsearch",
+            "rabbitmq" => "rabbitmq-server",
+            "nacos" => "nacos",
+            "nginx" => "nginx",
+            "consul" => "consul",
+            "traefik" => "traefik",
+            _ => appName
+        };
+    }
+
+    private string ExtractVersion(string output)
+    {
+        var versionPattern = System.Text.RegularExpressions.Regex.Match(output, @"\d+\.\d+\.\d+");
+        return versionPattern.Success ? versionPattern.Value : "未知";
+    }
+
+    private bool ParseBool(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var cleanValue = value.Trim().ToLower();
+        return cleanValue == "true" || cleanValue == "1" || cleanValue == "running" || cleanValue == "active" || cleanValue == "installed" || cleanValue == "yes";
+    }
+
+    private void ParseCheckOutput(string output, ApplicationStatus status)
+    {
+        if (string.IsNullOrEmpty(output)) return;
+        
+        foreach (var line in output.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("INSTALLED:", StringComparison.OrdinalIgnoreCase))
+            {
+                status.IsInstalled = ParseBool(trimmedLine.Substring(10));
+            }
+            else if (trimmedLine.StartsWith("VERSION:", StringComparison.OrdinalIgnoreCase))
+            {
+                status.InstalledVersion = trimmedLine.Substring(8).Trim();
+            }
+            else if (trimmedLine.StartsWith("RUNNING:", StringComparison.OrdinalIgnoreCase))
+            {
+                status.IsRunning = ParseBool(trimmedLine.Substring(8));
+            }
+            else if (trimmedLine.StartsWith("PORT:", StringComparison.OrdinalIgnoreCase))
+            {
+                status.Port = trimmedLine.Substring(5).Trim();
+            }
+        }
+    }
+}

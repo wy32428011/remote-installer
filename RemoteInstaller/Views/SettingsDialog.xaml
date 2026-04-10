@@ -1,0 +1,256 @@
+<Window x:Class="RemoteInstaller.Views.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:local="clr-namespace:RemoteInstaller"
+        xmlns:models="clr-namespace:RemoteInstaller.Models"
+        Title="系统设置" 
+        Height="700" Width="750"
+        MinHeight="600" MinWidth="650"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="CanResize"
+        Background="{DynamicResource MaterialDesignPaper}"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <Style x:Key="SettingLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBody}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+
+        <Style x:Key="SettingHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBodyDisabled}"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+        </Style>
+
+        <Style x:Key="SettingInputStyle" TargetType="TextBox">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="materialDesign:HintAssist.IsFloating" Value="True"/>
+            <Setter Property="Margin" Value="0,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 远程仓库配置 -->
+                <Expander Header="远程仓库配置" IsExpanded="True" Margin="0,0,0,12">
+                    <Border Background="{DynamicResource MaterialDesign50}"
+                            CornerRadius="8" Padding="16" Margin="0,8,0,0">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <StackPanel Grid.Column="0" Width="90">
+                                    <TextBlock Text="仓库地址" Style="{StaticResource SettingLabelStyle}"/>
+                                    <TextBlock Text="安装包下载地址" Style="{StaticResource SettingHintStyle}"/>
+                                </StackPanel>
+                                
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding RepositoryUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="请输入仓库地址"
+                                         Style="{StaticResource SettingInputStyle}"/>
+                                
+                                <Button Grid.Column="2"
+                                        Content="测试"
+                                        Style="{StaticResource MaterialDesignFlatButton}"
+                                        Command="{Binding TestRepositoryConnectionCommand}"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0,0,0"/>
+                            </Grid>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <StackPanel Grid.Column="0" Width="90">
+                                    <TextBlock Text="认证令牌" Style="{StaticResource SettingLabelStyle}"/>
+                                    <TextBlock Text="访问私有仓库时必填" Style="{StaticResource SettingHintStyle}"/>
+                                </StackPanel>
+                                
+                                <TextBox Grid.Column="1"
+                                         materialDesign:HintAssist.Hint="可选"
+                                         Style="{StaticResource SettingInputStyle}"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Expander>
+
+                <!-- 连接设置 -->
+                <Expander Header="连接设置" IsExpanded="False" Margin="0,0,0,12">
+                    <Border Background="{DynamicResource MaterialDesign50}"
+                            CornerRadius="8" Padding="16" Margin="0,8,0,0">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <StackPanel Grid.Column="0" Width="90">
+                                    <TextBlock Text="超时时间" Style="{StaticResource SettingLabelStyle}"/>
+                                    <TextBlock Text="远程连接超时（10-300 秒）" Style="{StaticResource SettingHintStyle}"/>
+                                </StackPanel>
+                                
+                                <Grid Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding ConnectionTimeout, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="60"
+                                             Style="{StaticResource SettingInputStyle}"/>
+                                    
+                                    <TextBlock Grid.Column="1"
+                                               Text="秒"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource MaterialDesignBodyDisabled}"/>
+                                </Grid>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <StackPanel Grid.Column="0" Width="90">
+                                    <TextBlock Text="重试次数" Style="{StaticResource SettingLabelStyle}"/>
+                                    <TextBlock Text="失败后自动重试 (0-10 次)" Style="{StaticResource SettingHintStyle}"/>
+                                </StackPanel>
+                                
+                                <Grid Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding RetryCount, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="3"
+                                             Style="{StaticResource SettingInputStyle}"/>
+                                    
+                                    <TextBlock Grid.Column="1"
+                                               Text="次"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource MaterialDesignBodyDisabled}"/>
+                                </Grid>
+                            </Grid>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <StackPanel Grid.Column="0" Width="90">
+                                    <TextBlock Text="重试间隔" Style="{StaticResource SettingLabelStyle}"/>
+                                    <TextBlock Text="每次重试间隔时间" Style="{StaticResource SettingHintStyle}"/>
+                                </StackPanel>
+                                
+                                <Grid Grid.Column="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding RetryInterval, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="5"
+                                             Style="{StaticResource SettingInputStyle}"/>
+                                    
+                                    <TextBlock Grid.Column="1"
+                                               Text="秒"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource MaterialDesignBodyDisabled}"/>
+                                </Grid>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Expander>
+
+                <!-- 并发设置 -->
+                <Expander Header="并发设置" IsExpanded="False" Margin="0,0,0,12">
+                    <Border Background="{DynamicResource MaterialDesign50}"
+                            CornerRadius="8" Padding="16" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <StackPanel Grid.Column="0" Width="90">
+                                <TextBlock Text="最大并发" Style="{StaticResource SettingLabelStyle}"/>
+                                <TextBlock Text="同时执行的任务数 (1-20)" Style="{StaticResource SettingHintStyle}"/>
+                            </StackPanel>
+                            
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding MaxConcurrentTasks, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="3"
+                                         Style="{StaticResource SettingInputStyle}"/>
+                                
+                                <TextBlock Grid.Column="1"
+                                           Text="个任务"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource MaterialDesignBodyDisabled}"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource MaterialDesign50}"
+                CornerRadius="8" Padding="12"
+                Margin="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="1"
+                        Content="取消"
+                        Style="{StaticResource MaterialDesignFlatButton}"
+                        Command="{Binding CancelSettingsCommand}"
+                        Width="80"
+                        Height="36"
+                        Margin="0,0,12,0"/>
+
+                <Button Grid.Column="2"
+                        Content="保存"
+                        Style="{StaticResource MaterialDesignRaisedButton}"
+                        Command="{Binding SaveSettingsCommand}"
+                        Width="100"
+                        Height="36"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

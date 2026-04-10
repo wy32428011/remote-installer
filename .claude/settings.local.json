@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(copy /Y \"Scripts\\\\app-configuration.json\" \"RemoteInstaller\\\\bin\\\\Debug\\\\net10.0-windows\\\\Scripts\\\\app-configuration.json\")",
+      "Bash(cd:*)",
+      "Bash(cp:*)",
+      "mcp__ide__getDiagnostics",
+      "WebSearch",
+      "Bash(where dotnet:*)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build \"C:\\\\projects\\\\远程安装应用\\\\RemoteInstaller\\\\RemoteInstaller.csproj\")",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" --info)",
+      "Bash(sshpass:*)",
+      "Bash(apt-get install:*)",
+      "Read(//c/Program Files \\(x86\\)/PuTTY/**)",
+      "Read(//c/Program Files/PuTTY/**)",
+      "Read(//c/Users/WY/.ssh/**)",
+      "Bash(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@192.168.60.153 \"echo connected\")",
+      "Bash(powershell -Command \"Get-Command ssh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\" 2>&1)",
+      "Bash(choco:*)",
+      "Bash(go version:*)",
+      "Bash(wsl --status)",
+      "Bash(wsl -l)",
+      "Bash(export DISPLAY=:0)",
+      "Bash(export SSH_ASKPASS_REQUIRE=force)",
+      "Bash(echo wxzd*123)",
+      "Bash(chmod 600 /tmp/passfile)",
+      "Read(//tmp/**)",
+      "Read(//c/tmp/**)",
+      "Bash(go mod:*)",
+      "Bash(go get:*)",
+      "Bash(go run:*)",
+      "Bash(powershell -NoProfile -Command \":*)",
+      "Bash(powershell -NoProfile -Command \"$PSVersionTable.PSVersion\")",
+      "Bash(powershell -Command \"Write-Host $PSVersionTable.PSVersion\")",
+      "Bash(bash -n \"C:/projects/远程安装应用/RemoteInstaller/Scripts/Elasticsearch/install_linux.sh\")",
+      "Bash(bash << 'EOFBASH'\n# 模拟参数处理逻辑\nHTTP_PORT=${HTTP_PORT:-9200}\nCLUSTER_NAME=${CLUSTER_NAME:-my-cluster}\nNODE_NAME=${NODE_NAME:-node-1}\nMEMORY_LIMIT=${MEMORY_LIMIT:-2g}\n\necho \"Default values:\"\necho \"HTTP_PORT: $HTTP_PORT\"\necho \"CLUSTER_NAME: $CLUSTER_NAME\"\necho \"NODE_NAME: $NODE_NAME\"\necho \"MEMORY_LIMIT: $MEMORY_LIMIT\"\n\n# 模拟环境变量\nexport HTTP_PORT=9201\nexport CLUSTER_NAME=test-cluster\nexport NODE_NAME=test-node\nexport MEMORY_LIMIT=4g\n\nHTTP_PORT=${HTTP_PORT:-9200}\nCLUSTER_NAME=${CLUSTER_NAME:-my-cluster}\nNODE_NAME=${NODE_NAME:-node-1}\nMEMORY_LIMIT=${MEMORY_LIMIT:-2g}\n\necho \"\"\necho \"With env vars:\"\necho \"HTTP_PORT: $HTTP_PORT \\(should be 9201\\)\"\necho \"CLUSTER_NAME: $CLUSTER_NAME \\(should be test-cluster\\)\"\necho \"NODE_NAME: $NODE_NAME \\(should be test-node\\)\"\necho \"MEMORY_LIMIT: $MEMORY_LIMIT \\(should be 4g\\)\"\nEOFBASH)"
+    ]
+  }
+}

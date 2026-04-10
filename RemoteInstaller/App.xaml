@@ -1,0 +1,62 @@
+<Application x:Class="RemoteInstaller.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:RemoteInstaller.Converters"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                    MaterialDesignInXaml 主题
+                    注意：这里使用深色主题作为默认，实际主题通过代码动态切换
+                -->
+                <materialDesign:BundledTheme BaseTheme="Dark"
+                                             PrimaryColor="Blue"
+                                             SecondaryColor="Teal" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign3.Defaults.xaml" />
+
+                <!-- 自定义颜色和样式 -->
+                <ResourceDictionary Source="Themes/CustomColors.xaml"/>
+                <ResourceDictionary Source="Themes/DarkTheme.xaml"/>
+                <ResourceDictionary Source="Themes/SharedTheme.xaml"/>
+                <ResourceDictionary Source="Themes/CustomStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- 全局窗口样式 - 解决高DPI模糊问题 -->
+            <Style TargetType="Window">
+                <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+            </Style>
+
+            <!-- 转换器 -->
+            <local:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <local:StatusToColorConverter x:Key="StatusToColorConverter"/>
+            <local:StatusToIconConverter x:Key="StatusToIconConverter"/>
+            <local:BoolToColorConverter x:Key="BoolToColorConverter"/>
+            <local:LogLevelToStyleConverter x:Key="LogLevelToStyleConverter"/>
+            <local:LogLevelToColorConverter x:Key="LogLevelToColorConverter"/>
+            <local:StepStatusToColorConverter x:Key="StepStatusToColorConverter"/>
+            <local:StepStatusToWeightConverter x:Key="StepStatusToWeightConverter"/>
+            <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
+            <local:EnumToBoolConverter x:Key="EnumToBoolConverter"/>
+            <local:EnumToVisibilityConverter x:Key="EnumToVisibilityConverter"/>
+            <local:StringToBoolConverter x:Key="StringToBoolConverter"/>
+            <local:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+            <local:BoolToBackgroundConverter x:Key="BoolToBackgroundConverter"/>
+            <local:BoolToIconConverter x:Key="BoolToIconConverter"/>
+            <local:BoolToColorConverter2 x:Key="BoolToColorConverter2"/>
+            <local:TerminalLineTypeToVisibilityConverter x:Key="TerminalLineTypeToVisibilityConverter"/>
+            <local:StringToColorConverter x:Key="StringToColorConverter"/>
+            <local:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            <local:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter"/>
+            <local:NullToBoolConverter x:Key="NullToBoolConverter"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

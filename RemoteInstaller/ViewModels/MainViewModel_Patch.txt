@@ -1,0 +1,43 @@
+        [ObservableProperty]
+        private string _currentStage = string.Empty;
+
+        #region 应用管理方法
+
+        /// <summary>
+        /// 安装应用
+        /// </summary>
+        public void InstallApplication(ApplicationCardViewModel app)
+        {
+            AddLog($"准备安装 {app.Name}...", LogLevel.Info);
+            System.Windows.MessageBox.Show($"安装 {app.Name} 功能待完善", "提示");
+        }
+
+        /// <summary>
+        /// 卸载应用
+        /// </summary>
+        public void UninstallApplication(ApplicationCardViewModel app)
+        {
+            AddLog($"准备卸载 {app.Name}...", LogLevel.Info);
+            System.Windows.MessageBox.Show($"卸载 {app.Name} 功能待完善", "提示");
+        }
+
+        /// <summary>
+        /// 检测应用状态
+        /// </summary>
+        public void CheckApplicationStatus(ApplicationCardViewModel app)
+        {
+            AddLog($"准备检测 {app.Name} 状态...", LogLevel.Info);
+            System.Windows.MessageBox.Show($"检测 {app.Name} 状态功能待完善", "提示");
+        }
+
+        /// <summary>
+        /// 配置应用
+        /// </summary>
+        public void ConfigureApplication(ApplicationCardViewModel app)
+        {
+            AddLog($"准备配置 {app.Name}...", LogLevel.Info);
+            System.Windows.MessageBox.Show($"配置 {app.Name} 功能待完善", "提示");
+        }
+
+        #endregion
+    }

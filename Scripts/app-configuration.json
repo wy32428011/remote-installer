@@ -1,0 +1,884 @@
+{
+  "applications": [
+    {
+      "id": "mysql",
+      "name": "MySQL",
+      "category": "数据库",
+      "icon": "🐬",
+      "description": "流行的开源关系型数据库管理系统",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "8.0.35",
+          "packageUrl": "https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.35-winx64.zip",
+          "linuxPackageUrl": "https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.35-linux-glibc2.28-x86_64.tar.xz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "Port",
+              "type": "Port",
+              "default": "3306",
+              "required": true,
+              "description": "MySQL 服务端口"
+            },
+            {
+              "name": "Root Password",
+              "type": "Password",
+              "default": "",
+              "required": true,
+              "description": "root 用户密码"
+            },
+            {
+              "name": "Data Directory",
+              "type": "Path",
+              "default": "/var/lib/mysql",
+              "required": false,
+              "description": "数据目录路径"
+            }
+          ]
+        },
+        {
+          "version": "5.7.44",
+          "packageUrl": "https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-5.7.44-winx64.zip",
+          "linuxPackageUrl": "https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-5.7.44-linux-glibc2.12-x86_64.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "Port",
+              "type": "Port",
+              "default": "3306",
+              "required": true,
+              "description": "MySQL 服务端口"
+            },
+            {
+              "name": "Root Password",
+              "type": "Password",
+              "default": "",
+              "required": true,
+              "description": "root 用户密码"
+            },
+            {
+              "name": "Data Directory",
+              "type": "Path",
+              "default": "/var/lib/mysql",
+              "required": false,
+              "description": "数据目录路径"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "sudo tar -xJf {package} -C /opt && sudo ln -s /opt/mysql-{version} /opt/mysql && sudo mkdir -p /var/lib/mysql && sudo mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql && sudo systemctl start mysqld",
+          "windows": "cd {extractPath} && .\\mysql-installer.exe"
+        },
+        "uninstall": {
+          "linux": "sudo systemctl stop mysqld && sudo rm -rf /var/lib/mysql /opt/mysql /etc/my.cnf && sudo userdel mysql",
+          "windows": "msiexec /x {package} /qn"
+        },
+        "detect": {
+          "linux": "systemctl status mysqld && mysql --version",
+          "windows": "sc query MySQL80 && mysql --version"
+        }
+      }
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "category": "数据库",
+      "icon": "🔴",
+      "description": "开源内存数据结构存储，用作数据库、缓存和消息代理",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "7.2.3",
+          "packageUrl": "https://github.com/microsoftarchive/redis/releases/download/win-3.0.504/Redis-3.0.504.msi",
+          "linuxPackageUrl": "https://download.redis.io/releases/redis-7.2.3.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "Port",
+              "type": "Port",
+              "default": "6379",
+              "required": true,
+              "description": "Redis 服务端口"
+            },
+            {
+              "name": "Max Memory",
+              "type": "Text",
+              "default": "256mb",
+              "required": false,
+              "description": "最大内存限制"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "",
+              "required": false,
+              "description": "访问密码（可选）"
+            }
+          ]
+        },
+        {
+          "version": "6.2.13",
+          "packageUrl": "https://github.com/microsoftarchive/redis/releases/download/win-3.0.504/Redis-3.0.504.msi",
+          "linuxPackageUrl": "https://download.redis.io/releases/redis-6.2.13.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "Port",
+              "type": "Port",
+              "default": "6379",
+              "required": true,
+              "description": "Redis 服务端口"
+            },
+            {
+              "name": "Max Memory",
+              "type": "Text",
+              "default": "256mb",
+              "required": false,
+              "description": "最大内存限制"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "",
+              "required": false,
+              "description": "访问密码（可选）"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "cd /opt && tar -xzf {package} && cd redis-{version} && make && sudo make install && sudo mkdir -p /etc/redis && sudo cp redis.conf /etc/redis/ && sudo systemctl start redis-server",
+          "windows": "cd {extractPath} && redis-server.exe --service-install && redis-server.exe --service-start"
+        },
+        "uninstall": {
+          "linux": "sudo systemctl stop redis-server && sudo rm -rf /etc/redis /var/lib/redis && cd /opt/redis-* && sudo make uninstall",
+          "windows": "redis-server.exe --service-uninstall"
+        },
+        "detect": {
+          "linux": "systemctl status redis-server && redis-cli --version",
+          "windows": "sc query Redis && redis-cli --version"
+        }
+      }
+    },
+    {
+      "id": "nginx",
+      "name": "Nginx",
+      "category": "Web 服务",
+      "icon": "🌐",
+      "description": "高性能 HTTP 和反向代理服务器",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "1.25.3",
+          "packageUrl": "https://nginx.org/download/nginx-1.25.3.zip",
+          "linuxPackageUrl": "https://nginx.org/download/nginx-1.25.3.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "80",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "HTTPS Port",
+              "type": "Port",
+              "default": "443",
+              "required": true,
+              "description": "HTTPS 端口"
+            },
+            {
+              "name": "Worker Processes",
+              "type": "Number",
+              "default": "auto",
+              "required": false,
+              "description": "工作进程数"
+            }
+          ]
+        },
+        {
+          "version": "1.24.0",
+          "packageUrl": "https://nginx.org/download/nginx-1.24.0.zip",
+          "linuxPackageUrl": "https://nginx.org/download/nginx-1.24.0.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "80",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "HTTPS Port",
+              "type": "Port",
+              "default": "443",
+              "required": true,
+              "description": "HTTPS 端口"
+            },
+            {
+              "name": "Worker Processes",
+              "type": "Number",
+              "default": "auto",
+              "required": false,
+              "description": "工作进程数"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "cd /opt && tar -xzf {package} && cd nginx-{version} && ./configure --prefix=/usr/local/nginx && make && sudo make install && sudo ln -sf /usr/local/nginx/sbin/nginx /usr/sbin/nginx",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nginx/install_windows.ps1\" -PackagePath \"{package}\" -HttpPort {http_port} -HttpsPort {https_port} -InstallPath \"C:\\Program Files\\Nginx\""
+        },
+        "uninstall": {
+          "linux": "sudo nginx -s stop && sudo rm -rf /usr/local/nginx /etc/nginx && sudo rm -f /usr/sbin/nginx",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nginx/uninstall_windows.ps1\" -InstallPath \"C:\\Program Files\\Nginx\""
+        },
+        "detect": {
+          "linux": "systemctl status nginx || nginx -v",
+          "windows": "tasklist | findstr nginx && nginx -v"
+        }
+      }
+    },
+    {
+      "id": "elasticsearch",
+      "name": "Elasticsearch",
+      "category": "数据库",
+      "icon": "🔍",
+      "description": "分布式 RESTful 搜索和分析引擎",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "8.11.0",
+          "packageUrl": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.11.0-windows-x86_64.zip",
+          "linuxPackageUrl": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.11.0-linux-x86_64.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "9200",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "Transport Port",
+              "type": "Port",
+              "default": "9300",
+              "required": true,
+              "description": "传输端口"
+            },
+            {
+              "name": "Heap Size",
+              "type": "Text",
+              "default": "1g",
+              "required": false,
+              "description": "堆内存大小"
+            }
+          ]
+        },
+        {
+          "version": "7.17.10",
+          "packageUrl": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.17.10-windows-x86_64.zip",
+          "linuxPackageUrl": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.17.10-linux-x86_64.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "9200",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "Transport Port",
+              "type": "Port",
+              "default": "9300",
+              "required": true,
+              "description": "传输端口"
+            },
+            {
+              "name": "Heap Size",
+              "type": "Text",
+              "default": "1g",
+              "required": false,
+              "description": "堆内存大小"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "bash Scripts/Elasticsearch/install_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Elasticsearch/install_windows.ps1\" -PackagePath \"{package}\" -HttpPort {http_port} -ClusterName {cluster_name} -NodeName {node_name} -MemoryLimit {memory_limit}"
+        },
+        "uninstall": {
+          "linux": "bash Scripts/Elasticsearch/uninstall_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Elasticsearch/uninstall_windows.ps1\" -InstallPath \"C:\\Program Files\\Elasticsearch\""
+        },
+        "detect": {
+          "linux": "bash Scripts/Elasticsearch/check_status_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Elasticsearch/check_status_windows.ps1\""
+        }
+      }
+    },
+    {
+      "id": "rabbitmq",
+      "name": "RabbitMQ",
+      "category": "中间件",
+      "icon": "🐰",
+      "description": "开源消息代理软件",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "3.12.10",
+          "packageUrl": "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.12.10/rabbitmq-server-3.12.10.exe",
+          "linuxPackageUrl": "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.12.10/rabbitmq-server-3.12.10.tar.xz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "AMQP Port",
+              "type": "Port",
+              "default": "5672",
+              "required": true,
+              "description": "AMQP 端口"
+            },
+            {
+              "name": "Management Port",
+              "type": "Port",
+              "default": "15672",
+              "required": true,
+              "description": "管理界面端口"
+            },
+            {
+              "name": "Username",
+              "type": "Text",
+              "default": "guest",
+              "required": true,
+              "description": "用户名"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "guest",
+              "required": true,
+              "description": "密码"
+            },
+            {
+              "name": "Enable Remote Access",
+              "type": "Boolean",
+              "default": "true",
+              "required": false,
+              "description": "是否允许远程访问（默认启用）"
+            }
+          ]
+        },
+        {
+          "version": "3.11.27",
+          "packageUrl": "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.11.27/rabbitmq-server-3.11.27.exe",
+          "linuxPackageUrl": "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.11.27/rabbitmq-server-3.11.27.tar.xz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "AMQP Port",
+              "type": "Port",
+              "default": "5672",
+              "required": true,
+              "description": "AMQP 端口"
+            },
+            {
+              "name": "Management Port",
+              "type": "Port",
+              "default": "15672",
+              "required": true,
+              "description": "管理界面端口"
+            },
+            {
+              "name": "Username",
+              "type": "Text",
+              "default": "guest",
+              "required": true,
+              "description": "用户名"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "guest",
+              "required": true,
+              "description": "密码"
+            },
+            {
+              "name": "Enable Remote Access",
+              "type": "Boolean",
+              "default": "true",
+              "required": false,
+              "description": "是否允许远程访问（默认启用）"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "export AMQP_PORT={amqp_port} && export MANAGEMENT_PORT={management_port} && export USERNAME={username} && export PASSWORD={password} && export ENABLE_REMOTE_ACCESS={enable_remote_access} && bash Scripts/RabbitMQ/install_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/RabbitMQ/install_windows.ps1\" -PackagePath \"{package}\" -AmqpPort {amqp_port} -ManagementPort {management_port} -Username {username} -Password {password} -EnableRemoteAccess:{enable_remote_access}"
+        },
+        "uninstall": {
+          "linux": "bash Scripts/RabbitMQ/uninstall_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/RabbitMQ/uninstall_windows.ps1\" -InstallPath \"C:\\Program Files\\RabbitMQ Server\""
+        },
+        "detect": {
+          "linux": "bash Scripts/RabbitMQ/check_status_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/RabbitMQ/check_status_windows.ps1\""
+        }
+      }
+    },
+    {
+      "id": "nacos",
+      "name": "Nacos",
+      "category": "中间件",
+      "icon": "🏛️",
+      "description": "动态服务发现、配置和服务管理",
+      "osSupport": ["Linux", "Windows"],
+      "versions": [
+        {
+          "version": "2.3.0",
+          "packageUrl": "https://github.com/alibaba/nacos/releases/download/nacos-server-2.3.0/nacos-server-2.3.0.zip",
+          "linuxPackageUrl": "https://github.com/alibaba/nacos/releases/download/nacos-server-2.3.0/nacos-server-2.3.0.zip",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "8848",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "Raft Port",
+              "type": "Port",
+              "default": "9848",
+              "required": true,
+              "description": "Raft 端口"
+            },
+            {
+              "name": "Mode",
+              "type": "Text",
+              "default": "standalone",
+              "required": true,
+              "description": "运行模式 (standalone/cluster)"
+            },
+            {
+              "name": "Username",
+              "type": "Text",
+              "default": "nacos",
+              "required": true,
+              "description": "管理员用户名"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "nacos",
+              "required": true,
+              "description": "管理员密码"
+            }
+          ]
+        },
+        {
+          "version": "2.2.3",
+          "packageUrl": "https://github.com/alibaba/nacos/releases/download/nacos-server-2.2.3/nacos-server-2.2.3.zip",
+          "linuxPackageUrl": "https://github.com/alibaba/nacos/releases/download/nacos-server-2.2.3/nacos-server-2.2.3.zip",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "8848",
+              "required": true,
+              "description": "HTTP 端口"
+            },
+            {
+              "name": "Raft Port",
+              "type": "Port",
+              "default": "9848",
+              "required": true,
+              "description": "Raft 端口"
+            },
+            {
+              "name": "Mode",
+              "type": "Text",
+              "default": "standalone",
+              "required": true,
+              "description": "运行模式 (standalone/cluster)"
+            },
+            {
+              "name": "Username",
+              "type": "Text",
+              "default": "nacos",
+              "required": true,
+              "description": "管理员用户名"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "nacos",
+              "required": true,
+              "description": "管理员密码"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "export HTTP_PORT={http_port} && export RAFT_PORT={raft_port} && export GRPC_PORT={grpc_port} && export MODE={mode} && export USERNAME={username} && export PASSWORD={password} && export PACKAGE_PATH={package} && bash Scripts/Nacos/install_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nacos/install_windows.ps1\" -PackagePath \"{package}\" -InstallPath \"C:\\nacos\" -HttpPort {http_port} -RaftPort {raft_port} -GrpcPort {grpc_port} -Mode {mode} -Username {username} -Password {password}"
+        },
+        "uninstall": {
+          "linux": "bash Scripts/Nacos/uninstall_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nacos/uninstall_windows.ps1\" -InstallPath \"C:\\nacos\""
+        },
+        "detect": {
+          "linux": "bash Scripts/Nacos/check_status_linux.sh",
+          "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nacos/check_status_windows.ps1\""
+        }
+      }
+    },
+    {
+      "id": "consul",
+      "name": "Consul",
+      "category": "中间件",
+      "icon": "🧭",
+      "description": "服务发现、KV 存储和健康检查平台",
+      "osSupport": ["CentOS", "Ubuntu"],
+      "versions": [
+        {
+          "version": "1.22.6",
+          "packageUrl": "",
+          "linuxPackageUrl": "https://releases.hashicorp.com/consul/1.22.6/consul_1.22.6_linux_amd64.zip",
+          "checksum": "5c2d67c6a364512b3dd0646eaf8bb58fa2fd6b9c890e2f374475deab2a6ec648",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "8500",
+              "required": true,
+              "description": "Consul HTTP API 端口"
+            },
+            {
+              "name": "DNS Port",
+              "type": "Port",
+              "default": "8600",
+              "required": true,
+              "description": "Consul DNS 服务端口"
+            },
+            {
+              "name": "Bind Addr",
+              "type": "Text",
+              "default": "0.0.0.0",
+              "required": true,
+              "description": "Consul 服务监听地址"
+            },
+            {
+              "name": "Data Dir",
+              "type": "Path",
+              "default": "/var/lib/consul",
+              "required": true,
+              "description": "Consul 数据目录路径"
+            },
+            {
+              "name": "Node Name",
+              "type": "Text",
+              "default": "consul-node",
+              "required": true,
+              "description": "Consul 节点名称"
+            },
+            {
+              "name": "UI Enabled",
+              "type": "Boolean",
+              "default": "true",
+              "required": false,
+              "description": "是否启用 Consul Web UI"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "export HTTP_PORT={http_port} && export DNS_PORT={dns_port} && export BIND_ADDR={bind_addr} && export DATA_DIR={data_dir} && export NODE_NAME={node_name} && export UI_ENABLED={ui_enabled} && export PACKAGE_PATH={package} && bash Scripts/Consul/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "export HTTP_PORT={http_port} && export DNS_PORT={dns_port} && export DATA_DIR={data_dir} && bash Scripts/Consul/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "export HTTP_PORT={http_port} && export DNS_PORT={dns_port} && export DATA_DIR={data_dir} && bash Scripts/Consul/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "traefik",
+      "name": "Traefik",
+      "category": "Web 服务",
+      "icon": "🛣️",
+      "description": "云原生反向代理与边缘网关",
+      "osSupport": ["CentOS", "Ubuntu"],
+      "versions": [
+        {
+          "version": "3.6.13",
+          "packageUrl": "",
+          "linuxPackageUrl": "https://github.com/traefik/traefik/releases/download/v3.6.13/traefik_v3.6.13_linux_amd64.tar.gz",
+          "checksum": "85fcf245e963293ca6afee4180f6116b97004499b584ebfbc2c5841e1c8d4399",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "80",
+              "required": true,
+              "description": "Traefik HTTP 入口端口"
+            },
+            {
+              "name": "HTTPS Port",
+              "type": "Port",
+              "default": "443",
+              "required": true,
+              "description": "Traefik HTTPS 入口端口"
+            },
+            {
+              "name": "Dashboard Port",
+              "type": "Port",
+              "default": "8080",
+              "required": true,
+              "description": "Traefik Dashboard 端口"
+            },
+            {
+              "name": "Install Dir",
+              "type": "Path",
+              "default": "/opt/traefik",
+              "required": true,
+              "description": "Traefik 安装目录"
+            },
+            {
+              "name": "Config Dir",
+              "type": "Path",
+              "default": "/etc/traefik",
+              "required": true,
+              "description": "Traefik 配置目录"
+            },
+            {
+              "name": "Enable Dashboard",
+              "type": "Boolean",
+              "default": "true",
+              "required": false,
+              "description": "是否启用 Dashboard"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "export HTTP_PORT={http_port} && export HTTPS_PORT={https_port} && export DASHBOARD_PORT={dashboard_port} && export INSTALL_DIR={install_dir} && export CONFIG_DIR={config_dir} && export ENABLE_DASHBOARD={enable_dashboard} && export PACKAGE_PATH={package} && bash Scripts/Traefik/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "export HTTP_PORT={http_port} && export HTTPS_PORT={https_port} && export DASHBOARD_PORT={dashboard_port} && export INSTALL_DIR={install_dir} && export CONFIG_DIR={config_dir} && bash Scripts/Traefik/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "export HTTP_PORT={http_port} && export HTTPS_PORT={https_port} && export DASHBOARD_PORT={dashboard_port} && export INSTALL_DIR={install_dir} && export CONFIG_DIR={config_dir} && bash Scripts/Traefik/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "wms",
+      "name": "WMS",
+      "category": "自定义应用",
+      "icon": "📦",
+      "description": "仓库管理系统",
+      "osSupport": ["Linux"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "packageUrl": "",
+          "linuxPackageUrl": "",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "安装目录",
+              "type": "Path",
+              "default": "/opt/wms",
+              "required": true,
+              "description": "WMS 安装目录"
+            },
+            {
+              "name": "端口",
+              "type": "Port",
+              "default": "8080",
+              "required": true,
+              "description": "服务端口"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "bash Scripts/WMS/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "bash Scripts/WMS/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "bash Scripts/WMS/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "wcs",
+      "name": "WCS",
+      "category": "自定义应用",
+      "icon": "⚙️",
+      "description": "仓库控制系统",
+      "osSupport": ["Linux"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "packageUrl": "",
+          "linuxPackageUrl": "",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "安装目录",
+              "type": "Path",
+              "default": "/opt/wcs",
+              "required": true,
+              "description": "WCS 安装目录"
+            },
+            {
+              "name": "端口",
+              "type": "Port",
+              "default": "8081",
+              "required": true,
+              "description": "服务端口"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "bash Scripts/WCS/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "bash Scripts/WCS/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "bash Scripts/WCS/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "fms",
+      "name": "FMS",
+      "category": "自定义应用",
+      "icon": "📋",
+      "description": "文件管理系统",
+      "osSupport": ["Linux"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "packageUrl": "",
+          "linuxPackageUrl": "",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "安装目录",
+              "type": "Path",
+              "default": "/opt/fms",
+              "required": true,
+              "description": "FMS 安装目录"
+            },
+            {
+              "name": "端口",
+              "type": "Port",
+              "default": "8082",
+              "required": true,
+              "description": "服务端口"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "bash Scripts/FMS/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "bash Scripts/FMS/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "bash Scripts/FMS/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "support",
+      "name": "SUPPORT",
+      "category": "自定义应用",
+      "icon": "🎧",
+      "description": "支持服务系统",
+      "osSupport": ["Linux"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "packageUrl": "",
+          "linuxPackageUrl": "",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "安装目录",
+              "type": "Path",
+              "default": "/opt/support",
+              "required": true,
+              "description": "SUPPORT 安装目录"
+            },
+            {
+              "name": "端口",
+              "type": "Port",
+              "default": "8083",
+              "required": true,
+              "description": "服务端口"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "bash Scripts/SUPPORT/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "bash Scripts/SUPPORT/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "bash Scripts/SUPPORT/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    }
+  ]
+}

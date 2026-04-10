@@ -1,0 +1,582 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+    <!--
+        ========================================
+        浅色主题资源文件 (LightTheme.xaml)
+        ========================================
+        包含所有控件的浅色主题样式定义
+        配色方案：
+        - 背景：#FFFFFF
+        - 卡片背景：#F5F5F5
+        - 边框：#E0E0E0
+        - 主文本：#1A1A1A
+        - 次文本：#666666
+        - 强调色：#3B82F6
+        ========================================
+    -->
+
+    <!-- ==================== 1. 颜色定义 (Color) ==================== -->
+    <Color x:Key="LightBackgroundColor">#F4F7FB</Color>
+    <Color x:Key="LightSurfaceColor">#FFFFFF</Color>
+    <Color x:Key="LightBorderColor">#D8E3F0</Color>
+    <Color x:Key="LightPrimaryTextColor">#0F172A</Color>
+    <Color x:Key="LightSecondaryTextColor">#475569</Color>
+    <Color x:Key="LightAccentColor">#0EA5E9</Color>
+    
+    <!-- MaterialDesign 覆盖色 -->
+    <Color x:Key="MaterialDesignPaperColor">#FFFFFF</Color>
+    <Color x:Key="MaterialDesign50Color">#F8FBFF</Color>
+    <Color x:Key="MaterialDesignDividerColor">#D8E3F0</Color>
+    <Color x:Key="MaterialDesignBodyColor">#0F172A</Color>
+    <Color x:Key="MaterialDesignBodyLightColor">#475569</Color>
+    <Color x:Key="MaterialDesignBodyDisabledColor">#94A3B8</Color>
+    
+    <!-- 状态颜色 -->
+    <Color x:Key="LightSuccessColor">#16A34A</Color>
+    <Color x:Key="LightWarningColor">#D97706</Color>
+    <Color x:Key="LightErrorColor">#EF4444</Color>
+    <Color x:Key="LightInfoColor">#3B82F6</Color>
+    
+    <!-- 应用卡片颜色 - 鲜明版 -->
+    <Color x:Key="AppIconBackgroundColor">#0EA5E9</Color>
+    <Color x:Key="AppOsTagBackgroundColor">#E0F2FE</Color>
+    <Color x:Key="AppOsTagTextColor">#0369A1</Color>
+    <Color x:Key="AppRunningTagBackgroundColor">#DCFCE7</Color>
+    <Color x:Key="AppRunningTagTextColor">#166534</Color>
+    <Color x:Key="AppInstalledTagBackgroundColor">#FEF3C7</Color>
+    <Color x:Key="AppInstalledTagTextColor">#B45309</Color>
+    
+    <!-- ==================== 2. 画笔资源 (Brush) ==================== -->
+    <SolidColorBrush x:Key="LightBackgroundBrush" Color="{StaticResource LightBackgroundColor}"/>
+    <SolidColorBrush x:Key="LightCardBackgroundBrush" Color="{StaticResource LightSurfaceColor}"/>
+    <SolidColorBrush x:Key="LightBorderBrush" Color="{StaticResource LightBorderColor}"/>
+    <SolidColorBrush x:Key="LightPrimaryTextBrush" Color="{StaticResource LightPrimaryTextColor}"/>
+    <SolidColorBrush x:Key="LightSecondaryTextBrush" Color="{StaticResource LightSecondaryTextColor}"/>
+    <SolidColorBrush x:Key="LightAccentBrush" Color="{StaticResource LightAccentColor}"/>
+    
+    <!-- MaterialDesign 画笔覆盖 -->
+    <SolidColorBrush x:Key="MaterialDesignPaper" Color="{StaticResource MaterialDesignPaperColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignPaperBrush" Color="{StaticResource MaterialDesignPaperColor}"/>
+    <SolidColorBrush x:Key="MaterialDesign50" Color="{StaticResource MaterialDesign50Color}"/>
+    <SolidColorBrush x:Key="MaterialDesignDivider" Color="{StaticResource MaterialDesignDividerColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBody" Color="{StaticResource MaterialDesignBodyColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBodyBrush" Color="{StaticResource MaterialDesignBodyColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBodyLight" Color="{StaticResource MaterialDesignBodyLightColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBodyLightBrush" Color="{StaticResource MaterialDesignBodyLightColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBodyDisabled" Color="{StaticResource MaterialDesignBodyDisabledColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBodyDisabledBrush" Color="{StaticResource MaterialDesignBodyDisabledColor}"/>
+    
+    <!-- 状态画笔 -->
+    <SolidColorBrush x:Key="LightSuccessBrush" Color="{StaticResource LightSuccessColor}"/>
+    <SolidColorBrush x:Key="LightWarningBrush" Color="{StaticResource LightWarningColor}"/>
+    <SolidColorBrush x:Key="LightErrorBrush" Color="{StaticResource LightErrorColor}"/>
+    <SolidColorBrush x:Key="LightInfoBrush" Color="{StaticResource LightInfoColor}"/>
+    
+    <!-- 应用卡片画笔 -->
+    <SolidColorBrush x:Key="AppIconBackgroundBrush" Color="{StaticResource AppIconBackgroundColor}"/>
+    <SolidColorBrush x:Key="AppOsTagBackgroundBrush" Color="{StaticResource AppOsTagBackgroundColor}"/>
+    <SolidColorBrush x:Key="AppOsTagTextBrush" Color="{StaticResource AppOsTagTextColor}"/>
+    <SolidColorBrush x:Key="AppRunningTagBackgroundBrush" Color="{StaticResource AppRunningTagBackgroundColor}"/>
+    <SolidColorBrush x:Key="AppRunningTagTextBrush" Color="{StaticResource AppRunningTagTextColor}"/>
+    <SolidColorBrush x:Key="AppInstalledTagBackgroundBrush" Color="{StaticResource AppInstalledTagBackgroundColor}"/>
+    <SolidColorBrush x:Key="AppInstalledTagTextBrush" Color="{StaticResource AppInstalledTagTextColor}"/>
+
+    <!-- 滚动条专用画笔 -->
+    <SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#EAF1F8"/>
+    <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#B8C8DA"/>
+    <SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#94AFC8"/>
+    <SolidColorBrush x:Key="ScrollBarThumbPressedBrush" Color="#7894B2"/>
+    <SolidColorBrush x:Key="ScrollBarButtonHoverBrush" Color="#94AFC8"/>
+    <SolidColorBrush x:Key="ScrollBarButtonPressedBrush" Color="#7894B2"/>
+    <SolidColorBrush x:Key="ScrollBarThumbDisabledBrush" Color="#D8E3F0"/>
+
+    <!-- ==================== 统一资源别名 (适配 MainWindow.xaml) ==================== -->
+    <!-- 这些别名允许 MainWindow.xaml 使用通用名称，主题切换时自动切换 -->
+    <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource LightBackgroundColor}"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource LightSurfaceColor}"/>
+    <SolidColorBrush x:Key="SurfaceLightBrush" Color="#F8FBFF"/>
+    <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#EDF4FB"/>
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource LightBorderColor}"/>
+    <SolidColorBrush x:Key="BorderLightBrush" Color="#B8C8DA"/>
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource LightPrimaryTextColor}"/>
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="{StaticResource LightSecondaryTextColor}"/>
+    <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource LightSecondaryTextColor}"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource LightAccentColor}"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource LightSuccessColor}"/>
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource LightWarningColor}"/>
+    <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource LightErrorColor}"/>
+    <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource LightInfoColor}"/>
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{StaticResource LightSurfaceColor}"/>
+    <SolidColorBrush x:Key="CardHoverBrush" Color="#F8FBFF"/>
+    <Color x:Key="AccentColor">#0EA5E9</Color>
+    <Color x:Key="AccentLightColor">#38BDF8</Color>
+    <Color x:Key="SurfaceLighterColor">#EAF4FD</Color>
+    <Color x:Key="PrimaryColor">#0EA5E9</Color>
+    <Color x:Key="PrimaryLightColor">#38BDF8</Color>
+    <Color x:Key="PrimaryDarkColor">#0369A1</Color>
+    <Color x:Key="SecondaryColor">#14B8A6</Color>
+    <Color x:Key="BackgroundColor">#F4F7FB</Color>
+    <Color x:Key="SurfaceColor">#FFFFFF</Color>
+    <Color x:Key="SurfaceLightColor">#F8FBFF</Color>
+    <Color x:Key="SurfaceDarkColor">#EDF4FB</Color>
+    <Color x:Key="TextPrimaryColor">#0F172A</Color>
+    <Color x:Key="TextSecondaryColor">#475569</Color>
+    <Color x:Key="TextDisabledColor">#94A3B8</Color>
+    <Color x:Key="SuccessColor">#16A34A</Color>
+    <Color x:Key="WarningColor">#D97706</Color>
+    <Color x:Key="ErrorColor">#EF4444</Color>
+    <Color x:Key="InfoColor">#3B82F6</Color>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#A7E1F8"/>
+    <SolidColorBrush x:Key="AccentSubtleBrush" Color="#E6F6FE"/>
+    <SolidColorBrush x:Key="SurfaceLighterBrush" Color="{StaticResource SurfaceLighterColor}"/>
+    <SolidColorBrush x:Key="MaterialDesignBackground" Color="#EDF4FB"/>
+    <SolidColorBrush x:Key="PrimaryForegroundColor" Color="{StaticResource LightPrimaryTextColor}"/>
+
+    <!-- ==================== 3. 基础样式 ==================== -->
+    <Style x:Key="LightCardBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    
+    <!-- 通用 Border 样式 (自动应用于所有 Border) -->
+    <Style TargetType="Border" BasedOn="{StaticResource LightCardBorderStyle}"/>
+    
+    <!-- ==================== TextBlock 样式 ==================== -->
+    <Style x:Key="LightPrimaryTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
+    
+    <Style x:Key="LightSecondaryTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightSecondaryTextBrush}"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+    
+    <!-- 通用 TextBlock 样式 -->
+    <Style TargetType="TextBlock" BasedOn="{StaticResource LightPrimaryTextStyle}"/>
+    
+    <!-- ==================== Button 样式 - 鲜明版 ==================== -->
+    <Style x:Key="LightFlatButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="#7C3AED"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="4">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#7C3AED" Opacity="0.3" BlurRadius="8" ShadowDepth="2"/>
+                        </Border.Effect>
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#A78BFA"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter Property="Background" Value="#5B21B6"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+    <!-- MaterialDesign 扁平按钮样式覆盖 -->
+    <Style x:Key="MaterialDesignFlatButton" TargetType="Button" BasedOn="{StaticResource LightFlatButtonStyle}"/>
+
+    <!-- MaterialDesign 工具按钮样式 - 鲜明版 -->
+    <Style x:Key="MaterialDesignToolButton" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource LightSecondaryTextBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            Padding="8,4"
+                            CornerRadius="4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#EDE9FE"/>
+                            <Setter Property="Foreground" Value="#7C3AED"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+    <!-- 通用 Button 样式 -->
+    <Style TargetType="Button" BasedOn="{StaticResource LightFlatButtonStyle}"/>
+    
+    <!-- ==================== ListBox 样式 ==================== -->
+    <Style x:Key="LightListBoxStyle" TargetType="ListBox">
+        <Setter Property="Background" Value="{StaticResource LightBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+        <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+        <Setter Property="SelectionMode" Value="Extended"/>
+    </Style>
+    
+    <!-- ListBoxItem 样式 -->
+    <Style x:Key="LightListBoxItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource LightAccentBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource LightBackgroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+    <!-- 通用 ListBox 样式 -->
+    <Style TargetType="ListBox" BasedOn="{StaticResource LightListBoxStyle}"/>
+    <Style TargetType="ListBoxItem" BasedOn="{StaticResource LightListBoxItemStyle}"/>
+    
+    <!-- ==================== DataGrid 样式 ==================== -->
+    <Style x:Key="LightDataGridStyle" TargetType="DataGrid">
+        <Setter Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="RowBackground" Value="{StaticResource LightBackgroundBrush}"/>
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource LightBackgroundBrush}"/>
+        <Setter Property="ColumnHeaderHeight" Value="32"/>
+        <Setter Property="RowHeight" Value="40"/>
+    </Style>
+    
+    <!-- 通用 DataGrid 样式 -->
+    <Style TargetType="DataGrid" BasedOn="{StaticResource LightDataGridStyle}"/>
+    
+    <!-- ==================== TextBox 样式 ==================== -->
+    <Style x:Key="LightTextBoxStyle" TargetType="TextBox">
+        <Setter Property="Background" Value="{StaticResource LightBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="materialDesign:HintAssist.Foreground" Value="{StaticResource LightSecondaryTextBrush}"/>
+    </Style>
+    
+    <!-- 通用 TextBox 样式 -->
+    <Style TargetType="TextBox" BasedOn="{StaticResource LightTextBoxStyle}"/>
+    
+    <!-- ==================== ComboBox 样式 ==================== -->
+    <Style x:Key="LightComboBoxStyle" TargetType="ComboBox">
+        <Setter Property="Background" Value="{StaticResource LightBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="materialDesign:HintAssist.Foreground" Value="{StaticResource LightSecondaryTextBrush}"/>
+    </Style>
+    
+    <!-- ComboBoxItem 样式 -->
+    <Style x:Key="LightComboBoxItemStyle" TargetType="ComboBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Border"
+                            Background="{TemplateBinding Background}"
+                            Padding="4">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource LightAccentBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource LightBackgroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Border" Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+    <!-- 通用 ComboBox 样式 -->
+    <Style TargetType="ComboBox" BasedOn="{StaticResource LightComboBoxStyle}"/>
+    <Style TargetType="ComboBoxItem" BasedOn="{StaticResource LightComboBoxItemStyle}"/>
+    
+    <!-- ==================== 6. 组件样式 (ScrollBar, ScrollViewer, ProgressBar) ==================== -->
+
+    <!-- ProgressBar 样式 -->
+    <Style x:Key="LightProgressBarStyle" TargetType="ProgressBar">
+        <Setter Property="Height" Value="8"/>
+        <Setter Property="Minimum" Value="0"/>
+        <Setter Property="Maximum" Value="100"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid>
+                        <Border x:Name="ProgressBarBackground"
+                                Background="{StaticResource LightBorderBrush}"
+                                CornerRadius="4"/>
+                        <Border x:Name="ProgressBarPart"
+                                Background="{StaticResource LightAccentBrush}"
+                                CornerRadius="4"
+                                HorizontalAlignment="Left"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="ProgressBar" BasedOn="{StaticResource LightProgressBarStyle}"/>
+
+    <!-- ScrollBar 样式 -->
+    <Style x:Key="ScrollBarStyle" TargetType="ScrollBar">
+        <Setter Property="Stylus.IsFlicksEnabled" Value="false"/>
+        <Setter Property="Foreground" Value="{StaticResource ScrollBarThumbBrush}"/>
+        <Setter Property="Background" Value="{StaticResource ScrollBarTrackBrush}"/>
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="MinWidth" Value="12"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid x:Name="GridRoot" Background="{StaticResource ScrollBarTrackBrush}">
+                        <!-- 垂直滚动条 -->
+                        <Grid x:Name="VerticalGrid">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <RepeatButton x:Name="ButtonUp" Command="ScrollBar.LineUpCommand" Grid.Row="0" Focusable="false">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="Transparent" Height="12">
+                                            <Path x:Name="ArrowPath" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                                  Data="M 0,4 L 4,0 L 8,4" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                                                  Stretch="Uniform" Height="6" Width="6"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="true">
+                                                <Setter TargetName="ArrowPath" Property="Stroke" Value="{StaticResource ScrollBarButtonHoverBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsPressed" Value="true">
+                                                <Setter TargetName="ArrowPath" Property="Stroke" Value="{StaticResource ScrollBarButtonPressedBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                            <Track x:Name="PART_Track" Grid.Row="1" IsDirectionReversed="true">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="false"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Background="{TemplateBinding Foreground}">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbBorder" Background="{TemplateBinding Background}" CornerRadius="4" Width="8"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="true">
+                                                        <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollBarThumbHoverBrush}"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="true">
+                                                        <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollBarThumbPressedBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="false"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                            <RepeatButton x:Name="ButtonDown" Command="ScrollBar.LineDownCommand" Grid.Row="2" Focusable="false">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="Transparent" Height="12">
+                                            <Path x:Name="ArrowPath" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                                  Data="M 0,0 L 4,4 L 8,0" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                                                  Stretch="Uniform" Height="6" Width="6"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="true">
+                                                <Setter TargetName="ArrowPath" Property="Stroke" Value="{StaticResource ScrollBarButtonHoverBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsPressed" Value="true">
+                                                <Setter TargetName="ArrowPath" Property="Stroke" Value="{StaticResource ScrollBarButtonPressedBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                        </Grid>
+                        <!-- 水平滚动条 -->
+                        <Grid x:Name="HorizontalGrid" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <RepeatButton Command="ScrollBar.LineLeftCommand" Grid.Column="0" Focusable="false">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="Transparent" Width="12">
+                                            <Path HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                                  Data="M 4,0 L 0,4 L 4,8" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                                                  Stretch="Uniform" Height="6" Width="6"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                            <Track x:Name="PART_HorizontalTrack" Grid.Column="1">
+                                <Track.Thumb>
+                                    <Thumb Background="{TemplateBinding Foreground}">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbBorder" Background="{TemplateBinding Background}" CornerRadius="4" Height="8"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                            <RepeatButton Command="ScrollBar.LineRightCommand" Grid.Column="2" Focusable="false">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="Transparent" Width="12">
+                                            <Path HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                                  Data="M 0,0 L 4,4 L 0,8" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                                                  Stretch="Uniform" Height="6" Width="6"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                        </Grid>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter TargetName="VerticalGrid" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="HorizontalGrid" Property="Visibility" Value="Visible"/>
+                            <Setter Property="Height" Value="12"/>
+                            <Setter Property="MinHeight" Value="12"/>
+                            <Setter Property="Width" Value="Auto"/>
+                            <Setter Property="MinWidth" Value="0"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="false">
+                            <Setter Property="Foreground" Value="{StaticResource ScrollBarThumbDisabledBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ScrollViewer 样式 -->
+    <Style x:Key="ScrollViewerStyle" TargetType="ScrollViewer">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <ScrollContentPresenter Grid.Column="0" Grid.Row="0" Margin="{TemplateBinding Padding}"/>
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Grid.Row="0" 
+                                   Value="{TemplateBinding VerticalOffset}" 
+                                   Maximum="{TemplateBinding ScrollableHeight}" 
+                                   ViewportSize="{TemplateBinding ViewportHeight}" 
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                   Style="{StaticResource ScrollBarStyle}"/>
+                        <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Column="0" Grid.Row="1" 
+                                   Value="{TemplateBinding HorizontalOffset}" 
+                                   Maximum="{TemplateBinding ScrollableWidth}" 
+                                   ViewportSize="{TemplateBinding ViewportWidth}" 
+                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                                   Style="{StaticResource ScrollBarStyle}" 
+                                   Orientation="Horizontal"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="ScrollViewer" BasedOn="{StaticResource ScrollViewerStyle}"/>
+    
+    <!-- ==================== Window 样式 ==================== -->
+    <Style x:Key="LightWindowStyle" TargetType="Window">
+        <Setter Property="Background" Value="{StaticResource LightBackgroundBrush}"/>
+    </Style>
+    
+    <!-- ==================== ContextMenu 样式 ==================== -->
+    <Style x:Key="LightContextMenuStyle" TargetType="ContextMenu">
+        <Setter Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource LightPrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LightBorderBrush}"/>
+    </Style>
+    
+    <!-- ==================== 日志相关样式 ==================== -->
+    <Style x:Key="LightLogInfoStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightInfoBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+    
+    <Style x:Key="LightLogSuccessStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightSuccessBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+    
+    <Style x:Key="LightLogWarningStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightWarningBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+    
+    <Style x:Key="LightLogErrorStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LightErrorBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+
+</ResourceDictionary>

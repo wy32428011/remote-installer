@@ -1,0 +1,922 @@
+﻿<Window
+    x:Class="RemoteInstaller.Views.Dialogs.SupportDeployDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:local="clr-namespace:RemoteInstaller.Models"
+    Title="{Binding WindowTitle}"
+    Width="1000"
+    Height="750"
+    MinWidth="900"
+    MinHeight="650"
+    WindowStartupLocation="CenterOwner"
+    ResizeMode="CanResize"
+    Background="{DynamicResource BackgroundBrush}">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0"
+                Padding="16"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource CornerRadiusLarge}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="{Binding WindowTitle}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBlock Text="{Binding HostDisplay}"
+                               FontSize="12"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <!-- 鐘舵€佹寚绀?-->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="12" Height="12" Margin="0,0,8,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource SecondaryTextBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding AppStatus}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 鎿嶄綔鎸夐挳 -->
+        <WrapPanel Grid.Row="1" Margin="0,12,0,0">
+            <Button Style="{StaticResource PrimaryButtonStyle}"
+                    Command="{Binding StartCommand}"
+                    IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"
+                    Padding="16,8" Margin="0,0,8,8">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Play" Width="16" Height="16"/>
+                    <TextBlock Margin="6,0,0,0" Text="启动"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource SecondaryButtonStyle}"
+                    Command="{Binding StopCommand}"
+                    IsEnabled="{Binding IsRunning}"
+                    Padding="16,8" Margin="0,0,8,8">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Stop" Width="16" Height="16"/>
+                    <TextBlock Margin="6,0,0,0" Text="停止"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource SecondaryButtonStyle}"
+                    Command="{Binding RestartCommand}"
+                    Padding="16,8" Margin="0,0,8,8">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Restart" Width="16" Height="16"/>
+                    <TextBlock Margin="6,0,0,0" Text="重启"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource ToolButtonStyle}"
+                    Command="{Binding CheckStatusCommand}"
+                    Padding="12,8" Margin="0,0,8,8">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Refresh" Width="16" Height="16"/>
+                    <TextBlock Margin="6,0,0,0" Text="刷新"/>
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+
+        <!-- 主内容区 - TabControl -->
+        <TabControl Grid.Row="2" Margin="0,12,0,0" Style="{StaticResource MaterialDesignTabControl}">
+            <!-- 上传标签页 -->
+            <TabItem Header="上传部署">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Grid Margin="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 后端上传 -->
+                        <Border Grid.Column="0"
+                                Margin="0,0,8,0"
+                                Padding="16"
+                                Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource CornerRadiusLarge}">
+                            <StackPanel>
+                                <TextBlock Text="后端上传"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                                <TextBlock Text="本地后端目录" Margin="0,12,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding LocalSourcePath, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Grid.Column="1" Margin="8,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding BrowseFolderCommand}" Padding="12,6">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                            <TextBlock Margin="4,0,0,0" Text="浏览"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <TextBlock Text="远程目录" Margin="0,12,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Text="{Binding RemoteDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding LoadDirectoryCommand}"
+                                            Padding="10,6">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                            <TextBlock Margin="4,0,0,0" Text="加载"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <!-- 远程目录缁撴瀯 -->
+                                <Border Margin="0,8,0,0"
+                                        MaxHeight="200"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        CornerRadius="{StaticResource CornerRadiusMedium}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TreeView Grid.Row="0"
+                                                  ItemsSource="{Binding DirectoryItems}"
+                                                  SelectedItemChanged="TreeView_SelectedItemChanged"
+                                                  Background="Transparent"
+                                                  BorderThickness="0"
+                                                  Margin="4">
+                                            <TreeView.Resources>
+                                                <HierarchicalDataTemplate DataType="{x:Type local:DirectoryItem}" ItemsSource="{Binding Children}">
+                                                    <StackPanel Orientation="Horizontal" Margin="2,3">
+                                                        <materialDesign:PackIcon Width="16" Height="16" VerticalAlignment="Center">
+                                                            <materialDesign:PackIcon.Style>
+                                                                <Style TargetType="materialDesign:PackIcon">
+                                                                    <Setter Property="Kind" Value="File"/>
+                                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                                                                            <Setter Property="Kind" Value="Folder"/>
+                                                                            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </materialDesign:PackIcon.Style>
+                                                        </materialDesign:PackIcon>
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   Margin="8,0,0,0"
+                                                                   VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                    </StackPanel>
+                                                </HierarchicalDataTemplate>
+                                            </TreeView.Resources>
+                                            <TreeView.ItemContainerStyle>
+                                                <Style TargetType="TreeViewItem" BasedOn="{StaticResource MaterialDesignTreeViewItem}">
+                                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                                    <EventSetter Event="Collapsed" Handler="TreeViewItem_Collapsed"/>
+                                                    <EventSetter Event="Expanded" Handler="TreeViewItem_Expanded"/>
+                                                </Style>
+                                            </TreeView.ItemContainerStyle>
+                                        </TreeView>
+                                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="8,4,8,8">
+                                            <Button Style="{StaticResource SecondaryButtonStyle}"
+                                                    Command="{Binding ReplaceFileCommand}"
+                                                    Padding="12,6"
+                                                    IsEnabled="{Binding SelectedDirectoryItem, Converter={StaticResource NullToBoolConverter}}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <materialDesign:PackIcon Kind="FileReplace" Width="14" Height="14"/>
+                                                    <TextBlock Margin="4,0,0,0" Text="替换文件"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <TextBlock Text="{Binding SelectedDirectoryItem.RemotePath, StringFormat='已选择: {0}'}"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <Button Margin="0,16,0,0"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding UploadCommand}"
+                                        HorizontalAlignment="Left"
+                                        Padding="20,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="CloudUpload" Width="16" Height="16"/>
+                                        <TextBlock Margin="6,0,0,0" Text="上传到服务器"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 前端上传 -->
+                        <Border Grid.Column="1"
+                                Margin="8,0,0,0"
+                                Padding="16"
+                                Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource CornerRadiusLarge}">
+                            <StackPanel>
+                                <TextBlock Text="前端上传"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                                <TextBlock Text="本地前端目录" Margin="0,12,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding LocalFrontendPath, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Grid.Column="1" Margin="8,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding BrowseFrontendFolderCommand}" Padding="12,6">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                            <TextBlock Margin="4,0,0,0" Text="浏览"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <TextBlock Text="前端远程目录" Margin="0,12,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <TextBox Text="{Binding RemoteFrontendDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                <Button Margin="0,16,0,0"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding UploadFrontendCommand}"
+                                        HorizontalAlignment="Left"
+                                        Padding="20,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="CloudUpload" Width="16" Height="16"/>
+                                        <TextBlock Margin="6,0,0,0" Text="上传前端"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- 脚本编辑标签页 -->
+            <TabItem Header="脚本编辑">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                    <!-- 启动脚本 -->
+                    <Border Grid.Row="0" Grid.Column="0"
+                            Margin="0,0,8,8"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CornerRadiusLarge}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,12,12,8">
+                                <materialDesign:PackIcon Kind="ScriptText" Width="16" Height="16"
+                                                         Foreground="{DynamicResource AccentBrush}"
+                                                         VerticalAlignment="Center"/>
+                                <TextBlock Text="启动脚本 (start.sh)"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <TextBox Grid.Row="1"
+                                     Margin="12,0,12,12"
+                                     Text="{Binding StartScriptContent, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     FontSize="12"
+                                     Background="Transparent"
+                                     BorderThickness="0"/>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12,0,12,12">
+                                <Button Padding="10,6"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding LoadStartScriptCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Download" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="加载"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding SaveStartScriptCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Upload" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="保存"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 停止脚本 -->
+                    <Border Grid.Row="0" Grid.Column="1"
+                            Margin="8,0,0,8"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CornerRadiusLarge}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,12,12,8">
+                                <materialDesign:PackIcon Kind="ScriptText" Width="16" Height="16"
+                                                         Foreground="{DynamicResource WarningBrush}"
+                                                         VerticalAlignment="Center"/>
+                                <TextBlock Text="停止脚本 (stop.sh)"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <TextBox Grid.Row="1"
+                                     Margin="12,0,12,12"
+                                     Text="{Binding StopScriptContent, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     FontSize="12"
+                                     Background="Transparent"
+                                     BorderThickness="0"/>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12,0,12,12">
+                                <Button Padding="10,6"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding LoadStopScriptCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Download" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="加载"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding SaveStopScriptCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Upload" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="保存"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 配置文件 - 跨越两列 -->
+                    <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                            Margin="0,8,0,0"
+                            Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CornerRadiusLarge}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="12,12,12,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <materialDesign:PackIcon Kind="FileDocument" Width="16" Height="16"
+                                                         Foreground="{DynamicResource AccentBrush}"
+                                                         VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="配置文件"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"/>
+
+                                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                    <Button Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding LoadConfigDirectoryCommand}"
+                                            Padding="10,6">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                            <TextBlock Margin="4,0,0,0" Text="加载目录"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Text="{Binding SelectedConfigFileItem.RemotePath, StringFormat='已选择: {0}'}"
+                                               Margin="12,0,0,0"
+                                               VerticalAlignment="Center"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 配置文件列表 -->
+                            <Border Grid.Row="1"
+                                    Margin="12,0,12,8"
+                                    MaxHeight="100"
+                                    Background="{DynamicResource SurfaceLightBrush}"
+                                    CornerRadius="{StaticResource CornerRadiusMedium}">
+                                <TreeView ItemsSource="{Binding ConfigFileItems}"
+                                          SelectedItemChanged="ConfigFileTreeView_SelectedItemChanged"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Margin="4">
+                                    <TreeView.Resources>
+                                        <HierarchicalDataTemplate DataType="{x:Type local:DirectoryItem}" ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal" Margin="2,3">
+                                                <materialDesign:PackIcon Width="16" Height="16" VerticalAlignment="Center">
+                                                    <materialDesign:PackIcon.Style>
+                                                        <Style TargetType="materialDesign:PackIcon">
+                                                            <Setter Property="Kind" Value="File"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                                                                    <Setter Property="Kind" Value="Folder"/>
+                                                                    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </materialDesign:PackIcon.Style>
+                                                </materialDesign:PackIcon>
+                                                <TextBlock Text="{Binding Name}"
+                                                           Margin="8,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                            </StackPanel>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.Resources>
+                                    <TreeView.ItemContainerStyle>
+                                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource MaterialDesignTreeViewItem}">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                            <EventSetter Event="Expanded" Handler="ConfigFileTreeViewItem_Expanded"/>
+                                        </Style>
+                                    </TreeView.ItemContainerStyle>
+                                </TreeView>
+                            </Border>
+
+                            <Grid Grid.Row="2" Margin="12,0,12,12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <DataGrid
+                                    AutoGenerateColumns="False"
+                                    CanUserAddRows="False"
+                                    CanUserDeleteRows="False"
+                                    HeadersVisibility="Column"
+                                    GridLinesVisibility="Horizontal"
+                                    IsReadOnly="{Binding IsBusy}"
+                                    ItemsSource="{Binding ConfigItems}"
+                                    SelectedItem="{Binding SelectedConfigItem, Mode=TwoWay}">
+                                    <DataGrid.Style>
+                                        <Style TargetType="DataGrid">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsYamlMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </DataGrid.Style>
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn
+                                            Width="2*"
+                                            Header="Key"
+                                            Binding="{Binding Key, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <DataGridTextColumn
+                                            Width="3*"
+                                            Header="Value"
+                                            Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <TreeView ItemsSource="{Binding YamlTreeNodes}"
+                                          SelectedItemChanged="YamlConfigTreeView_SelectedItemChanged"
+                                          Background="{DynamicResource SurfaceLightBrush}"
+                                          BorderBrush="{DynamicResource BorderBrush}"
+                                          BorderThickness="1"
+                                          Foreground="{DynamicResource PrimaryTextBrush}">
+                                    <TreeView.Style>
+                                        <Style TargetType="TreeView">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsYamlMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TreeView.Style>
+                                    <TreeView.ItemContainerStyle>
+                                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource MaterialDesignTreeViewItem}">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="MinHeight" Value="24"/>
+                                            <Setter Property="Padding" Value="2,0,2,0"/>
+                                            <Setter Property="Margin" Value="0,1,0,1"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource SurfaceElevatedBrush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TreeView.ItemContainerStyle>
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <Grid Margin="0,1" HorizontalAlignment="Stretch">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*"/>
+                                                    <ColumnDefinition Width="3*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           VerticalAlignment="Center"
+                                                           Text="{Binding DisplayKey}"
+                                                           Foreground="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=Foreground}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Children.Count}" Value="0">
+                                                                    <Setter Property="FontWeight" Value="Normal"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBox Grid.Column="1"
+                                                         Margin="8,0,0,0"
+                                                         VerticalContentAlignment="Center"
+                                                         MinHeight="24"
+                                                         Padding="6,2"
+                                                         Text="{Binding Value, UpdateSourceTrigger=LostFocus}"
+                                                         IsEnabled="{Binding IsEditable}"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         Background="{DynamicResource SurfaceBrush}"
+                                                         BorderBrush="{DynamicResource BorderBrush}"
+                                                         CaretBrush="{DynamicResource AccentBrush}">
+                                                    <TextBox.Style>
+                                                        <Style TargetType="TextBox">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding Children.Count}" Value="0"/>
+                                                                        <Condition Binding="{Binding IsEditable}" Value="True"/>
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </MultiDataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBox.Style>
+                                                </TextBox>
+                                            </Grid>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+
+                                <TextBox Text="{Binding ConfigFileContent, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True"
+                                         TextWrapping="NoWrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"
+                                         FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="12"
+                                         Padding="10">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Margin="0,8,0,0"
+                                    FontSize="12"
+                                    Foreground="{DynamicResource SecondaryTextBrush}"
+                                    Text="注释与空行按原样保留；YAML 支持树形新增/删除；XML 为原文编辑。"/>
+                            </Grid>
+
+                            <WrapPanel Grid.Row="3" Margin="12,0,12,12">
+                                <Button Padding="10,6"
+                                        Command="{Binding AddConfigItemCommand}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <TextBlock Text="新增项"/>
+                                </Button>
+                                <Button Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Command="{Binding RemoveSelectedConfigItemCommand}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <TextBlock Text="删除选中项"/>
+                                </Button>
+                                <Button Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding LoadConfigCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Download" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="加载"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Command="{Binding SaveConfigCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Upload" Width="14" Height="14"/>
+                                        <TextBlock Margin="4,0,0,0" Text="保存"/>
+                                    </StackPanel>
+                                </Button>
+                            </WrapPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="日志查看">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="360"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding LogDirectory, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="日志目录"/>
+                        <Button Grid.Column="1"
+                                Margin="8,0,0,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding LoadLogDirectoryCommand}"
+                                Padding="10,6">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                <TextBlock Margin="4,0,0,0" Text="加载目录"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Border Grid.Row="1" Grid.Column="0"
+                            Background="{DynamicResource SurfaceLightBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CornerRadiusMedium}">
+                        <TreeView ItemsSource="{Binding LogDirectoryItems}"
+                                  SelectedItemChanged="LogTreeView_SelectedItemChanged"
+                                  Background="Transparent"
+                                  BorderThickness="0"
+                                  Margin="4">
+                            <TreeView.Resources>
+                                <HierarchicalDataTemplate DataType="{x:Type local:DirectoryItem}" ItemsSource="{Binding Children}">
+                                    <StackPanel Orientation="Horizontal" Margin="2,3">
+                                        <materialDesign:PackIcon Width="16" Height="16" VerticalAlignment="Center">
+                                            <materialDesign:PackIcon.Style>
+                                                <Style TargetType="materialDesign:PackIcon">
+                                                    <Setter Property="Kind" Value="File"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                                                            <Setter Property="Kind" Value="Folder"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </materialDesign:PackIcon.Style>
+                                        </materialDesign:PackIcon>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                    </StackPanel>
+                                </HierarchicalDataTemplate>
+                            </TreeView.Resources>
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem" BasedOn="{StaticResource MaterialDesignTreeViewItem}">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    <EventSetter Event="Expanded" Handler="LogTreeViewItem_Expanded"/>
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                        </TreeView>
+                    </Border>
+
+                    <Border Grid.Row="1" Grid.Column="2"
+                            Background="{DynamicResource SurfaceLightBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CornerRadiusMedium}">
+                        <TextBox Text="{Binding LogFileContent}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Cascadia Mono, Consolas"
+                                 FontSize="12"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="10"/>
+                    </Border>
+
+                    <Grid Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="读取行数"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding LogReadLineCount, UpdateSourceTrigger=PropertyChanged}"
+                                 VerticalContentAlignment="Center"/>
+
+                        <Button Grid.Column="2"
+                                Margin="12,0,0,0"
+                                Padding="10,6"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding RefreshLogFileCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Refresh" Width="14" Height="14"/>
+                                <TextBlock Margin="4,0,0,0" Text="刷新"/>
+                            </StackPanel>
+                        </Button>
+
+                        <TextBlock Grid.Column="3"
+                                   Text="{Binding SelectedLogFilePath, StringFormat='当前文件: {0}'}"
+                                   VerticalAlignment="Center"
+                                   Margin="12,0,0,0"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Footer -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="80"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0"
+                       Text="{Binding StatusMessage}"
+                       FontSize="12"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Margin="0,0,16,8"/>
+
+            <ProgressBar Grid.Row="0" Grid.Column="0"
+                        Height="4"
+                        Minimum="0"
+                        Maximum="100"
+                        Value="{Binding UploadProgress}"
+                        Foreground="{DynamicResource AccentBrush}"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        Margin="0,0,16,0"
+                        VerticalAlignment="Bottom"/>
+
+            <Button Grid.Row="0" Grid.Column="1"
+                    Padding="20,8"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Command="{Binding CloseCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Close" Width="16" Height="16"/>
+                    <TextBlock Margin="6,0,0,0" Text="关闭"/>
+                </StackPanel>
+            </Button>
+
+            <TextBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                     Margin="0,8,0,0"
+                     Text="{Binding ActivityLog}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     FontFamily="Cascadia Mono, Consolas"
+                     FontSize="11"
+                     Background="{DynamicResource SurfaceLightBrush}"
+                     BorderThickness="0"
+                     Padding="12"/>
+        </Grid>
+    </Grid>
+</Window>

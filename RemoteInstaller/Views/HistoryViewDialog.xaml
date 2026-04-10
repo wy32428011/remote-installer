@@ -1,0 +1,242 @@
+<Window x:Class="RemoteInstaller.Views.HistoryViewDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="安装/卸载历史记录" Height="600" Width="1000"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="{DynamicResource BackgroundBrush}">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="安装/卸载历史记录"
+                       FontSize="24"
+                       FontWeight="Bold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+            <TextBlock Text="查看应用安装和卸载的历史记录"
+                       FontSize="14"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Text="服务器"
+                               FontSize="14"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Margin="0,0,4,4"/>
+                    <ComboBox x:Name="CboServer"
+                              Height="32"
+                              materialDesign:HintAssist.Hint="所有服务器"
+                              Background="{DynamicResource SurfaceElevatedBrush}"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                    <TextBlock Text="应用"
+                               FontSize="14"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Margin="0,0,4,4"/>
+                    <ComboBox x:Name="CboApplication"
+                              Height="32"
+                              materialDesign:HintAssist.Hint="所有应用"
+                              Background="{DynamicResource SurfaceElevatedBrush}"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" Margin="0,0,8,0">
+                    <TextBlock Text="状态"
+                               FontSize="14"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Margin="0,0,4,4"/>
+                    <ComboBox x:Name="CboStatus"
+                              Height="32"
+                              materialDesign:HintAssist.Hint="所有状态"
+                              Background="{DynamicResource SurfaceElevatedBrush}"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}">
+                        <ComboBoxItem Content="所有状态" Tag="-1"/>
+                        <ComboBoxItem Content="成功" Tag="3"/>
+                        <ComboBoxItem Content="失败" Tag="4"/>
+                        <ComboBoxItem Content="已取消" Tag="5"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel Grid.Column="6">
+                    <TextBlock Text="操作"
+                               FontSize="14"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Margin="0,0,4,4"/>
+                    <ComboBox x:Name="CboOperation"
+                              Height="32"
+                              materialDesign:HintAssist.Hint="所有操作"
+                              Background="{DynamicResource SurfaceElevatedBrush}"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
+                              BorderBrush="{DynamicResource BorderBrush}">
+                        <ComboBoxItem Content="所有操作" Tag="-1"/>
+                        <ComboBoxItem Content="安装" Tag="0"/>
+                        <ComboBoxItem Content="卸载" Tag="1"/>
+                    </ComboBox>
+                </StackPanel>
+            </Grid>
+
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Text="日期范围"
+                               FontSize="14"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               Margin="0,0,4,4"/>
+                    <DatePicker x:Name="DtpFrom"
+                                Height="32"
+                                Background="{DynamicResource SurfaceElevatedBrush}"
+                                Foreground="{DynamicResource PrimaryTextBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"/>
+                </StackPanel>
+
+                <TextBlock Grid.Column="1"
+                           Text="-"
+                           FontSize="14"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           VerticalAlignment="Center"
+                           Margin="8,0,8,0"/>
+
+                <StackPanel Grid.Column="2" Margin="0,0,16,0">
+                    <DatePicker x:Name="DtpTo"
+                                Height="32"
+                                Background="{DynamicResource SurfaceElevatedBrush}"
+                                Foreground="{DynamicResource PrimaryTextBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"/>
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button Content="重置"
+                        Width="80"
+                        Height="36"
+                        Margin="0,0,8,0"
+                        Click="BtnReset_Click"
+                        Style="{StaticResource SecondaryButtonStyle}"/>
+                <Button Content="筛选"
+                        Width="80"
+                        Height="36"
+                        Margin="0,0,8,0"
+                        Click="BtnFilter_Click"
+                        Style="{StaticResource PrimaryButtonStyle}"/>
+            </StackPanel>
+        </StackPanel>
+
+        <DataGrid x:Name="GridHistory"
+                  Grid.Row="2"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  EnableRowVirtualization="True"
+                  EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  VirtualizingPanel.ScrollUnit="Item"
+                  Background="{DynamicResource SurfaceBrush}"
+                  Foreground="{DynamicResource PrimaryTextBrush}"
+                  BorderBrush="{DynamicResource BorderBrush}"
+                  GridLinesVisibility="Horizontal"
+                  HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                  RowHeight="40"
+                  HeadersVisibility="Column">
+            <DataGrid.ColumnHeaderStyle>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="{DynamicResource SurfaceElevatedBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                    <Setter Property="Padding" Value="12,8"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                </Style>
+            </DataGrid.ColumnHeaderStyle>
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource SurfaceElevatedBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="服务器" Binding="{Binding HostName}" Width="120"/>
+                <DataGridTextColumn Header="应用" Binding="{Binding ApplicationName}" Width="100"/>
+                <DataGridTextColumn Header="版本" Binding="{Binding ApplicationVersion}" Width="80"/>
+                <DataGridTextColumn Header="操作" Binding="{Binding OperationTypeDisplayText}" Width="80"/>
+                <DataGridTemplateColumn Header="状态" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border Background="{Binding StatusColor}" CornerRadius="4" Padding="8,4">
+                                <TextBlock Text="{Binding StatusDisplayText}"
+                                           FontSize="12"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"/>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="开始时间"
+                                    Binding="{Binding StartTime, StringFormat='yyyy-MM-dd HH:mm:ss'}"
+                                    Width="140"/>
+                <DataGridTextColumn Header="结束时间"
+                                    Binding="{Binding EndTime, StringFormat='yyyy-MM-dd HH:mm:ss'}"
+                                    Width="140"/>
+                <DataGridTextColumn Header="耗时" Binding="{Binding DurationDisplayText}" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="查看详情"
+                    Width="100"
+                    Height="36"
+                    Margin="0,0,8,0"
+                    Click="BtnViewDetails_Click"
+                    Style="{StaticResource SecondaryButtonStyle}"/>
+            <Button Content="导出记录"
+                    Width="100"
+                    Height="36"
+                    Margin="0,0,8,0"
+                    Click="BtnExportCsv_Click"
+                    Style="{StaticResource SecondaryButtonStyle}"/>
+            <Button Content="关闭"
+                    Width="100"
+                    Height="36"
+                    Click="BtnClose_Click"
+                    Style="{StaticResource PrimaryButtonStyle}"/>
+        </StackPanel>
+    </Grid>
+</Window>

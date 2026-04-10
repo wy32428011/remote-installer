@@ -1,0 +1,351 @@
+<UserControl
+    x:Class="RemoteInstaller.Views.Controls.ScriptManagementControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:vm="clr-namespace:RemoteInstaller.ViewModels"
+    d:DataContext="{d:DesignInstance Type=vm:ScriptManagementViewModel}"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="350"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：上传和文件列表 -->
+        <Border Grid.Column="0"
+                Margin="0,0,8,0"
+                Padding="16"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource CornerRadiusLarge}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题 -->
+                <TextBlock Grid.Row="0"
+                           Text="脚本文件"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                <!-- 本地文件夹选择 -->
+                <StackPanel Grid.Row="1" Margin="0,16,0,0">
+                    <TextBlock Text="本地脚本文件夹" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding LocalScriptFolder, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Grid.Column="1"
+                                Margin="8,0,0,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Command="{Binding BrowseFolderCommand}"
+                                Padding="12,6">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                <TextBlock Margin="4,0,0,0" Text="浏览"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+
+                <!-- 远程目录 -->
+                <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                    <TextBlock Text="远程目录" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12"/>
+                    <TextBox Margin="0,6,0,0"
+                             Text="{Binding RemoteScriptDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="输入目录后点击上方「加载列表」直接加载"
+                               FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+
+                <!-- 追加单个脚本 -->
+                <Border Grid.Row="3"
+                        Margin="0,12,0,0"
+                        Padding="12"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        CornerRadius="{StaticResource CornerRadiusMedium}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0"
+                                   Text="追加单个脚本"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                        <Grid Grid.Row="1" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding LocalScriptFile, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="选择本地脚本文件"/>
+                            <Button Grid.Column="1"
+                                    Margin="8,0,0,0"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding BrowseFileCommand}"
+                                    Padding="12,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="FileOutline" Width="14" Height="14"/>
+                                    <TextBlock Margin="4,0,0,0" Text="文件"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2"
+                                    Margin="8,0,0,0"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Command="{Binding UploadSingleCommand}"
+                                    Padding="12,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Upload" Width="14" Height="14"/>
+                                    <TextBlock Margin="4,0,0,0" Text="上传"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <TextBlock Grid.Row="2"
+                                   Margin="0,6,0,0"
+                                   Text="{Binding RemoteScriptFileName, StringFormat='远程文件名: {0}'}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </Grid>
+                </Border>
+
+                <!-- 远程目录结构 -->
+                <Border Grid.Row="4"
+                        Margin="0,12,0,0"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        CornerRadius="{StaticResource CornerRadiusMedium}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="150"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
+                            <TextBlock Text="远程目录结构"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"/>
+                            <Button Margin="12,0,0,0"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding LoadDirectoryCommand}"
+                                    Padding="10,4"
+                                    ToolTip="加载远程目录结构">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                    <TextBlock Margin="4,0,0,0" Text="加载"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <TreeView Grid.Row="1"
+                                  ItemsSource="{Binding DirectoryItems}"
+                                  Margin="8,0,8,8"
+                                  Background="Transparent"
+                                  BorderThickness="0">
+                            <TreeView.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="2,4">
+                                        <materialDesign:PackIcon Width="16" Height="16" VerticalAlignment="Center">
+                                            <materialDesign:PackIcon.Style>
+                                                <Style TargetType="materialDesign:PackIcon">
+                                                    <Setter Property="Kind" Value="File"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                                                            <Setter Property="Kind" Value="Folder"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </materialDesign:PackIcon.Style>
+                                        </materialDesign:PackIcon>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                    </Grid>
+                </Border>
+
+                <!-- 脚本文件列表 -->
+                <Border Grid.Row="5"
+                        Margin="0,12,0,0"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        CornerRadius="{StaticResource CornerRadiusMedium}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
+                            <TextBlock Text="脚本列表"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <Button Margin="8,0,0,0"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding RefreshListCommand}"
+                                    Padding="10,4"
+                                    ToolTip="从远程目录加载脚本列表">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="FolderRefresh" Width="14" Height="14"/>
+                                    <TextBlock Margin="4,0,0,0" Text="加载列表"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <ListBox Grid.Row="1"
+                                 ItemsSource="{Binding ScriptFiles}"
+                                 SelectedItem="{Binding SelectedScriptFile}"
+                                 Margin="8,0,8,8"
+                                 Background="Transparent"
+                                 BorderThickness="0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="4,6">
+                                        <materialDesign:PackIcon Kind="ScriptText"
+                                                                 Width="16" Height="16"
+                                                                 Foreground="{DynamicResource AccentBrush}"
+                                                                 VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding FileName}"
+                                                   Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+
+                <!-- 上传按钮 -->
+                <Button Grid.Row="6"
+                        Margin="0,12,0,0"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Command="{Binding UploadCommand}"
+                        HorizontalAlignment="Left"
+                        Padding="16,8">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="CloudUpload" Width="16" Height="16"/>
+                        <TextBlock Margin="6,0,0,0" Text="上传文件夹"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- 右侧：脚本编辑 -->
+        <Border Grid.Column="1"
+                Margin="8,0,0,0"
+                Padding="16"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource CornerRadiusLarge}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题 -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                    <TextBlock Text="脚本编辑"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBlock Text="{Binding SelectedScriptFile.FileName, StringFormat=' - {0}'}"
+                               FontSize="14"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               VerticalAlignment="Center"
+                               Margin="8,0,0,0"/>
+                    <TextBlock Text=" *"
+                               FontSize="16"
+                               Foreground="{DynamicResource WarningBrush}"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </StackPanel>
+
+                <!-- 脚本内容编辑器 -->
+                <Border Grid.Row="1"
+                        Margin="0,12,0,0"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        CornerRadius="{StaticResource CornerRadiusMedium}">
+                    <TextBox Text="{Binding ScriptContent, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             FontFamily="Cascadia Mono, Consolas"
+                             FontSize="12"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="12"/>
+                </Border>
+
+                <!-- 进度条 -->
+                <ProgressBar Grid.Row="2"
+                             Margin="0,12,0,0"
+                             Height="6"
+                             Minimum="0"
+                             Maximum="100"
+                             Value="{Binding UploadProgress}"
+                             Foreground="{DynamicResource AccentBrush}"
+                             Background="{DynamicResource SurfaceLightBrush}"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                <!-- 状态和保存按钮 -->
+                <Grid Grid.Row="3" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding StatusMessage}"
+                               FontSize="12"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               VerticalAlignment="Center"/>
+
+                    <Button Grid.Column="1"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Command="{Binding SaveScriptCommand}"
+                            Padding="16,8">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="ContentSave" Width="16" Height="16"/>
+                            <TextBlock Margin="6,0,0,0" Text="保存"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

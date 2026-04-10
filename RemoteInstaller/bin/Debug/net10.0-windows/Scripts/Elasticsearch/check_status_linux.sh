@@ -1,0 +1,213 @@
+#!/bin/bash
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+echo "========================================"
+echo "      Elasticsearch 状态检测脚本"
+echo "========================================"
+
+# 初始化状态
+is_installed="false"
+is_running="false"
+version="未知"
+es_home=""
+
+HTTP_PORT=9200
+
+# 1. 检查安装情况
+echo -e "${YELLOW}1. 检查安装情况:${NC}"
+
+# 检查常见安装路径
+if [ -f /usr/share/elasticsearch/bin/elasticsearch ]; then
+    is_installed="true"
+    es_home="/usr/share/elasticsearch"
+    echo -e "Elasticsearch 已安装: ${GREEN}是 (系统包)${NC}"
+    echo -e "安装路径: $es_home"
+elif [ -f /opt/elasticsearch/bin/elasticsearch ]; then
+    is_installed="true"
+    es_home="/opt/elasticsearch"
+    echo -e "Elasticsearch 已安装: ${GREEN}是 (手动安装)${NC}"
+    echo -e "安装路径: $es_home"
+elif [ -f /usr/bin/elasticsearch ]; then
+    is_installed="true"
+    es_home="/usr"
+    echo -e "Elasticsearch 已安装: ${GREEN}是 (PATH)${NC}"
+elif command -v elasticsearch &> /dev/null; then
+    is_installed="true"
+    ES_PATH=$(which elasticsearch 2>/dev/null)
+    es_home=$(dirname "$(dirname "$ES_PATH")")
+    echo -e "Elasticsearch 已安装: ${GREEN}是 (命令)${NC}"
+    echo -e "路径: $ES_PATH"
+else
+    # 检查包管理器
+    if dpkg -l 2>/dev/null | grep -qE "^ii.*elasticsearch"; then
+        is_installed="true"
+        echo -e "Elasticsearch 已安装: ${GREEN}是 (Debian/Ubuntu)${NC}"
+        # 尝试确定安装路径
+        if [ -f /usr/share/elasticsearch/bin/elasticsearch ]; then
+            es_home="/usr/share/elasticsearch"
+        elif [ -f /usr/bin/elasticsearch ]; then
+            es_home="/usr"
+        fi
+    elif rpm -qa 2>/dev/null | grep -q "^elasticsearch"; then
+        is_installed="true"
+        echo -e "Elasticsearch 已安装: ${GREEN}是 (RedHat/CentOS)${NC}"
+        # 尝试确定安装路径
+        if [ -f /usr/share/elasticsearch/bin/elasticsearch ]; then
+            es_home="/usr/share/elasticsearch"
+        elif [ -f /usr/bin/elasticsearch ]; then
+            es_home="/usr"
+        fi
+    fi
+fi
+
+# 检查 systemd 服务
+if [ "$is_installed" = "false" ]; then
+    if systemctl list-units --all --type=service 2>/dev/null | grep -qi "elasticsearch"; then
+        is_installed="true"
+        echo -e "Elasticsearch 已安装: ${GREEN}是 (服务)${NC}"
+        # 尝试确定安装路径
+        if [ -f /usr/share/elasticsearch/bin/elasticsearch ]; then
+            es_home="/usr/share/elasticsearch"
+        elif [ -f /opt/elasticsearch/bin/elasticsearch ]; then
+            es_home="/opt/elasticsearch"
+        elif [ -f /usr/bin/elasticsearch ]; then
+            es_home="/usr"
+        fi
+    fi
+fi
+
+# 如果仍未安装
+if [ "$is_installed" = "false" ]; then
+    echo -e "Elasticsearch 已安装: ${RED}否${NC}"
+    echo ""
+    echo "--- MACHINE READABLE ---"
+    echo "INSTALLED: false"
+    echo "VERSION: 未知"
+    echo "RUNNING: false"
+    echo "PORT: $HTTP_PORT"
+    echo "------------------------"
+    echo -e "${RED}最终状态：未安装${NC}"
+    exit 0
+fi
+
+# 2. 获取版本信息
+echo -e "${YELLOW}2. 获取版本信息:${NC}"
+if [ -n "$es_home" ] && [ -f "$es_home/bin/elasticsearch" ]; then
+    v_out=$("$es_home/bin/elasticsearch" --version 2>&1) || true
+elif command -v elasticsearch &> /dev/null; then
+    v_out=$(elasticsearch --version 2>&1) || true
+fi
+
+if [ -n "$v_out" ]; then
+    version=$(echo "$v_out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z "$version" ]; then
+        version=$(echo "$v_out" | grep -oE 'version "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    fi
+fi
+echo -e "版本: ${GREEN}${version:-未知}${NC}"
+
+# 3. 检查运行进程
+echo -e "${YELLOW}3. 检查运行进程:${NC}"
+# 使用正确的模式匹配 elasticsearch 相关进程（包括 java 进程中包含 elasticsearch 的）
+es_pid=$(pgrep -f "elasticsearch" 2>/dev/null | head -n 1) || true
+if [ -n "$es_pid" ]; then
+    is_running="true"
+    echo -e "Elasticsearch 运行状态: ${GREEN}运行中 (PID: $es_pid)${NC}"
+    ps -p "$es_pid" -o pid,cmd --no-headers 2>/dev/null || true
+else
+    echo -e "Elasticsearch 运行状态: ${RED}未运行 (进程检测)${NC}"
+fi
+
+# 4. 检查端口监听
+echo -e "${YELLOW}4. 检查端口监听 ($HTTP_PORT):${NC}"
+port_open=false
+if command -v ss &> /dev/null; then
+    result=$(ss -tlnp 2>/dev/null | grep -E ":(9200|9201|9300)[[:space:]]" || true)
+elif command -v netstat &> /dev/null; then
+    result=$(netstat -tlnp 2>/dev/null | grep -E ":(9200|9201|9300)[[:space:]]" || true)
+fi
+
+if [ -n "$result" ]; then
+    echo -e "端口监听: ${GREEN}是${NC}"
+    echo "$result"
+    port_open=true
+    if [ "$is_running" = "false" ]; then
+        is_running="true"
+    fi
+else
+    echo -e "端口监听: ${RED}否 (端口未开放)${NC}"
+fi
+
+# 5. API 测试
+echo -e "${YELLOW}5. API 连接测试:${NC}"
+if command -v curl &> /dev/null; then
+    api_response=$(curl -s -k --connect-timeout 5 "http://localhost:$HTTP_PORT" 2>/dev/null) || true
+    if [ -n "$api_response" ]; then
+        echo -e "Elasticsearch API: ${GREEN}响应正常${NC}"
+
+        # 从 API 响应中提取版本 (ES 8.x JSON 结构: {"version":{"number":"8.x.x",...}})
+        api_version=$(echo "$api_response" | grep -oE '"number"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) || true
+        if [ -n "$api_version" ]; then
+            version="$api_version"
+            echo -e "API 版本: ${GREEN}$version${NC}"
+        fi
+
+        # 显示简要信息
+        cluster_name=$(echo "$api_response" | grep -oE '"cluster_name"[[:space:]]*:[[:space:]]*"[^"]+"' | cut -d'"' -f4) || true
+        if [ -n "$cluster_name" ]; then
+            echo -e "集群名称: ${BLUE}$cluster_name${NC}"
+        fi
+
+        is_running="true"
+    else
+        echo -e "Elasticsearch API: ${RED}无响应${NC}"
+    fi
+else
+    echo -e "${YELLOW}curl 不可用，跳过 API 测试${NC}"
+fi
+
+# 6. systemd 服务状态
+echo -e "${YELLOW}6. systemd 服务状态:${NC}"
+if command -v systemctl &> /dev/null; then
+    if systemctl is-active --quiet elasticsearch 2>/dev/null; then
+        echo -e "服务状态: ${GREEN}active (running)${NC}"
+        is_running="true"
+    elif systemctl list-units --all --type=service 2>/dev/null | grep -qi "elasticsearch"; then
+        echo -e "服务状态: ${YELLOW}已安装但未运行${NC}"
+    else
+        echo -e "服务状态: ${GRAY}未找到 systemd 服务${NC}"
+    fi
+else
+    echo -e "${GRAY}systemctl 不可用，跳过服务状态检查${NC}"
+fi
+
+# 输出机器可读的状态信息
+echo ""
+echo "--- MACHINE READABLE ---"
+echo "INSTALLED: $is_installed"
+echo "VERSION: ${version:-未知}"
+echo "RUNNING: $is_running"
+echo "PORT: $HTTP_PORT"
+echo "------------------------"
+
+# 最终状态摘要
+echo ""
+if [ "$is_installed" = "true" ]; then
+    if [ "$is_running" = "true" ]; then
+        echo -e "${GREEN}最终状态：已安装且运行中 (v${version:-未知})${NC}"
+        exit 0
+    else
+        echo -e "${YELLOW}最终状态：已安装但未运行${NC}"
+        exit 1
+    fi
+else
+    echo -e "${RED}最终状态：未安装${NC}"
+    exit 1
+fi
