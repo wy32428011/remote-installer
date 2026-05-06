@@ -40,6 +40,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _hostName, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -54,6 +55,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _ipAddress, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -68,6 +70,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _port, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -82,6 +85,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _username, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -96,6 +100,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _password, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -117,6 +122,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _authType, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -131,6 +137,7 @@ public partial class AddHostViewModel : ObservableObject
         {
             if (SetProperty(ref _keyPath, value))
             {
+                InvalidateConnectionTestIfEditing();
                 UpdateCanTestConnection();
                 UpdateCanSave();
             }
@@ -141,7 +148,14 @@ public partial class AddHostViewModel : ObservableObject
     public string KeyPassphrase
     {
         get => _keyPassphrase;
-        set => SetProperty(ref _keyPassphrase, value);
+        set
+        {
+            if (SetProperty(ref _keyPassphrase, value))
+            {
+                InvalidateConnectionTestIfEditing();
+                UpdateCanSave();
+            }
+        }
     }
 
     /// <summary>
@@ -158,6 +172,20 @@ public partial class AddHostViewModel : ObservableObject
                 UpdateOsTypeDisplay();
             }
         }
+    }
+
+    private string _osVersion = string.Empty;
+    public string OsVersion
+    {
+        get => _osVersion;
+        set => SetProperty(ref _osVersion, value);
+    }
+
+    private string _cpuArchitecture = string.Empty;
+    public string CpuArchitecture
+    {
+        get => _cpuArchitecture;
+        set => SetProperty(ref _cpuArchitecture, value);
     }
 
     /// <summary>
@@ -290,8 +318,9 @@ public partial class AddHostViewModel : ObservableObject
         AuthType = host.AuthType;
         KeyPath = host.KeyPath ?? string.Empty;
         OsType = host.OsType;
+        OsVersion = host.OsVersion;
+        CpuArchitecture = host.CpuArchitecture;
         GroupName = host.GroupName ?? string.Empty;
-        _connectionTested = true; // 编辑模式下视为已测试
 
         if (host.AuthType == AuthType.Password)
         {
@@ -302,8 +331,18 @@ public partial class AddHostViewModel : ObservableObject
             KeyPassphrase = EncryptionService.Decrypt(host.EncryptedKeyPassphrase ?? string.Empty);
         }
 
-        // 编辑模式下可以直接保存
+        _connectionTested = true; // 编辑模式下完成初始化后视为已测试
         UpdateCanSave();
+    }
+
+    private void InvalidateConnectionTestIfEditing()
+    {
+        if (_editingHost == null)
+        {
+            return;
+        }
+
+        _connectionTested = false;
     }
 
     /// <summary>
@@ -341,18 +380,16 @@ public partial class AddHostViewModel : ObservableObject
     /// </summary>
     private void UpdateCanSave()
     {
-        // 保存需要：基本信息有效 + 已测试连接成功（或编辑模式）
-        bool hasValidInfo = !string.IsNullOrWhiteSpace(HostName) 
-                          && !string.IsNullOrWhiteSpace(IpAddress) 
+        bool hasValidInfo = !string.IsNullOrWhiteSpace(HostName)
+                          && !string.IsNullOrWhiteSpace(IpAddress)
                           && IsValidIpAddress(IpAddress)
                           && Port >= 1 && Port <= 65535
                           && !string.IsNullOrWhiteSpace(Username)
                           && (AuthType != AuthType.Password || !string.IsNullOrWhiteSpace(Password))
                           && (AuthType != AuthType.PrivateKey || !string.IsNullOrWhiteSpace(KeyPath));
-        
-        // 添加模式需要测试连接成功，编辑模式可以直接保存
-        bool canSave = hasValidInfo && (_connectionTested || _editingHost != null);
-        
+
+        bool canSave = hasValidInfo && _connectionTested;
+
         CanSave = canSave && !IsBusy;
     }
 
@@ -378,11 +415,13 @@ public partial class AddHostViewModel : ObservableObject
             {
                 // 连接成功，自动设置操作系统类型
                 OsType = result.DetectedOsType;
+                OsVersion = result.DetectedOsVersion;
+                CpuArchitecture = result.DetectedCpuArchitecture;
                 _connectionTested = true;
                 TestSuccess = true;
                 TestResult = result.Message;
-                
-                _logger?.Info($"连接测试成功，检测到操作系统：{result.DetectedOsType}");
+
+                _logger?.Info($"连接测试成功，检测到操作系统：{result.DetectedOsType} {result.DetectedOsVersion} {result.DetectedCpuArchitecture}".Trim());
             }
             else
             {
@@ -439,8 +478,7 @@ public partial class AddHostViewModel : ObservableObject
                 return;
             }
 
-            // 添加模式下必须已测试连接
-            if (_editingHost == null && !_connectionTested)
+            if (!_connectionTested)
             {
                 SetError("请先测试连接以检测操作系统类型");
                 return;
@@ -583,6 +621,8 @@ public partial class AddHostViewModel : ObservableObject
             EncryptedKeyPassphrase = AuthType == AuthType.PrivateKey && !string.IsNullOrEmpty(KeyPassphrase)
                 ? EncryptionService.Encrypt(KeyPassphrase) : null,
             OsType = OsType,
+            OsVersion = OsVersion,
+            CpuArchitecture = CpuArchitecture,
             GroupName = string.IsNullOrWhiteSpace(GroupName) ? null : GroupName,
             Status = HostStatus.Unknown,
             CreatedAt = now,

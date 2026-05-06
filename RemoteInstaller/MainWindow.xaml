@@ -5,7 +5,7 @@
         xmlns:vm="clr-namespace:RemoteInstaller.ViewModels"
         xmlns:local="clr-namespace:RemoteInstaller.Views.Controls"
         Title="中鼎智能-软件研发-Remote Installer Console"
-        Height="760" Width="1280" MinHeight="560" MinWidth="960"
+        Height="720" Width="1180" MinHeight="500" MinWidth="820"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display"
@@ -15,20 +15,20 @@
     <Window.Resources>
     </Window.Resources>
 
-    <Grid Margin="24">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 濠碉紕鍋戦崐鏇㈡偉婵傜纾块柟缁㈠枛缁犳澘顭块懜闈涘閻忓骏绠撻弻?-->
+        <!-- 顶部标题和指标区域 -->
         <Border Grid.Row="0"
                 Background="{DynamicResource SurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource CornerRadiusXLarge}"
-                Padding="22,20"
+                Padding="14,10"
                 Effect="{StaticResource CardShadow}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -46,59 +46,102 @@
                                Style="{StaticResource PageTitleTextStyle}"/>
                     <TextBlock Text="Manage server status, app delivery, and task execution in one view."
                                Style="{StaticResource PageSubtitleTextStyle}"
-                               Margin="0,6,0,0"/>
+                               Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <WrapPanel Grid.Row="0"
                            Grid.Column="2"
                            HorizontalAlignment="Right"
                            VerticalAlignment="Top">
-                    <Border Style="{StaticResource MetricTileStyle}" Margin="0,0,10,0">
+                    <Border Style="{StaticResource MetricTileStyle}" Margin="0,0,8,0" Padding="10,8">
                         <StackPanel>
                             <TextBlock Text="Online Hosts" Style="{StaticResource SectionSubtitleTextStyle}"/>
                             <TextBlock Text="{Binding ConnectedCount}"
                                        Style="{StaticResource MetricValueTextStyle}"
-                                       Margin="0,8,0,0"/>
+                                       Margin="0,5,0,0"/>
                         </StackPanel>
                     </Border>
-                    <Border Style="{StaticResource MetricTileStyle}">
+                    <Border Style="{StaticResource MetricTileStyle}" Padding="10,8">
                         <StackPanel>
                             <TextBlock Text="Tasks" Style="{StaticResource SectionSubtitleTextStyle}"/>
                             <TextBlock Text="{Binding TaskCount}"
                                        Style="{StaticResource MetricValueTextStyle}"
-                                       Margin="0,8,0,0"/>
+                                       Margin="0,5,0,0"/>
                         </StackPanel>
                     </Border>
                 </WrapPanel>
 
-                <!-- 闁诲骸缍婂鑽ょ磽濮樿泛鐤鹃柛顐ｆ礀缁犺偐鈧箍鍎辩€氼喚绮欐繝鍥ㄧ厵缂佸顑欏Ο鈧梺?-->
-                <WrapPanel Grid.Row="1" Grid.Column="0" Margin="0,18,0,0">
+                <!-- 主要操作按钮区域 -->
+                <WrapPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,6,0,0">
                     <Button Content="&#x6DFB;&#x52A0;&#x670D;&#x52A1;&#x5668;"
                             Style="{StaticResource PrimaryButtonStyle}"
                             Command="{Binding AddHostCommand}"
-                            Margin="0,0,10,10"
-                            Padding="14,10"/>
+                            Margin="0,0,6,4"
+                            Padding="8,4"/>
                     <Button Content="&#x6279;&#x91CF;&#x68C0;&#x6D4B;"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding BatchCheckStatusCommand}"
                             IsEnabled="{Binding AreServersSelected}"
-                            Margin="0,0,10,10"
-                            Padding="14,10"/>
+                            Margin="0,0,6,4"
+                            Padding="8,4"/>
                     <Button Content="&#x6279;&#x91CF;&#x5B89;&#x88C5;"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding BatchInstallCommand}"
                             IsEnabled="{Binding CanRunBatchInstallAction}"
-                            Margin="0,0,10,10"
-                            Padding="14,10"/>
+                            Margin="0,0,6,4"
+                            Padding="8,4"/>
                     <Button Content="&#x6279;&#x91CF;&#x5378;&#x8F7D;"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding BatchUninstallCommand}"
                             IsEnabled="{Binding CanRunBatchUninstallAction}"
-                            Margin="0,0,10,10"
-                            Padding="14,10"/>
+                            Margin="0,0,6,4"
+                            Padding="8,4"/>
+                    <Button Content="&#x7EC8;&#x7AEF;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding OpenTerminalCommand}"
+                            IsEnabled="{Binding IsServerSelected}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Content="&#x81EA;&#x5B9A;&#x4E49;&#x5E94;&#x7528;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding OpenCustomAppDeployCommand}"
+                            IsEnabled="{Binding IsServerSelected}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Content="JDK &#x4E0A;&#x4F20;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding OpenJdkUploadCommand}"
+                            IsEnabled="{Binding IsServerSelected}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Content="&#x5386;&#x53F2;&#x8BB0;&#x5F55;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding ViewHistoryCommand}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Content="&#x8BBE;&#x7F6E;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding SettingsCommand}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Content="&#x65E5;&#x5FD7;"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding OpenLogViewerCommand}"
+                            Margin="0,0,6,4"
+                            Padding="8,5"/>
+                    <Button Style="{StaticResource ToolButtonStyle}"
+                            Command="{Binding ToggleThemeCommand}"
+                            ToolTip="Toggle theme"
+                            Width="32"
+                            Height="32"
+                            Margin="0,0,0,4">
+                        <materialDesign:PackIcon Kind="ThemeLightDark"
+                                                 Width="18"
+                                                 Height="18"/>
+                    </Button>
                 </WrapPanel>
 
-                <!-- 闂傚倷绶￠崑鍕囬鈧幊娆撳箣閿曗偓鐎氬鈧箍鍎遍幊搴綖閵堝置曢柨婵嗗暙婵′粙鏌￠崱娆忔灈闁哄苯鐭佺粻娑㈠棘鐠恒劌鈧帞绱撴担鎻掍壕?-->
+                <!-- 选中服务器数量提示 -->
                 <Border Grid.Row="0"
                         Grid.Column="1"
                         Style="{StaticResource StatusChipStyle}"
@@ -109,56 +152,17 @@
                     <TextBlock Text="{Binding SelectedServersCountDisplay}"
                                Style="{StaticResource StatusChipTextStyle}"/>
                 </Border>
-
-                <!-- 服务礁鎲￠悷銉╁储搜索鐤鹃柛顐ｆ礀缁€澶愭煟閺冨浂鍤欓柛妯绘尦閺岀喓绮欏▎鐐枅闂?-->
-                <WrapPanel Grid.Row="1" Grid.Column="2" Margin="16,18,0,0" HorizontalAlignment="Right">
-                    <Button Content="&#x7EC8;&#x7AEF;"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Command="{Binding OpenTerminalCommand}"
-                            IsEnabled="{Binding IsServerSelected}"
-                            Margin="0,0,10,10"
-                            Padding="12,10"/>
-                    <Button Content="&#x81EA;&#x5B9A;&#x4E49;&#x5E94;&#x7528;"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Command="{Binding OpenCustomAppDeployCommand}"
-                            IsEnabled="{Binding IsServerSelected}"
-                            Margin="0,0,10,10"
-                            Padding="12,10"/>
-                    <Button Content="&#x5386;&#x53F2;&#x8BB0;&#x5F55;"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Command="{Binding ViewHistoryCommand}"
-                            Margin="0,0,10,10"
-                            Padding="12,10"/>
-                    <Button Content="&#x8BBE;&#x7F6E;"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Command="{Binding SettingsCommand}"
-                            Margin="0,0,10,10"
-                            Padding="12,10"/>
-                    <Button Content="&#x65E5;&#x5FD7;"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Command="{Binding OpenLogViewerCommand}"
-                            Margin="0,0,10,10"
-                            Padding="12,10"/>
-                    <Button Style="{StaticResource ToolButtonStyle}"
-                            Command="{Binding ToggleThemeCommand}"
-                            ToolTip="Toggle theme"
-                            Width="42" Height="42"
-                            Margin="0,0,0,10">
-                        <materialDesign:PackIcon Kind="ThemeLightDark"
-                                                 Width="20" Height="20"/>
-                    </Button>
-                </WrapPanel>
             </Grid>
         </Border>
 
-        <!-- 濠电偞鍨堕幑渚€顢氳瀹曨剛鈧數纭堕崑鎾诲捶椤撶喎娈岄柣?-->
-        <Grid Grid.Row="1" Margin="0,20,0,0">
+        <!-- 主内容区域：左侧服务器列表，右侧应用和任务 -->
+        <Grid Grid.Row="1" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320" MinWidth="280"/> <!-- 服务礁鎲″缁樻叏閹绢噮鏁婇柡鍐ㄧ墕鐎氬鈧箍鍎遍幊搴綖閵堝置曢柨婵嗗暙婵″ジ记录…鎴滅敖闁?-->
+                <ColumnDefinition Width="252" MinWidth="200"/> <!-- 左侧服务器列表区域 -->
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 闁诲骸缍婂鑽ょ磽濮樿泛鐤鹃柛顐ｆ礀鐎氬鈧箍鍎遍幊搴綖閵堝置曢柨婵嗗暙婵″ジ记录…鎴滅敖闁?-->
+            <!-- 左侧服务器列表面板 -->
             <Border Grid.Column="0"
                     Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
@@ -173,11 +177,11 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- 服务礁鎼粔鏉懨洪顫偓?-->
+                    <!-- 服务器列表标题 -->
                     <Border Grid.Row="0"
                             Background="{DynamicResource SurfaceLightBrush}"
                             CornerRadius="{StaticResource CornerRadiusLarge}"
-                            Padding="16,12">
+                            Padding="12,10">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Stretch">
                             <TextBlock Text="&#x670D;&#x52A1;&#x5668;&#x5217;&#x8868;"
                                        FontSize="14"
@@ -196,8 +200,8 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- 服务胶鎳撻崥瀣垝鎼淬劌纾奸柕濞垮労濞?-->
-                    <Border Grid.Row="1" Margin="12,12,12,6">
+                    <!-- 搜索框 -->
+                    <Border Grid.Row="1" Margin="10,10,10,4">
                         <Border Background="{DynamicResource SurfaceLightBrush}"
                                 CornerRadius="{StaticResource CornerRadiusMedium}"
                                 Padding="6">
@@ -219,15 +223,15 @@
                         </Border>
                     </Border>
 
-                    <!-- 服务礁鎲＄敮鎺懳涘☉姘灊鐎广儱娲ㄦす铏箾閹存梹鍣伴柛?-->
-                    <Border Grid.Row="2" Margin="12,0,12,12">
+                    <!-- 分组筛选下拉框 -->
+                    <Border Grid.Row="2" Margin="10,0,10,10">
                         <ComboBox ItemsSource="{Binding GroupFilters}"
                                   SelectedItem="{Binding SelectedGroup}"
                                   Style="{StaticResource DarkComboBoxStyle}"
                                   FontSize="11"/>
                     </Border>
 
-                    <!-- 服务礁鎼悧鍡欑矓鐎涙ɑ鍙忛柣鏃傚帶闂傤垶鏌曟繛鍨姎闁诲繑鐟╅幃?-->
+                    <!-- 服务器列表 -->
                     <ScrollViewer Grid.Row="3"
                                   Style="{DynamicResource ScrollViewerStyle}"
                                   VerticalScrollBarVisibility="Auto"
@@ -242,12 +246,12 @@
                                  VirtualizingPanel.VirtualizationMode="Recycling">
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItemStyle}">
-                                    <Setter Property="Margin" Value="0,0,0,8"/>
+                                    <Setter Property="Margin" Value="0,0,0,6"/>
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="ListBoxItem">
                                                 <Border x:Name="Border"
-                                                        Padding="14,12"
+                                                        Padding="12,10"
                                                         Background="{DynamicResource SurfaceLightBrush}"
                                                         CornerRadius="{StaticResource CornerRadiusMedium}"
                                                         BorderBrush="{DynamicResource BorderBrush}"
@@ -352,15 +356,15 @@
                                                     ToolTip="&#x7F16;&#x8F91;&#x670D;&#x52A1;&#x5668;"
                                                     Command="{Binding DataContext.EditHostCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                                     CommandParameter="{Binding}"
-                                                    Padding="8,6"
-                                                    FontSize="11"/>
+                                                    Padding="6,4"
+                                                    FontSize="10"/>
                                             <Button Content="&#x5220;&#x9664;"
                                                     Style="{StaticResource ToolButtonStyle}"
                                                     ToolTip="&#x5220;&#x9664;&#x670D;&#x52A1;&#x5668;"
                                                     Command="{Binding DataContext.DeleteHostCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                                     CommandParameter="{Binding}"
-                                                    Padding="8,6"
-                                                    FontSize="11"
+                                                    Padding="6,4"
+                                                    FontSize="10"
                                                     Margin="6,0,0,0"/>
                                         </StackPanel>
                                     </Grid>
@@ -371,22 +375,23 @@
                 </Grid>
             </Border>
 
-            <!-- 服务礁鎲￠悷銉╁储搜索鐤鹃柛顐ｆ礀缁€鍐煕濞戝崬寮鹃柛鐔锋喘閺?-->
-            <Grid Grid.Column="1" Margin="12,0,0,0">
+            <!-- 右侧主内容区域 -->
+            <Grid Grid.Column="1" Margin="10,0,0,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="220"/> <!-- 服务礁鎲″缁樼箾閳ь剟鏌ｅ┑鎰珝鐎殿噮鍣ｆ俊鐑藉Ψ瑜忛宥夋⒑配涘﹦澧柟纰卞亰閹?-->
+                    <RowDefinition Height="6"/>
+                    <RowDefinition Height="96" MinHeight="72"/> <!-- 底部日志区域高度 -->
                 </Grid.RowDefinitions>
 
-                <!-- 服务礁鎼悧鍡欑矓鐎涙ɑ鍙忛柣鏃傚帶闂傤垶鏌曟繛鍨偓鎾舵崲配℃稒置欐い鎾楀啰浠梺?-->
+                <!-- 选中服务器信息栏 -->
                 <Border Grid.Row="0"
                         Background="{DynamicResource SurfaceBrush}"
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
                         CornerRadius="{StaticResource CornerRadiusLarge}"
-                        Margin="0,0,0,12"
-                        Padding="16,12"
+                        Margin="0,0,0,6"
+                        Padding="10,6"
                         Visibility="{Binding IsServerSelected, Converter={StaticResource BoolToVisibilityConverter}}"
                         Effect="{StaticResource CardShadow}">
                     <Grid>
@@ -395,44 +400,54 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ServerInfoText}"
-                                       FontSize="14"
-                                       FontWeight="Medium"
-                                       VerticalAlignment="Center"/>
-                            <!-- 服务礁鎲＄敮锟犲绩闁秴钃熷┑鐘插暞娴溿倖绻涢幋鐏活亪顢欐繝鍥ㄧ厵缂佸瀵у婵嬫煏配ャ劌鍝虹€?-->
-                            <StackPanel Orientation="Horizontal"
-                                        Margin="12,0,0,0"
-                                        Visibility="{Binding IsRefreshingAppStatus, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <ProgressBar Style="{StaticResource CircularProgressStyle}"
-                                             Width="16" Height="16"
-                                             Margin="0,0,6,0"
-                                             IsIndeterminate="True"/>
-                                <TextBlock Text="正在刷新应用状态..."
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           VerticalAlignment="Center"
-                                           FontSize="11"/>
-                            </StackPanel>
+                        <TextBlock Text="{Binding ServerInfoText}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding ServerInfoTooltipText}"/>
+                        <!-- 刷新状态指示器 -->
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Visibility="{Binding IsRefreshingAppStatus, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <ProgressBar Style="{StaticResource CircularProgressStyle}"
+                                         Width="14"
+                                         Height="14"
+                                         Margin="0,0,5,0"
+                                         IsIndeterminate="True"/>
+                            <TextBlock Text="{Binding RefreshStatusText}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxWidth="128"
+                                       ToolTip="{Binding RefreshStatusText}"/>
                         </StackPanel>
-                        <Button Grid.Column="1"
-                                Content="&#x5237;&#x65B0;&#x5E94;&#x7528;"
+                        <Button Grid.Column="2"
+                                Content="刷新"
                                 Style="{StaticResource PrimaryButtonStyle}"
                                 Command="{Binding RefreshCommand}"
                                 IsEnabled="{Binding IsRefreshingAppStatus, Converter={StaticResource InverseBoolConverter}}"
-                                Margin="16,0,0,0"
-                                Padding="12,8"/>
+                                Margin="10,0,0,0"
+                                Padding="8,4"/>
                     </Grid>
                 </Border>
 
-                <!-- 闂佸湱鍘ч悺銊ヮ潖婵犳艾鏋侀柕鍫濇处检测鏌涚仦鍓ь暡缂併劍宀搁弻娑橆煥配愵煈娈梺鐟扮畭配ㄨ棄鐣峰┑瀣伋闁告劘灏欐禒姘舵煟閻愬鈼ら柛鏂跨灱娴滄悂顢涢悙鍙夋К?- 服务浇銆€配嬫捇姊洪锝囶灱缂佲偓鐎ｎ喗置曢柕濞垮劚閳ь剝顕х叅閻犳亽鍔嶉弳婊堟煕閹扳晛濡挎繝鈧?-->
-                <Grid Grid.Row="1" Margin="0,0,0,16">
+                <!-- 中间内容：应用市场和任务列表 -->
+                <Grid x:Name="MainContentGrid" Grid.Row="1" Margin="0,0,0,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition x:Name="MainContentPrimaryRowDefinition" Height="*"/>
+                        <RowDefinition x:Name="MainContentSecondaryRowDefinition" Height="0"/>
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" MinWidth="650"/> <!-- 闂佸湱鍘ч悺銊ヮ潖婵犳艾鏋侀柕鍫濇处检测鏌涚仦鍓ь暡缂併劍宀搁弻娑樜旈崘銊愩垽鏌曢崶褎鍠橀柡灞界墦婵℃悂濡烽妷褉鍋撻懡銈囩＜閻忕偟鍋撻妵婵囦繆?-->
-                        <ColumnDefinition Width="360" MinWidth="320"/> <!-- 濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳海顦┑掳鍊曠€氥劑鍩€椤掆偓配熸潙鐣烽崼鏇炰紶闁告洦鍘藉В搴ㄦ煟鎼达綆鏀版俊顐㈠閳?-->
+                        <ColumnDefinition x:Name="MainContentPrimaryColumnDefinition" Width="*"/> <!-- 左侧应用市场/自定义应用/脚本管理 -->
+                        <ColumnDefinition x:Name="MainContentSecondaryColumnDefinition" Width="256"/> <!-- 右侧任务列表 -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- 服务礁婀遍崢褔鎮綎濠电姵鑹鹃弸渚€鏌曢崼婵囧闁哄棙绮撻弻娑氫沪配撗屾殹缂?-->
-                    <TabControl Grid.Column="0"
+                    <!-- 左侧标签页：应用市场、自定义应用、脚本管理 -->
+                    <TabControl x:Name="ApplicationTabsPanel" Grid.Row="0" Grid.Column="0"
                                 SelectedIndex="{Binding SelectedAppTabIndex}"
                                 Style="{StaticResource MaterialDesignTabControl}">
                         <TabItem Header="应用市场">
@@ -451,9 +466,17 @@
                                     <Border Grid.Row="0"
                                             Background="{DynamicResource SurfaceLightBrush}"
                                             CornerRadius="{StaticResource CornerRadiusLarge}"
-                                            Padding="16,12">
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            Padding="10,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0"
+                                                        Orientation="Horizontal"
+                                                        VerticalAlignment="Center"
+                                                        ToolTip="{Binding SelectedApplicationsDisplay}">
                                                 <TextBlock Text="应用市场"
                                                            FontSize="14"
                                                            FontWeight="SemiBold"
@@ -468,69 +491,158 @@
                                                                FontSize="10"
                                                                FontWeight="Bold"/>
                                                 </Border>
+                                                <Border Margin="8,0,0,0"
+                                                        Padding="6,2"
+                                                        CornerRadius="8"
+                                                        Style="{StaticResource StatusChipStyle}"
+                                                        Visibility="{Binding HasSelectedApplications, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <TextBlock Text="已选项"
+                                                               Style="{StaticResource StatusChipTextStyle}"/>
+                                                </Border>
                                             </StackPanel>
-                                            <TextBlock Text="{Binding SelectedApplicationsDisplay}"
-                                                       Margin="0,8,0,0"
+
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding SelectedApplicationsDisplay}"
+                                                       MaxWidth="260"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Center"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
-                                                       FontSize="11"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
+                                                       FontSize="10"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding SelectedApplicationsDisplay}"
+                                                       Visibility="{Binding HasSelectedApplications, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        </Grid>
                                     </Border>
 
-                                    <Grid Grid.Row="1" Margin="12,12">
+                                    <Grid Grid.Row="1" Margin="8,6,8,4">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="120" MinWidth="108"/>
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0"
                                                 Background="{DynamicResource SurfaceLightBrush}"
                                                 CornerRadius="{StaticResource CornerRadiusMedium}"
-                                                Padding="8">
+                                                Padding="5"
+                                                Margin="0,0,6,0">
                                             <Grid>
                                                 <materialDesign:PackIcon Kind="Magnify"
                                                                          Width="14" Height="14"
                                                                          Foreground="{DynamicResource SecondaryTextBrush}"
                                                                          VerticalAlignment="Center"
                                                                          Margin="4"/>
-                                                <TextBox materialDesign:HintAssist.Hint="鎼滅储搴旂敤..."
+                                                <TextBox materialDesign:HintAssist.Hint="搜索应用..."
                                                          VerticalContentAlignment="Center"
-                                                         Padding="28,4,12,4"
-                                                         FontSize="12"
+                                                         Padding="28,2,10,2"
+                                                         FontSize="11"
                                                          BorderThickness="0"
                                                          Background="Transparent"
                                                          Foreground="{DynamicResource PrimaryTextBrush}"
                                                          Text="{Binding AppSearchText, UpdateSourceTrigger=PropertyChanged}"/>
                                             </Grid>
                                         </Border>
+
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding AppCategoryFilters}"
+                                                  SelectedItem="{Binding SelectedAppCategory}"
+                                                  Style="{StaticResource DarkComboBoxStyle}"
+                                                  FontSize="11"
+                                                  VerticalContentAlignment="Center"/>
                                     </Grid>
 
-                                    <ScrollViewer Grid.Row="2"
-                                                  Style="{DynamicResource ScrollViewerStyle}"
-                                                  VerticalScrollBarVisibility="Auto"
-                                                  HorizontalScrollBarVisibility="Disabled"
-                                                  Padding="12">
-                                        <ItemsControl ItemsSource="{Binding FilteredApplications}"
-                                                     VirtualizingPanel.IsVirtualizing="True"
-                                                     VirtualizingPanel.VirtualizationMode="Recycling"
-                                                     VirtualizingPanel.CacheLength="4,4">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel Orientation="Horizontal"
-                                                               ItemWidth="196"
-                                                               ItemHeight="300"
-                                                               HorizontalAlignment="Left"
-                                                               VerticalAlignment="Top"/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
+                                    <Grid Grid.Row="2" Margin="8,0,8,8">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 应用市场列表表头 -->
+                                        <Border Grid.Row="0"
+                                                Background="{DynamicResource SurfaceElevatedBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="{StaticResource CornerRadiusMedium}"
+                                                Padding="12,6"
+                                                Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="44"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="128"/>
+                                                    <ColumnDefinition Width="92"/>
+                                                    <ColumnDefinition Width="148"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <TextBlock Grid.Column="0"
+                                                           Text="选择"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           Margin="0,0,12,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="应用信息"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           Margin="0,0,12,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="状态"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           Margin="0,0,12,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3"
+                                                           Text="已装版本"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           Margin="0,0,12,0"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="4"
+                                                           Text="操作"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- 应用市场列表主体 -->
+                                        <ListBox Grid.Row="1"
+                                                 Style="{StaticResource DarkListBoxStyle}"
+                                                 ItemsSource="{Binding FilteredApplications}"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 VirtualizingPanel.IsVirtualizing="True"
+                                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                                 VirtualizingPanel.CacheLength="4,4">
+                                            <ListBox.ItemContainerStyle>
+                                                <Style TargetType="ListBoxItem">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0,0,0,6"/>
+                                                    <Setter Property="Focusable" Value="False"/>
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="ListBoxItem">
+                                                                <ContentPresenter/>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Style>
+                                            </ListBox.ItemContainerStyle>
+                                            <ListBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Width="184" Height="288"
-                                                            Margin="8"
-                                                            Background="{DynamicResource SurfaceLightBrush}"
-                                                            CornerRadius="{StaticResource CornerRadiusXLarge}"
-                                                            Cursor="Hand"
-                                                            Effect="{StaticResource CardShadow}"
-                                                            RenderTransformOrigin="0.5,0.5">
+                                                    <!-- 单行应用项：保留原有命令与状态，只调整展示结构 -->
+                                                    <Border Background="{DynamicResource SurfaceLightBrush}"
+                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="{StaticResource CornerRadiusLarge}"
+                                                            Padding="10,6"
+                                                            Effect="{StaticResource CardShadow}">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -543,179 +655,232 @@
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
-                                                        <Border.InputBindings>
-                                                            <MouseBinding Gesture="LeftClick" Command="{Binding SelectCommand}"/>
-                                                        </Border.InputBindings>
-                                                        <Border.RenderTransform>
-                                                            <ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/>
-                                                        </Border.RenderTransform>
-                                                        <VisualStateManager.VisualStateGroups>
-                                                            <VisualStateGroup x:Name="CommonStates">
-                                                                <VisualState x:Name="Normal"/>
-                                                                <VisualState x:Name="MouseOver">
-                                                                    <Storyboard>
-                                                                        <DoubleAnimation Duration="0:0:0.2"
-                                                                                         Storyboard.TargetName="Scale"
-                                                                                         Storyboard.TargetProperty="ScaleX"
-                                                                                         To="1.05"/>
-                                                                        <DoubleAnimation Duration="0:0:0.2"
-                                                                                         Storyboard.TargetName="Scale"
-                                                                                         Storyboard.TargetProperty="ScaleY"
-                                                                                         To="1.05"/>
-                                                                    </Storyboard>
-                                                                </VisualState>
-                                                            </VisualStateGroup>
-                                                        </VisualStateManager.VisualStateGroups>
                                                         <Grid>
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="*"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="44"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="128"/>
+                                                                <ColumnDefinition Width="92"/>
+                                                                <ColumnDefinition Width="148"/>
+                                                            </Grid.ColumnDefinitions>
 
-                                                            <Border HorizontalAlignment="Right"
-                                                                    VerticalAlignment="Top"
-                                                                    Margin="0,12,12,0"
-                                                                    Padding="8,3"
-                                                                    Background="{DynamicResource AccentBrush}"
-                                                                    CornerRadius="{StaticResource CornerRadiusSmall}"
-                                                                    Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                                <TextBlock Text="已选中"
-                                                                           Foreground="White"
-                                                                           FontSize="9"
-                                                                           FontWeight="SemiBold"/>
-                                                            </Border>
+                                                            <!-- 选择列：只走命令链，避免绕过批量状态刷新 -->
+                                                            <CheckBox Grid.Column="0"
+                                                                      Margin="0,0,12,0"
+                                                                      VerticalAlignment="Center"
+                                                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                                      Command="{Binding SelectCommand}"
+                                                                      ToolTip="选择用于批量操作"/>
 
-                                                            <Border Grid.Row="0"
-                                                                    Width="60" Height="60"
-                                                                    Background="{DynamicResource SunsetGradient}"
-                                                                    CornerRadius="16"
-                                                                    HorizontalAlignment="Center"
-                                                                    Margin="0,16,0,10">
-                                                                <Border.Effect>
-                                                                    <DropShadowEffect Color="#EC4899" Opacity="0.5" BlurRadius="20" ShadowDepth="4"/>
-                                                                </Border.Effect>
-                                                                <TextBlock Text="{Binding Icon}"
-                                                                           FontSize="30"
-                                                                           HorizontalAlignment="Center"
-                                                                           VerticalAlignment="Center"/>
-                                                            </Border>
+                                                            <!-- 应用信息列：合并名称、版本、描述、平台，提升主窗口适配性 -->
+                                                            <Grid Grid.Column="1" Margin="0,0,12,0">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
 
-                                                            <StackPanel Grid.Row="1"
-                                                                        HorizontalAlignment="Center"
-                                                                        Margin="0,0,0,6">
-                                                                <TextBlock Text="{Binding Name}"
-                                                                           FontWeight="SemiBold"
-                                                                           FontSize="15"
-                                                                           HorizontalAlignment="Center"
-                                                                           MaxWidth="140"
-                                                                           TextTrimming="CharacterEllipsis"/>
-                                                                <TextBlock Text="{Binding Version}"
+                                                                <Border Width="32"
+                                                                        Height="32"
+                                                                        Background="{DynamicResource SunsetGradient}"
+                                                                        CornerRadius="9"
+                                                                        VerticalAlignment="Top">
+                                                                    <TextBlock Text="{Binding Icon}"
+                                                                               FontSize="16"
+                                                                               HorizontalAlignment="Center"
+                                                                               VerticalAlignment="Center"/>
+                                                                </Border>
+
+                                                                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                                    <WrapPanel VerticalAlignment="Center">
+                                                                        <TextBlock Text="{Binding Name}"
+                                                                                   FontWeight="SemiBold"
+                                                                                   FontSize="13"
+                                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                                   TextTrimming="CharacterEllipsis"/>
+                                                                        <TextBlock Text="{Binding Version, StringFormat=' v{0}'}"
+                                                                                   Margin="8,0,0,0"
+                                                                                   FontSize="11"
+                                                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                                   VerticalAlignment="Center">
+                                                                            <TextBlock.Style>
+                                                                                <Style TargetType="TextBlock">
+                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding Id}" Value="jdk">
+                                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </TextBlock.Style>
+                                                                        </TextBlock>
+                                                                        <TextBlock Text=" 安装时选择版本"
+                                                                                   Margin="8,0,0,0"
+                                                                                   FontSize="11"
+                                                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                                   VerticalAlignment="Center"
+                                                                                   Visibility="Collapsed">
+                                                                            <TextBlock.Style>
+                                                                                <Style TargetType="TextBlock">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding Id}" Value="jdk">
+                                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </TextBlock.Style>
+                                                                        </TextBlock>
+                                                                        <Border Background="{DynamicResource AccentBrush}"
+                                                                                CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                                                Padding="6,2"
+                                                                                Margin="8,0,0,0"
+                                                                                VerticalAlignment="Center"
+                                                                                Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                            <TextBlock Text="已选中"
+                                                                                       Foreground="White"
+                                                                                       FontSize="9"
+                                                                                       FontWeight="SemiBold"/>
+                                                                        </Border>
+                                                                        <Border Background="{DynamicResource AppOsTagBackgroundBrush}"
+                                                                                CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                                                Padding="6,2"
+                                                                                Margin="8,0,0,0"
+                                                                                VerticalAlignment="Center">
+                                                                            <TextBlock Text="{Binding OsType}"
+                                                                                       FontSize="9"
+                                                                                       Foreground="{DynamicResource AppOsTagTextBrush}"
+                                                                                       FontWeight="Medium"/>
+                                                                        </Border>
+                                                                    </WrapPanel>
+                                                                    <TextBlock Text="{Binding Description}"
+                                                                               Margin="0,2,0,0"
+                                                                               FontSize="10"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                               TextTrimming="CharacterEllipsis"
+                                                                               ToolTip="{Binding Description}"/>
+                                                                </StackPanel>
+                                                            </Grid>
+
+                                                            <!-- 状态列：合并安装与运行状态，减少横向占用 -->
+                                                            <WrapPanel Grid.Column="2"
+                                                                       Margin="0,0,10,0"
+                                                                       VerticalAlignment="Center">
+                                                                <Border Padding="5,2"
+                                                                        CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                                        Background="{DynamicResource SurfaceBrush}">
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
+                                                                    <TextBlock Text="未安装"
+                                                                               FontSize="9"
+                                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                               FontWeight="Medium"/>
+                                                                </Border>
+                                                                <Border Padding="5,2"
+                                                                        CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                                        Background="{DynamicResource AppInstalledTagBackgroundBrush}"
+                                                                        Margin="3,0,0,0"
+                                                                        Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <TextBlock Text="已安装"
+                                                                               FontSize="9"
+                                                                               Foreground="{DynamicResource AppInstalledTagTextBrush}"
+                                                                               FontWeight="Medium"/>
+                                                                </Border>
+                                                                <Border Padding="5,2"
+                                                                        CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                                        Background="{DynamicResource AppRunningTagBackgroundBrush}"
+                                                                        Margin="3,0,0,0"
+                                                                        Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <TextBlock Text="运行中"
+                                                                               FontSize="9"
+                                                                               Foreground="{DynamicResource AppRunningTagTextBrush}"
+                                                                               FontWeight="Medium"/>
+                                                                </Border>
+                                                            </WrapPanel>
+
+                                                            <StackPanel Grid.Column="3"
+                                                                        Margin="0,0,12,0"
+                                                                        VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding InstalledVersion}"
                                                                            FontSize="11"
-                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                                                           HorizontalAlignment="Center"
-                                                                           Margin="0,3,0,0"/>
+                                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip="{Binding InstalledVersion}"
+                                                                           Visibility="{Binding InstalledVersion, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                                                <TextBlock Text="--"
+                                                                           FontSize="11"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding InstalledVersion, Converter={StaticResource StringToVisibilityConverter}}" Value="Visible">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
                                                             </StackPanel>
 
-                                                            <TextBlock Grid.Row="2"
-                                                                       Text="{Binding Description}"
-                                                                       FontSize="11"
-                                                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                                                       HorizontalAlignment="Center"
-                                                                       TextWrapping="Wrap"
-                                                                       MaxHeight="40"
-                                                                       Margin="14,0,14,8"
-                                                                       LineHeight="16"/>
-
-                                                            <StackPanel Grid.Row="3"
-                                                                        Margin="12,0,12,12">
-                                                                <StackPanel Orientation="Horizontal"
-                                                                            HorizontalAlignment="Center"
-                                                                            Margin="0,0,0,10">
-                                                                    <Border Padding="6,3"
-                                                                            CornerRadius="{StaticResource CornerRadiusSmall}"
-                                                                            Background="{DynamicResource AppOsTagBackgroundBrush}">
-                                                                        <TextBlock Text="{Binding OsType}"
-                                                                                   FontSize="9"
-                                                                                   Foreground="{DynamicResource AppOsTagTextBrush}"
-                                                                                   FontWeight="Medium"/>
-                                                                    </Border>
-                                                                    <Border Padding="6,3"
-                                                                            CornerRadius="{StaticResource CornerRadiusSmall}"
-                                                                            Background="{DynamicResource AppRunningTagBackgroundBrush}"
-                                                                            Margin="4,0,0,0"
-                                                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                                        <TextBlock Text="运行中"
-                                                                                   FontSize="9"
-                                                                                   Foreground="{DynamicResource AppRunningTagTextBrush}"
-                                                                                   FontWeight="Medium"/>
-                                                                    </Border>
-                                                                    <Border Padding="6,3"
-                                                                            CornerRadius="{StaticResource CornerRadiusSmall}"
-                                                                            Background="{DynamicResource AppInstalledTagBackgroundBrush}"
-                                                                            Margin="4,0,0,0"
-                                                                            Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibilityConverter}}">
-                                                                        <TextBlock Text="已安装"
-                                                                                   FontSize="9"
-                                                                                   Foreground="{DynamicResource AppInstalledTagTextBrush}"
-                                                                                   FontWeight="Medium"/>
-                                                                    </Border>
-                                                                </StackPanel>
-
-                                                                <TextBlock Text="{Binding InstalledVersion}"
-                                                                           FontSize="10"
-                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                                                           HorizontalAlignment="Center"
-                                                                           Margin="0,0,0,10"
-                                                                           Visibility="{Binding InstalledVersion, Converter={StaticResource StringToVisibilityConverter}}"/>
-
-                                                                <UniformGrid Columns="2"
-                                                                             Rows="2"
-                                                                             HorizontalAlignment="Center"
-                                                                             Margin="0,0,0,2">
-                                                                    <Button Content="安装"
-                                                                            Style="{StaticResource PrimaryButtonStyle}"
-                                                                            Command="{Binding InstallCommand}"
-                                                                            FontSize="11"
-                                                                            Width="68"
-                                                                            Padding="0,7"
-                                                                            Margin="3,0,3,6"/>
-
-                                                                    <Button Content="刷新"
-                                                                            Style="{StaticResource ToolButtonStyle}"
-                                                                            ToolTip="刷新状态"
-                                                                            Command="{Binding CheckStatusCommand}"
-                                                                            FontSize="11"
-                                                                            Width="68"
-                                                                            Padding="0,7"
-                                                                            Margin="3,0,3,6"/>
-
-                                                                    <Button Content="配置"
-                                                                            Style="{StaticResource ToolButtonStyle}"
-                                                                            ToolTip="编辑配置"
-                                                                            Command="{Binding ConfigureCommand}"
-                                                                            FontSize="11"
-                                                                            Width="68"
-                                                                            Padding="0,7"
-                                                                            Margin="3,0,3,6"/>
-
-                                                                    <Button Content="卸载"
-                                                                            Style="{StaticResource ToolButtonStyle}"
-                                                                            ToolTip="卸载"
-                                                                            Command="{Binding UninstallCommand}"
-                                                                            FontSize="11"
-                                                                            Width="68"
-                                                                            Padding="0,7"
-                                                                            Margin="3,0,3,6"/>
-                                                                </UniformGrid>
+                                                            <!-- 操作列：保留安装主操作，其余动作图标化以减少横向占用 -->
+                                                            <StackPanel Grid.Column="4"
+                                                                        Orientation="Horizontal"
+                                                                        HorizontalAlignment="Right"
+                                                                        VerticalAlignment="Center">
+                                                                <Button Content="安装"
+                                                                        Style="{StaticResource PrimaryButtonStyle}"
+                                                                        Command="{Binding InstallCommand}"
+                                                                        FontSize="10"
+                                                                        MinWidth="52"
+                                                                        Padding="8,4"
+                                                                        Margin="0,0,4,0"/>
+                                                                <Button Style="{StaticResource ToolButtonStyle}"
+                                                                        ToolTip="刷新状态"
+                                                                        Command="{Binding CheckStatusCommand}"
+                                                                        Width="28"
+                                                                        Height="28"
+                                                                        Padding="0"
+                                                                        Margin="0,0,4,0">
+                                                                    <materialDesign:PackIcon Kind="Refresh"
+                                                                                             Width="14"
+                                                                                             Height="14"/>
+                                                                </Button>
+                                                                <Button Style="{StaticResource ToolButtonStyle}"
+                                                                        ToolTip="编辑配置"
+                                                                        Command="{Binding ConfigureCommand}"
+                                                                        Width="28"
+                                                                        Height="28"
+                                                                        Padding="0"
+                                                                        Margin="0,0,4,0">
+                                                                    <TextBlock Text="配"
+                                                                               FontSize="10"
+                                                                               FontWeight="SemiBold"/>
+                                                                </Button>
+                                                                <Button Style="{StaticResource ToolButtonStyle}"
+                                                                        ToolTip="卸载"
+                                                                        Command="{Binding UninstallCommand}"
+                                                                        Width="28"
+                                                                        Height="28"
+                                                                        Padding="0">
+                                                                    <materialDesign:PackIcon Kind="Delete"
+                                                                                             Width="14"
+                                                                                             Height="14"/>
+                                                                </Button>
                                                             </StackPanel>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Grid>
                                 </Grid>
                             </Border>
                         </TabItem>
@@ -735,8 +900,8 @@
                                     <Border Grid.Row="0"
                                             Background="{DynamicResource SurfaceLightBrush}"
                                             CornerRadius="{StaticResource CornerRadiusLarge}"
-                                            Padding="16,12"
-                                            Margin="12,12,12,0">
+                                            Padding="12,10"
+                                            Margin="10,10,10,0">
                                         <StackPanel>
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
@@ -813,7 +978,7 @@
                                                         <Border.InputBindings>
                                                             <MouseBinding Gesture="LeftClick" Command="{Binding DeployCommand}"/>
                                                         </Border.InputBindings>
-                                                        <Grid Height="80" Margin="16,0">
+                                                        <Grid Margin="12,10">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto"/>
                                                                 <ColumnDefinition Width="*"/>
@@ -822,7 +987,7 @@
 
                                                             <!-- 应用图标 -->
                                                             <Border Grid.Column="0"
-                                                                    Width="56" Height="56"
+                                                                    Width="46" Height="46"
                                                                     Background="{DynamicResource SunsetGradient}"
                                                                     CornerRadius="16"
                                                                     VerticalAlignment="Center">
@@ -830,7 +995,7 @@
                                                                     <DropShadowEffect Color="#EC4899" Opacity="0.4" BlurRadius="16" ShadowDepth="3"/>
                                                                 </Border.Effect>
                                                                 <TextBlock Text="{Binding Icon}"
-                                                                           FontSize="28"
+                                                                           FontSize="23"
                                                                            HorizontalAlignment="Center"
                                                                            VerticalAlignment="Center"/>
                                                             </Border>
@@ -838,11 +1003,11 @@
                                                             <!-- 应用名称和描述 -->
                                                             <StackPanel Grid.Column="1"
                                                                         VerticalAlignment="Center"
-                                                                        Margin="16,0">
+                                                                        Margin="12,0">
                                                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                                     <TextBlock Text="{Binding Name}"
                                                                                FontWeight="SemiBold"
-                                                                               FontSize="15"
+                                                                               FontSize="14"
                                                                                Foreground="{DynamicResource PrimaryTextBrush}"/>
                                                                     <Border Margin="8,0,0,0"
                                                                             Padding="6,2"
@@ -868,33 +1033,34 @@
                                                                     </Border>
                                                                 </StackPanel>
                                                                 <TextBlock Text="{Binding Description}"
-                                                                           FontSize="12"
+                                                                           FontSize="11"
                                                                            Foreground="{DynamicResource SecondaryTextBrush}"
-                                                                           Margin="0,4,0,0"/>
+                                                                           Margin="0,3,0,0"/>
                                                             </StackPanel>
 
                                                             <!-- 操作按钮 -->
-                                                            <StackPanel Grid.Column="2"
-                                                                        VerticalAlignment="Center"
-                                                                        Orientation="Horizontal">
+                                                            <WrapPanel Grid.Column="2"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="0,8,0,0">
                                                                 <Button Content="编辑"
                                                                         Style="{StaticResource SecondaryButtonStyle}"
                                                                         Command="{Binding DataContext.EditCustomAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding}"
-                                                                        Padding="14,8"
-                                                                        Margin="0,0,8,0"/>
+                                                                        Padding="10,6"
+                                                                        Margin="0,0,8,6"/>
                                                                 <Button Content="删除"
                                                                         Style="{StaticResource SecondaryButtonStyle}"
                                                                         Command="{Binding DataContext.DeleteCustomAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding}"
-                                                                        Padding="14,8"
-                                                                        Margin="0,0,8,0"
+                                                                        Padding="10,6"
+                                                                        Margin="0,0,8,6"
                                                                         IsEnabled="{Binding IsBuiltIn, Converter={StaticResource InverseBoolConverter}}"/>
                                                                 <Button Content="部署"
                                                                         Style="{StaticResource PrimaryButtonStyle}"
                                                                         Command="{Binding DeployCommand}"
-                                                                        Padding="20,8"/>
-                                                            </StackPanel>
+                                                                        Padding="14,6"
+                                                                        Margin="0,0,0,6"/>
+                                                            </WrapPanel>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
@@ -938,13 +1104,13 @@
                             </Grid>
                         </TabItem>
                     </TabControl>
-                    <!-- 濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳海顦┑掳鍊曠€氥劑鍩€?-->
-                    <Border Grid.Column="1"
+                    <!-- 右侧任务列表面板 -->
+                    <Border x:Name="TaskPanel" Grid.Row="0" Grid.Column="1"
                             Background="{DynamicResource SurfaceBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="{StaticResource CornerRadiusLarge}"
-                            Margin="12,0,0,0"
+                            Margin="10,0,0,0"
                             Effect="{StaticResource CardShadow}">
                         <Grid>
                             <Grid.RowDefinitions>
@@ -955,127 +1121,261 @@
                             <Border Grid.Row="0"
                                     Background="{DynamicResource SurfaceLightBrush}"
                                     CornerRadius="{StaticResource CornerRadiusLarge}"
-                                    Padding="16,12">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="&#x4EFB;&#x52A1;&#x5217;&#x8868;"
-                                               FontSize="14"
-                                               FontWeight="SemiBold"
-                                               Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                    <Border Background="{DynamicResource WarningBrush}"
-                                            CornerRadius="{StaticResource CornerRadiusSmall}"
-                                            Padding="6,2"
-                                            Margin="8,0,0,0"
-                                            VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Tasks.Count}"
-                                                   Foreground="White"
-                                                   FontSize="10"
-                                                   FontWeight="Bold"/>
-                                    </Border>
-                                </StackPanel>
+                                    Padding="12,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Button Grid.Column="0"
+                                            Command="{Binding ToggleTaskPanelCommand}"
+                                            ToolTip="{Binding TaskPanelToggleTooltip}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="0"
+                                            HorizontalContentAlignment="Stretch"
+                                            Cursor="Hand">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <materialDesign:PackIcon Grid.Column="0"
+                                                                     Width="18"
+                                                                     Height="18"
+                                                                     Margin="0"
+                                                                     VerticalAlignment="Center"
+                                                                     Foreground="{DynamicResource PrimaryTextBrush}">
+                                                <materialDesign:PackIcon.Style>
+                                                    <Style TargetType="materialDesign:PackIcon">
+                                                        <Setter Property="Kind" Value="ChevronDown"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsTaskPanelCollapsed}" Value="True">
+                                                                <Setter Property="Kind" Value="ChevronRight"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </materialDesign:PackIcon.Style>
+                                            </materialDesign:PackIcon>
+
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                                <TextBlock Text="&#x4EFB;&#x52A1;&#x5217;&#x8868;"
+                                                           FontSize="14"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                           Visibility="{Binding IsTaskPanelExpanded, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                <Border Background="{DynamicResource WarningBrush}"
+                                                        CornerRadius="{StaticResource CornerRadiusSmall}"
+                                                        Padding="6,2"
+                                                        Margin="0"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding FilteredTasks.Count}"
+                                                               Foreground="White"
+                                                               FontSize="10"
+                                                               FontWeight="Bold"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+
+                                    <ComboBox Grid.Column="1"
+                                              MinWidth="96"
+                                              Margin="12,0,0,0"
+                                              ItemsSource="{Binding TaskFilters}"
+                                              SelectedItem="{Binding SelectedTaskFilter}"
+                                              Style="{StaticResource DarkComboBoxStyle}"
+                                              FontSize="11"
+                                              VerticalAlignment="Center"
+                                              Visibility="{Binding IsTaskPanelExpanded, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </Grid>
                             </Border>
 
-                            <ScrollViewer Grid.Row="1"
-                                          Style="{DynamicResource ScrollViewerStyle}"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled"
-                                          Padding="12">
-                                <ListBox ItemsSource="{Binding Tasks}"
-                                         SelectedItem="{Binding SelectedTask}"
-                                         VirtualizingPanel.IsVirtualizing="True"
-                                         VirtualizingPanel.VirtualizationMode="Recycling">
-                                    <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItemStyle}">
-                                            <Setter Property="Margin" Value="0,0,0,10"/>
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Padding="14,12"
-                                                    Background="{DynamicResource SurfaceLightBrush}"
-                                                    BorderBrush="{DynamicResource BorderBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="{StaticResource CornerRadiusMedium}"
-                                                    Effect="{StaticResource CardShadow}">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto"/>
-                                                        <RowDefinition Height="Auto"/>
-                                                        <RowDefinition Height="Auto"/>
-                                                    </Grid.RowDefinitions>
+                            <Grid Grid.Row="1"
+                                  Visibility="{Binding IsTaskPanelExpanded, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Border Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="{StaticResource CornerRadiusMedium}"
+                                        Margin="10"
+                                        Padding="14,12"
+                                        Visibility="{Binding ShowTaskEmptyState, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <StackPanel>
+                                        <TextBlock Text="暂无任务"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <TextBlock Text="{Binding TaskEmptyStateText}"
+                                                   Margin="0,8,0,0"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
 
-                                                    <Grid Grid.Row="0">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
+                                <ScrollViewer Style="{DynamicResource ScrollViewerStyle}"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              Padding="10"
+                                              Visibility="{Binding HasFilteredTasks, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <ListBox ItemsSource="{Binding FilteredTasks}"
+                                             SelectedItem="{Binding SelectedTask}"
+                                             MouseDoubleClick="TaskListBox_MouseDoubleClick"
+                                             VirtualizingPanel.IsVirtualizing="True"
+                                             VirtualizingPanel.VirtualizationMode="Recycling">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItemStyle}">
+                                                <Setter Property="Margin" Value="0,0,0,8"/>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Padding="12,10"
+                                                        Background="{DynamicResource SurfaceLightBrush}"
+                                                        BorderBrush="{Binding CardBorderBrush, Converter={StaticResource StringToColorConverter}}"
+                                                        BorderThickness="{Binding CardBorderThickness}"
+                                                        CornerRadius="{StaticResource CornerRadiusMedium}"
+                                                        Effect="{StaticResource CardShadow}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
 
-                                                        <!-- 服务胶绮…鍫ュ春搜索鐒垫い鎴ｆ硶椤︼附绻涚€涙﹫鑰跨€?-->
-                                                        <Border Grid.Column="0"
-                                                                Width="10" Height="10"
-                                                                CornerRadius="5"
-                                                                VerticalAlignment="Center"
-                                                                Background="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}">
-                                                            <Border.Effect>
-                                                                <DropShadowEffect Color="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}" Opacity="0.6" BlurRadius="8"/>
-                                                            </Border.Effect>
-                                                        </Border>
+                                                        <Grid Grid.Row="0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
 
-                                                        <!-- 濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳氦袝閻庡箍鍎卞▔?-->
-                                                        <StackPanel Grid.Column="1"
-                                                                    Orientation="Vertical"
-                                                                    Margin="10,0,0,0">
-                                                            <TextBlock Text="{Binding ApplicationName}"
-                                                                       FontWeight="SemiBold"
-                                                                       FontSize="13"
-                                                                       VerticalAlignment="Center"/>
-                                                            <TextBlock Text="{Binding HostName}"
-                                                                       FontSize="11"
+                                                            <StackPanel Grid.Column="0"
+                                                                        Orientation="Vertical">
+                                                                <TextBlock Text="{Binding ApplicationName}"
+                                                                           FontWeight="SemiBold"
+                                                                           FontSize="13"
+                                                                           VerticalAlignment="Center"
+                                                                           TextWrapping="Wrap"/>
+                                                                <TextBlock Text="{Binding HostName}"
+                                                                           FontSize="11"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                           VerticalAlignment="Center"
+                                                                           Margin="0,2,0,0"
+                                                                           TextWrapping="Wrap"/>
+                                                            </StackPanel>
+
+                                                            <Border Grid.Column="1"
+                                                                    Background="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"
+                                                                    CornerRadius="10"
+                                                                    Padding="8,3"
+                                                                    Margin="12,0,0,0"
+                                                                    VerticalAlignment="Top">
+                                                                <TextBlock Text="{Binding StatusBadgeText}"
+                                                                           Foreground="White"
+                                                                           FontSize="10"
+                                                                           FontWeight="SemiBold"/>
+                                                            </Border>
+                                                        </Grid>
+
+                                                        <Grid Grid.Row="1" Margin="0,10,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <StackPanel Grid.Column="0"
+                                                                        Orientation="Vertical">
+                                                                <TextBlock Text="{Binding StageDisplayText}"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                           TextWrapping="Wrap"/>
+                                                                <TextBlock Text="{Binding SummaryText}"
+                                                                           FontSize="10"
+                                                                           Margin="0,3,0,0"
+                                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                           TextWrapping="Wrap"
+                                                                           MaxWidth="190"/>
+                                                            </StackPanel>
+
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding ProgressText}"
+                                                                       FontSize="14"
+                                                                       FontWeight="Bold"
+                                                                       Margin="12,0,0,0"
+                                                                       VerticalAlignment="Top"
+                                                                       Foreground="{DynamicResource AccentBrush}"/>
+                                                        </Grid>
+
+                                                        <ProgressBar Grid.Row="2"
+                                                                     Value="{Binding Progress}"
+                                                                     Minimum="0" Maximum="100"
+                                                                     Height="6"
+                                                                     Margin="0,12,0,0"
+                                                                     VerticalAlignment="Center"
+                                                                     Background="{DynamicResource SurfaceBrush}"
+                                                                     Foreground="{DynamicResource AccentBrush}"/>
+
+                                                        <Grid Grid.Row="3" Margin="0,8,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <TextBlock Grid.Row="0"
+                                                                       Grid.Column="0"
+                                                                       Text="{Binding CurrentStage, StringFormat=当前阶段：{0}}"
+                                                                       FontSize="10"
                                                                        Foreground="{DynamicResource SecondaryTextBrush}"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="0,2,0,0"/>
-                                                        </StackPanel>
+                                                                       TextWrapping="Wrap"
+                                                                       VerticalAlignment="Center"/>
 
-                                                        <!-- 服务浇鐨崟顐㈠Б闂佹悶鍔屾姝岊暰?-->
-                                                        <TextBlock Grid.Column="2"
-                                                                   Text="{Binding Progress, StringFormat={}{0:0}%}"
-                                                                   FontSize="14"
-                                                                   FontWeight="Bold"
-                                                                   Width="40"
-                                                                   TextAlignment="Right"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource AccentBrush}"/>
+                                                            <Button Grid.Row="0"
+                                                                    Grid.Column="1"
+                                                                    Content="详情"
+                                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                    FontSize="10"
+                                                                    Padding="8,3"
+                                                                    Margin="12,0,0,0"
+                                                                    Command="{Binding DataContext.ShowTaskProgressDialogCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                                    CommandParameter="{Binding}"/>
+
+                                                            <TextBlock Grid.Row="1"
+                                                                       Grid.Column="0"
+                                                                       Grid.ColumnSpan="2"
+                                                                       Text="{Binding LastActivityText}"
+                                                                       FontSize="9"
+                                                                       Margin="0,6,0,0"
+                                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                        </Grid>
                                                     </Grid>
-
-                                                    <!-- 闂佸搫顦弲婊呯矙閹寸姭鍋撶憴鍕枙鐎?-->
-                                                    <ProgressBar Grid.Row="1"
-                                                                 Value="{Binding Progress}"
-                                                                 Minimum="0" Maximum="100"
-                                                                 Height="6"
-                                                                 Margin="0,10,0,6"
-                                                                 VerticalAlignment="Center"
-                                                                 Background="{DynamicResource SurfaceBrush}"
-                                                                 Foreground="{DynamicResource AccentBrush}"/>
-
-                                                    <!-- 服务胶绮…鍫ュ春搜索鐒垫い鎴炲椤﹀嘲菐配パ嶈含妤?-->
-                                                    <TextBlock Grid.Row="2"
-                                                               Text="{Binding StatusMessage}"
-                                                               FontSize="10"
-                                                               Foreground="{DynamicResource SecondaryTextBrush}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               MaxWidth="260"/>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </ScrollViewer>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </ScrollViewer>
+                            </Grid>
                         </Grid>
                     </Border>
                 </Grid>
 
-                <!-- 服务礁鎼崯銊╁磿鏉堚晜宕查柡鍐ㄧ墕缁€宀勬煕濠靛棗顏柛?-->
-                <Border Grid.Row="2"
+                <GridSplitter Grid.Row="2"
+                              Height="8"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Background="{DynamicResource BorderBrush}"
+                              ShowsPreview="True"/>
+
+                <!-- 底部日志面板 -->
+                <Border Grid.Row="3"
                         Background="{DynamicResource SurfaceBrush}"
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
@@ -1090,7 +1390,7 @@
                         <Border Grid.Row="0"
                                 Background="{DynamicResource SurfaceLightBrush}"
                                 CornerRadius="{StaticResource CornerRadiusLarge}"
-                                Padding="16,10">
+                                Padding="12,8">
                             <TextBlock Text="&#x64CD;&#x4F5C;&#x65E5;&#x5FD7;"
                                        FontSize="14"
                                        FontWeight="SemiBold"
@@ -1101,15 +1401,15 @@
                                       Style="{DynamicResource ScrollViewerStyle}"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
-                                      Padding="12">
+                                      Padding="10">
                             <ItemsControl ItemsSource="{Binding Logs}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding DisplayText}"
                                                    FontFamily="Consolas"
                                                    FontSize="11"
-                                                   Margin="0,3"
-                                                   LineHeight="18">
+                                                   Margin="0,2"
+                                                   LineHeight="16">
                                             <TextBlock.Foreground>
                                                 <SolidColorBrush Color="{Binding Level, Converter={StaticResource LogLevelToColorConverter}}"/>
                                             </TextBlock.Foreground>
@@ -1123,36 +1423,67 @@
             </Grid>
         </Grid>
 
-        <!-- 服务胶绮…鍫ュ春搜索鐒垫い鎴ｆ硶配斿秹鏌?-->
+        <!-- 底部状态栏 -->
         <Border Grid.Row="2"
                 Background="{DynamicResource SurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource CornerRadiusLarge}"
                 Margin="0,12,0,0"
-                Padding="14,10"
+                Padding="10,5"
                 Effect="{StaticResource CardShadow}">
-            <StackPanel Orientation="Horizontal">
-                <materialDesign:PackIcon Kind="Monitor"
-                                         Width="14" Height="14"
-                                         Foreground="{DynamicResource AccentBrush}"
-                                         VerticalAlignment="Center"/>
-                <TextBlock Text="&#x5DF2;&#x8FDE;&#x63A5;&#xFF1A;" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12"/>
-                <TextBlock Text="{Binding ConnectedCount}" FontWeight="SemiBold" Margin="4,0" Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
-                <TextBlock Text="  |" Margin="12,0" Foreground="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-                <materialDesign:PackIcon Kind="ClipboardText"
-                                         Width="14" Height="14"
-                                         Foreground="{DynamicResource SuccessBrush}"
-                                         VerticalAlignment="Center"/>
-                <TextBlock Text="&#x4EFB;&#x52A1;&#x6570;&#xFF1A;" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12"/>
-                <TextBlock Text="{Binding TaskCount}" FontWeight="SemiBold" Margin="4,0" Foreground="{DynamicResource SuccessBrush}" FontSize="12"/>
-                <TextBlock Text="  |" Margin="12,0" Foreground="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-                <materialDesign:PackIcon Kind="SourceCommit"
-                                         Width="14" Height="14"
-                                         Foreground="{DynamicResource WarningBrush}"
-                                         VerticalAlignment="Center"/>
-                <TextBlock Text="&#x4ED3;&#x5E93;&#xFF1A;" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12"/>
-                <TextBlock Text="{Binding RepositoryUrl}" FontSize="11" Margin="4,0,0,0" Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <StackPanel>
+                <WrapPanel>
+                    <materialDesign:PackIcon Kind="Monitor"
+                                             Width="14"
+                                             Height="14"
+                                             Foreground="{DynamicResource AccentBrush}"
+                                             VerticalAlignment="Center"
+                                             Margin="0,0,0,6"/>
+                    <TextBlock Text="&#x5DF2;&#x8FDE;&#x63A5;&#xFF1A;"
+                               VerticalAlignment="Center"
+                               Margin="6,0,0,6"
+                               FontSize="12"/>
+                    <TextBlock Text="{Binding ConnectedCount}"
+                               FontWeight="SemiBold"
+                               Margin="4,0,12,6"
+                               Foreground="{DynamicResource AccentBrush}"
+                               FontSize="12"/>
+
+                    <materialDesign:PackIcon Kind="ClipboardText"
+                                             Width="14"
+                                             Height="14"
+                                             Foreground="{DynamicResource SuccessBrush}"
+                                             VerticalAlignment="Center"
+                                             Margin="0,0,0,6"/>
+                    <TextBlock Text="&#x4EFB;&#x52A1;&#x6570;&#xFF1A;"
+                               VerticalAlignment="Center"
+                               Margin="6,0,0,6"
+                               FontSize="12"/>
+                    <TextBlock Text="{Binding TaskCount}"
+                               FontWeight="SemiBold"
+                               Margin="4,0,12,6"
+                               Foreground="{DynamicResource SuccessBrush}"
+                               FontSize="12"/>
+                </WrapPanel>
+
+                <WrapPanel Margin="0,2,0,0">
+                    <materialDesign:PackIcon Kind="SourceCommit"
+                                             Width="14"
+                                             Height="14"
+                                             Foreground="{DynamicResource WarningBrush}"
+                                             VerticalAlignment="Top"
+                                             Margin="0,2,0,6"/>
+                    <TextBlock Text="&#x4ED3;&#x5E93;&#xFF1A;"
+                               VerticalAlignment="Top"
+                               Margin="6,0,0,6"
+                               FontSize="12"/>
+                    <TextBlock Text="{Binding RepositoryUrl}"
+                               FontSize="11"
+                               Margin="4,0,0,6"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                </WrapPanel>
             </StackPanel>
         </Border>
     </Grid>

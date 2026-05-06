@@ -65,6 +65,140 @@ fi
 
 echo "PROGRESS:Installing:15"
 
+# 兼容旧版平铺目录与新增 deps 子目录。
+get_debian_dependency_search_directories() {
+    local package_root=$1
+
+    if [ -d "$package_root/deps" ]; then
+        echo "$package_root/deps"
+    fi
+
+    echo "$package_root"
+}
+
+# 返回当前离线安装需要预检的 Debian 依赖包。
+get_debian_offline_dependency_packages() {
+    if [ "$OS" != "Debian" ]; then
+        return 0
+    fi
+
+    local version_id=${VERSION_ID:-}
+    if [ -z "$version_id" ] && [ -f /etc/os-release ]; then
+        version_id=$(grep '^VERSION_ID=' /etc/os-release | head -n 1 | cut -d'=' -f2 | tr -d '"')
+    fi
+
+    cat <<EOF
+adduser
+libatomic1
+libjemalloc2
+liblzf1
+libsystemd0
+sysvinit-utils
+EOF
+
+    if [[ "$version_id" == 24* ]]; then
+        echo "libssl3t64"
+    else
+        echo "libssl3"
+    fi
+}
+
+# 已安装依赖直接跳过，避免重复安装。
+is_debian_package_installed() {
+    local package_name=$1
+    dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q 'install ok installed'
+}
+
+# 优先从 deps 中找依赖，找不到再兼容旧版根目录平铺。
+find_debian_dependency_file() {
+    local package_root=$1
+    local package_name=$2
+    local search_dir
+    local file
+
+    while IFS= read -r search_dir; do
+        for file in "$search_dir"/"${package_name}"_*.deb "$search_dir"/"${package_name}"-*.deb; do
+            if [ -f "$file" ]; then
+                echo "$file"
+                return 0
+            fi
+        done
+    done < <(get_debian_dependency_search_directories "$package_root")
+
+    return 1
+}
+
+# 先补齐缺失依赖，再进入 Redis 主包安装。
+prepare_debian_offline_dependencies() {
+    local package_root=$1
+    local dependency_name
+    local dependency_file
+    local -a missing_packages=()
+    local -a install_files=()
+
+    while IFS= read -r dependency_name; do
+        if [ -z "$dependency_name" ]; then
+            continue
+        fi
+
+        if is_debian_package_installed "$dependency_name"; then
+            echo "离线依赖已安装，跳过：$dependency_name"
+            continue
+        fi
+
+        if ! dependency_file=$(find_debian_dependency_file "$package_root" "$dependency_name"); then
+            missing_packages+=("$dependency_name")
+            continue
+        fi
+
+        install_files+=("$dependency_file")
+    done < <(get_debian_offline_dependency_packages)
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        echo "错误：离线目录缺少以下 Redis Debian 依赖包："
+        printf '%s\n' "${missing_packages[@]}"
+        echo "请将对应 .deb 文件放入目录：$package_root/deps（兼容旧布局时也可放在根目录）"
+        exit 1
+    fi
+
+    if [ ${#install_files[@]} -eq 0 ]; then
+        echo "Redis 离线依赖已满足，无需额外安装。"
+        return 0
+    fi
+
+    echo "正在安装缺失的 Redis Debian 离线依赖包..."
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${install_files[@]}"
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
+}
+
+# 根目录只负责主包，依赖包由 prepare 阶段提前处理。
+install_debian_from_directory() {
+    local package_root=$1
+    local -a redis_server_debs=()
+    local -a redis_tools_debs=()
+
+    mapfile -t redis_server_debs < <(find "$package_root" -maxdepth 1 -type f -name "redis-server*.deb" | sort)
+    mapfile -t redis_tools_debs < <(find "$package_root" -maxdepth 1 -type f -name "redis-tools*.deb" | sort)
+
+    if [ ${#redis_server_debs[@]} -eq 0 ]; then
+        echo "错误：离线目录中缺少 redis-server*.deb：$package_root"
+        exit 1
+    fi
+
+    if [ ${#redis_tools_debs[@]} -eq 0 ]; then
+        echo "错误：离线目录中缺少 redis-tools*.deb：$package_root"
+        exit 1
+    fi
+
+    echo "安装 redis-tools..."
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${redis_tools_debs[@]}"
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
+
+    echo "安装 redis-server..."
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${redis_server_debs[@]}"
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
+}
+
 # 1. 安装 Redis
 IS_SOURCE_INSTALL=false
 
@@ -81,46 +215,8 @@ if [ "$HAS_LOCAL_PACKAGE" = true ]; then
     if [ "$PACKAGE_IS_DIRECTORY" = true ]; then
         if [ "$OS" = "Debian" ]; then
             echo "正在使用离线 DEB 目录安装 Redis..."
-            mapfile -t DEB_FILES < <(find "$PACKAGE_PATH" -maxdepth 1 -type f -name "*.deb" | sort)
-            mapfile -t REDIS_SERVER_DEBS < <(printf '%s\n' "${DEB_FILES[@]}" | grep '/redis-server.*\.deb$' || true)
-            mapfile -t REDIS_TOOLS_DEBS < <(printf '%s\n' "${DEB_FILES[@]}" | grep '/redis-tools.*\.deb$' || true)
-            mapfile -t OTHER_DEBS < <(printf '%s\n' "${DEB_FILES[@]}" | grep -Ev '/(redis-server|redis-tools).*\.deb$' || true)
-
-            if [ ${#DEB_FILES[@]} -eq 0 ]; then
-                echo "错误：离线目录中未找到 .deb 包：$PACKAGE_PATH"
-                exit 1
-            fi
-
-            if [ ${#REDIS_SERVER_DEBS[@]} -eq 0 ]; then
-                echo "错误：离线目录中缺少 redis-server*.deb：$PACKAGE_PATH"
-                exit 1
-            fi
-
-            DPKG_OPTS="--force-confdef --force-confold"
-            set +e
-            if [ ${#OTHER_DEBS[@]} -gt 0 ]; then
-                echo "先安装 Redis 依赖包..."
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${OTHER_DEBS[@]}"
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
-            fi
-
-            if [ ${#REDIS_TOOLS_DEBS[@]} -gt 0 ]; then
-                echo "安装 redis-tools..."
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${REDIS_TOOLS_DEBS[@]}"
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
-            fi
-
-            echo "安装 redis-server..."
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${REDIS_SERVER_DEBS[@]}"
-            REDIS_INSTALL_EXIT=$?
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
-
-            if [ $REDIS_INSTALL_EXIT -ne 0 ]; then
-                echo "分组安装未完全成功，最后统一安装全部离线包..."
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${DEB_FILES[@]}"
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
-            fi
-            set -e
+            prepare_debian_offline_dependencies "$PACKAGE_PATH"
+            install_debian_from_directory "$PACKAGE_PATH"
         elif [ "$OS" = "RedHat" ]; then
             echo "正在使用离线 RPM 目录安装 Redis..."
             mapfile -t RPM_FILES < <(find "$PACKAGE_PATH" -maxdepth 1 -type f -name "redis-*.rpm" | sort)
@@ -134,12 +230,8 @@ if [ "$HAS_LOCAL_PACKAGE" = true ]; then
         case "$PACKAGE_PATH" in
             *.deb)
                 echo "正在使用单个 DEB 包安装 Redis..."
-                DPKG_OPTS="--force-confdef --force-confold"
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "$PACKAGE_PATH" || true
-                DEBIAN_FRONTEND=noninteractive apt-get install -f -y -qq \
-                    -o Dpkg::Options::="--force-confdef" \
-                    -o Dpkg::Options::="--force-confold" || true
-                DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a || true
+                prepare_debian_offline_dependencies "$(dirname "$PACKAGE_PATH")"
+                install_debian_from_directory "$(dirname "$PACKAGE_PATH")"
                 ;;
             *.rpm)
                 echo "正在使用单个 RPM 包安装 Redis..."

@@ -66,9 +66,116 @@ is_rpm_nginx_installed() {
     rpm -q nginx >/dev/null 2>&1
 }
 
+get_debian_dependency_search_directories() {
+    local package_root=$1
+
+    if [ -d "$package_root/deps" ]; then
+        echo "$package_root/deps"
+    fi
+
+    echo "$package_root"
+}
+
+get_debian_offline_dependency_packages() {
+    if [ "$OS" != "Debian" ]; then
+        return 0
+    fi
+
+    local version_id=${VERSION_ID:-}
+    if [ -z "$version_id" ] && [ -f /etc/os-release ]; then
+        version_id=$(grep '^VERSION_ID=' /etc/os-release | head -n 1 | cut -d'=' -f2 | tr -d '"')
+    fi
+
+    if [[ "$version_id" == 24* ]]; then
+        cat <<EOF
+iproute2
+libssl3t64
+libc6
+libcrypt1
+libpcre2-8-0
+zlib1g
+EOF
+    else
+        cat <<EOF
+adduser
+lsb-base
+libssl3
+libc6
+libcrypt1
+libpcre2-8-0
+zlib1g
+EOF
+    fi
+}
+
+is_debian_package_installed() {
+    local package_name=$1
+    dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q 'install ok installed'
+}
+
+find_debian_dependency_file() {
+    local package_root=$1
+    local package_name=$2
+    local search_dir
+    local file
+
+    while IFS= read -r search_dir; do
+        for file in "$search_dir"/"${package_name}"_*.deb "$search_dir"/"${package_name}"-*.deb; do
+            if [ -f "$file" ]; then
+                echo "$file"
+                return 0
+            fi
+        done
+    done < <(get_debian_dependency_search_directories "$package_root")
+
+    return 1
+}
+
+prepare_debian_offline_dependencies() {
+    local package_root=$1
+    local dependency_name
+    local dependency_file
+    local -a missing_packages=()
+    local -a install_files=()
+
+    while IFS= read -r dependency_name; do
+        if [ -z "$dependency_name" ]; then
+            continue
+        fi
+
+        if is_debian_package_installed "$dependency_name"; then
+            echo "离线依赖已安装，跳过：$dependency_name"
+            continue
+        fi
+
+        if ! dependency_file=$(find_debian_dependency_file "$package_root" "$dependency_name"); then
+            missing_packages+=("$dependency_name")
+            continue
+        fi
+
+        install_files+=("$dependency_file")
+    done < <(get_debian_offline_dependency_packages)
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        echo "错误：离线目录缺少以下 Nginx Debian 依赖包："
+        printf '%s\n' "${missing_packages[@]}"
+        echo "请将对应 .deb 文件放入目录：$package_root/deps（兼容旧布局时也可放在根目录）"
+        exit 1
+    fi
+
+    if [ ${#install_files[@]} -eq 0 ]; then
+        echo "Nginx 离线依赖已满足，无需额外安装。"
+        return 0
+    fi
+
+    echo "正在安装缺失的 Nginx Debian 离线依赖包..."
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${install_files[@]}"
+    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
+}
+
 install_debian_offline() {
     local -a deb_files=("$@")
-    local -a other_debs=()
+    local -a dependency_debs=()
     local -a common_debs=()
     local -a main_debs=()
     local file_name
@@ -88,10 +195,20 @@ install_debian_offline() {
                 main_debs+=("$file_path")
                 ;;
             *)
-                other_debs+=("$file_path")
+                dependency_debs+=("$file_path")
                 ;;
         esac
     done
+
+    local version_id=${VERSION_ID:-}
+    if [ -z "$version_id" ] && [ -f /etc/os-release ]; then
+        version_id=$(grep '^VERSION_ID=' /etc/os-release | head -n 1 | cut -d'=' -f2 | tr -d '"')
+    fi
+
+    if [[ "$version_id" == 24* ]] && [ ${#common_debs[@]} -eq 0 ]; then
+        echo "错误：离线目录中缺少 nginx-common_*.deb"
+        exit 1
+    fi
 
     if [ ${#main_debs[@]} -eq 0 ]; then
         echo "错误：离线目录中未找到 Nginx 主 .deb 包"
@@ -99,32 +216,57 @@ install_debian_offline() {
     fi
 
     echo "检测到 .deb 文件数：${#deb_files[@]}"
-    echo "依赖包数：${#other_debs[@]}，公共包数：${#common_debs[@]}，主包数：${#main_debs[@]}"
+    echo "依赖包数：${#dependency_debs[@]}，公共包数：${#common_debs[@]}，主包数：${#main_debs[@]}"
 
     local -a dpkg_opts=(--force-confdef --force-confold)
 
-    if [ ${#other_debs[@]} -gt 0 ]; then
+    if [ ${#dependency_debs[@]} -gt 0 ]; then
         echo "先安装依赖 .deb 包..."
-        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${other_debs[@]}" || true
+        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${dependency_debs[@]}"
+        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
     fi
 
     if [ ${#common_debs[@]} -gt 0 ]; then
         echo "安装 nginx-common .deb 包..."
-        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${common_debs[@]}" || true
+        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${common_debs[@]}"
+        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
     fi
 
     echo "安装 Nginx 主 .deb 包..."
-    DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${main_debs[@]}" || true
-    DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
-
-    if ! is_debian_nginx_installed; then
-        echo "分组安装未完全成功，尝试统一安装全部离线 .deb 包..."
-        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${deb_files[@]}" || true
-        DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
-    fi
+    DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${main_debs[@]}"
+    DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
 
     if ! is_debian_nginx_installed; then
         echo "错误：Nginx Debian 离线安装失败，请检查离线包依赖是否完整"
+        exit 1
+    fi
+}
+
+run_redhat_localinstall() {
+    if command -v dnf >/dev/null 2>&1; then
+        dnf --disablerepo='*' localinstall -y "$@"
+    else
+        yum --disablerepo='*' localinstall -y "$@"
+    fi
+}
+
+validate_redhat_offline_dependencies() {
+    local package_root=$1
+    local -a required_prefixes=("pcre2-" "openssl-libs-" "glibc-" "procps-ng-" "shadow-utils-" "systemd-")
+    local -a rpm_names=()
+    local -a missing_prefixes=()
+    local rpm_name
+
+    mapfile -t rpm_names < <(find "$package_root" -maxdepth 2 -type f -name "*.rpm" -printf '%f\n' | sort -u)
+
+    for prefix in "${required_prefixes[@]}"; do
+        if ! printf '%s\n' "${rpm_names[@]}" | grep -q "^${prefix}"; then
+            missing_prefixes+=("$prefix")
+        fi
+    done
+
+    if [ ${#missing_prefixes[@]} -gt 0 ]; then
+        echo "错误：离线目录缺少以下 Nginx RPM 依赖包：${missing_prefixes[*]}"
         exit 1
     fi
 }
@@ -154,16 +296,10 @@ install_redhat_offline() {
     fi
 
     echo "检测到 .rpm 文件数：${#rpm_files[@]}"
-    if command -v yum >/dev/null 2>&1; then
-        yum localinstall -y "${rpm_files[@]}" || rpm -ivh --replacepkgs "${rpm_files[@]}"
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf localinstall -y "${rpm_files[@]}" || rpm -ivh --replacepkgs "${rpm_files[@]}"
-    else
-        rpm -ivh --replacepkgs "${rpm_files[@]}"
-    fi
+    run_redhat_localinstall "${rpm_files[@]}"
 
     if ! is_rpm_nginx_installed; then
-        echo "错误：Nginx RPM 离线安装失败"
+        echo "错误：Nginx RPM 离线安装失败，请检查离线包依赖是否完整"
         exit 1
     fi
 }
@@ -173,6 +309,7 @@ install_nginx() {
 
     if [ "$OS" = "Debian" ]; then
         if [ "$PACKAGE_IS_DIRECTORY" = "true" ]; then
+            prepare_debian_offline_dependencies "$PACKAGE_PATH"
             mapfile -t deb_files < <(find "$PACKAGE_PATH" -maxdepth 1 -type f -name "*.deb" | sort)
             install_debian_offline "${deb_files[@]}"
             return
@@ -181,7 +318,9 @@ install_nginx() {
         if [ "$PACKAGE_IS_FILE" = "true" ]; then
             case "$PACKAGE_PATH" in
                 *.deb)
-                    install_debian_offline "$PACKAGE_PATH"
+                    prepare_debian_offline_dependencies "$(dirname "$PACKAGE_PATH")"
+                    mapfile -t deb_files < <(find "$(dirname "$PACKAGE_PATH")" -maxdepth 1 -type f -name "*.deb" | sort)
+                    install_debian_offline "${deb_files[@]}"
                     return
                     ;;
                 *)
@@ -191,14 +330,13 @@ install_nginx() {
             esac
         fi
 
-        echo "未提供本地离线包，使用在线安装..."
-        DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx
-        return
+        echo "错误：Nginx Linux 严格离线安装要求显式提供 PACKAGE_PATH，且目录中必须包含依赖包以及当前发行版要求的 Nginx 主包/公共包。"
+        exit 1
     fi
 
     if [ "$PACKAGE_IS_DIRECTORY" = "true" ]; then
-        mapfile -t rpm_files < <(find "$PACKAGE_PATH" -maxdepth 1 -type f -name "*.rpm" | sort)
+        validate_redhat_offline_dependencies "$PACKAGE_PATH"
+        mapfile -t rpm_files < <(find "$PACKAGE_PATH" -maxdepth 2 -type f -name "*.rpm" | sort)
         install_redhat_offline "${rpm_files[@]}"
         return
     fi
@@ -206,7 +344,9 @@ install_nginx() {
     if [ "$PACKAGE_IS_FILE" = "true" ]; then
         case "$PACKAGE_PATH" in
             *.rpm)
-                install_redhat_offline "$PACKAGE_PATH"
+                validate_redhat_offline_dependencies "$(dirname "$PACKAGE_PATH")"
+                mapfile -t rpm_files < <(find "$(dirname "$PACKAGE_PATH")" -maxdepth 2 -type f -name "*.rpm" | sort)
+                install_redhat_offline "${rpm_files[@]}"
                 return
                 ;;
             *)
@@ -216,11 +356,8 @@ install_nginx() {
         esac
     fi
 
-    echo "未提供本地离线包，使用在线安装..."
-    if ! rpm -qa | grep -q '^epel-release'; then
-        yum install -y epel-release
-    fi
-    yum install -y nginx
+    echo "错误：Nginx Linux 严格离线安装要求显式提供 PACKAGE_PATH，且目录中必须包含依赖包和主包。"
+    exit 1
 }
 
 get_config_candidates() {

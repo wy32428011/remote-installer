@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using RemoteInstaller.Models;
@@ -39,7 +40,8 @@ public class InstallerService
         Dictionary<string, string> parameters,
         string? localPackagePath = null,
         IProgress<InstallTask>? progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<LogEntry>? logReporter = null)
     {
         
         var task = new InstallTask
@@ -57,12 +59,27 @@ public class InstallerService
         // 监听进度更新
         logCollector.ProgressUpdated += (stage, progressVal) =>
         {
-                        task.UpdateProgress(ParseStage(stage), progressVal);
+            task.UpdateProgress(ParseStage(stage), progressVal);
             progressReporter?.Report(task);
-            
+
             // 实时更新数据库中的任务状态
             try { _databaseService.SaveTask(task); } catch { /* 忽略更新错误 */ }
         };
+
+        logCollector.LogReceived += entry =>
+        {
+            logReporter?.Report(entry);
+        };
+
+        void AddTaskLog(LogLevel level, string message)
+        {
+            logCollector.AddLog(level, message);
+        }
+
+        var customRemoteUploadPath = parameters.TryGetValue("REMOTE_UPLOAD_PATH", out var remoteUploadPathValue)
+            ? NormalizeRemoteDirectoryPath(host.OsType, remoteUploadPathValue)
+            : string.Empty;
+        parameters.Remove("REMOTE_UPLOAD_PATH");
 
         string? remoteWorkDir = null;
         try
@@ -102,6 +119,7 @@ public class InstallerService
             if (!string.IsNullOrEmpty(localScriptPath) && File.Exists(localScriptPath))
             {
                 _logger.Info($"发现本地安装脚本：{Path.GetFileName(localScriptPath)}，准备上传...");
+                AddTaskLog(LogLevel.Info, $"本地安装脚本路径：{localScriptPath}");
                 var remoteScriptFileName = Path.GetFileName(localScriptPath);
                 remoteScriptPath = host.OsType == OperatingSystemType.Windows
                     ? Path.Combine(remoteWorkDir, remoteScriptFileName).Replace("/", "\\")
@@ -110,7 +128,9 @@ public class InstallerService
                 if (host.OsType != OperatingSystemType.Windows)
                 {
                     // Linux 脚本需要处理换行符 (CRLF -> LF)，否则会导致 shebang 解析错误
-                    var content = await File.ReadAllTextAsync(localScriptPath);
+                    var content = (await File.ReadAllTextAsync(localScriptPath, cancellationToken))
+                        .Replace("\r\n", "\n")
+                        .Replace("\r", "\n");
                     await _sshService.UploadTextAsync(content, remoteScriptPath, host.OsType, cancellationToken);
                     await _sshService.ExecuteCommandAsync($"chmod +x \"{remoteScriptPath}\"", cancellationToken: cancellationToken);
                 }
@@ -118,7 +138,8 @@ public class InstallerService
                 {
                     await _sshService.UploadFileAsync(localScriptPath, remoteScriptPath);
                 }
-                
+
+                AddTaskLog(LogLevel.Info, $"远程安装脚本路径：{remoteScriptPath}");
                 _logger.Success($"安装脚本上传完成");
             }
 
@@ -142,12 +163,19 @@ public class InstallerService
                 {
                     var directoryName = Path.GetFileName(localPackagePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                     var uniqueDirectoryName = $"{directoryName}_{Guid.NewGuid():N}";
-                    remotePackagePath = host.OsType == OperatingSystemType.Windows
-                        ? Path.Combine(remoteWorkDir, uniqueDirectoryName).Replace("/", "\\")
-                        : $"{remoteWorkDir}/{uniqueDirectoryName}";
+                    var useCustomRemoteUploadPath = IsJdkApplication(app) && !string.IsNullOrWhiteSpace(customRemoteUploadPath);
+                    var remoteDirectoryBase = useCustomRemoteUploadPath
+                        ? customRemoteUploadPath
+                        : remoteWorkDir;
+                    remotePackagePath = CombineRemotePath(host.OsType, remoteDirectoryBase, uniqueDirectoryName);
 
                     var fileCount = Directory.GetFiles(localPackagePath, "*", SearchOption.AllDirectories).Length;
                     _logger.Info($"正在上传目录型本地安装包：{directoryName} (文件数：{fileCount})...");
+
+                    if (useCustomRemoteUploadPath)
+                    {
+                        AddTaskLog(LogLevel.Info, $"JDK 目录将上传到用户指定目录：{remotePackagePath}");
+                    }
 
                     await _sshService.UploadDirectoryAsync(
                         localPackagePath,
@@ -160,6 +188,7 @@ public class InstallerService
                         },
                         cancellationToken);
 
+                    AddTaskLog(LogLevel.Info, $"远端离线目录：{remotePackagePath}");
                     _logger.Success($"目录上传完成：{remotePackagePath}");
                 }
                 else
@@ -186,65 +215,37 @@ public class InstallerService
                         },
                         cancellationToken);
 
+                    AddTaskLog(LogLevel.Info, $"远端离线包路径：{remotePackagePath}");
                     _logger.Success($"上传完成：{remotePackagePath}");
-
-                    if (host.OsType != OperatingSystemType.Windows &&
-                        app.Id.Equals("rabbitmq", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var localPackageExt = Path.GetExtension(localPackagePath);
-                        if (localPackageExt.Equals(".rpm", StringComparison.OrdinalIgnoreCase) ||
-                            localPackageExt.Equals(".deb", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var localPackageDir = Path.GetDirectoryName(localPackagePath);
-                            if (!string.IsNullOrEmpty(localPackageDir) && Directory.Exists(localPackageDir))
-                            {
-                                var dependencyFiles = Directory.GetFiles(localPackageDir, "*.*")
-                                    .Where(path => !path.Equals(localPackagePath, StringComparison.OrdinalIgnoreCase))
-                                    .Where(path => localPackageExt.Equals(".rpm", StringComparison.OrdinalIgnoreCase)
-                                        ? path.EndsWith(".rpm", StringComparison.OrdinalIgnoreCase) ||
-                                          path.EndsWith(".asc", StringComparison.OrdinalIgnoreCase) ||
-                                          path.EndsWith(".key", StringComparison.OrdinalIgnoreCase)
-                                        : path.EndsWith(".deb", StringComparison.OrdinalIgnoreCase))
-                                    .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
-                                    .ToList();
-
-                                if (localPackageExt.Equals(".deb", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    var dependencyFileNames = dependencyFiles
-                                        .Select(Path.GetFileName)
-                                        .Where(name => !string.IsNullOrEmpty(name))
-                                        .ToList();
-
-                                    var requiredDebPrefixes = new[] { "erlang-base", "logrotate" };
-                                    var missingDependencies = requiredDebPrefixes
-                                        .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                                        .ToList();
-
-                                    if (missingDependencies.Count > 0)
-                                    {
-                                        throw new InvalidOperationException($"RabbitMQ Ubuntu 离线安装缺少依赖：{string.Join(", ", missingDependencies)}。请确保所选 rabbitmq-server*.deb 所在目录包含对应 .deb 文件后再上传。");
-                                    }
-                                }
-
-                                _logger.Info($"RabbitMQ 离线依赖文件列表：{string.Join(", ", dependencyFiles.Select(Path.GetFileName))}");
-
-                                foreach (var dependencyPath in dependencyFiles)
-                                {
-                                    var dependencyFileName = Path.GetFileName(dependencyPath);
-                                    var remoteDependencyPath = $"{remoteWorkDir}/{dependencyFileName}";
-                                    _logger.Info($"正在上传 RabbitMQ 离线依赖文件：{dependencyFileName}");
-                                    await _sshService.UploadFileAsync(dependencyPath, remoteDependencyPath, cancellationToken: cancellationToken);
-                                }
-                            }
-                        }
-                    }
                 }
 
                 parameters["PACKAGE_PATH"] = remotePackagePath;
+                AddTaskLog(LogLevel.Info, $"最终 PACKAGE_PATH：{remotePackagePath}");
             }
             else
             {
+                AddTaskLog(LogLevel.Warning, "未指定本地包，将使用在线安装或脚本自定义逻辑");
                 _logger.Info("未指定本地包，将使用在线安装或脚本自定义逻辑");
+            }
+
+            if (string.Equals(app.Id, "mariadb", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(localPackagePath))
+                {
+                    throw new InvalidOperationException("MariaDB 仅支持本地资源安装，请先在安装配置中使用 Scripts/MariaDB 下的离线资源目录。");
+                }
+
+                if (string.IsNullOrWhiteSpace(remotePackagePath) ||
+                    !parameters.TryGetValue("PACKAGE_PATH", out var packagePath) ||
+                    string.IsNullOrWhiteSpace(packagePath))
+                {
+                    throw new InvalidOperationException("MariaDB 离线安装资源路径未准备完成，请重新选择 Scripts/MariaDB 下的本地离线资源目录后再试。");
+                }
+            }
+
+            if (string.Equals(app.Id, "mosquitto", StringComparison.OrdinalIgnoreCase))
+            {
+                await PrepareMosquittoSecretFilesAsync(host, parameters, remoteWorkDir, cancellationToken);
             }
 
             // 4. 执行安装
@@ -342,6 +343,11 @@ public class InstallerService
         }
         finally
         {
+            if (string.Equals(app.Id, "mosquitto", StringComparison.OrdinalIgnoreCase))
+            {
+                await CleanupMosquittoSecretFilesAsync(host, parameters, cancellationToken);
+            }
+
             // 尝试清理远程临时工作目录 (如果已创建)
             // 只有在安装成功或手动取消的情况下才清理。
             // 如果安装失败，则保留该目录，以便用户查看日志文件。
@@ -406,7 +412,8 @@ public class InstallerService
         ApplicationInfo app,
         bool keepData = false,
         IProgress<InstallTask>? progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<LogEntry>? logReporter = null)
     {
         var taskId = Guid.NewGuid().ToString("N");
         _fileLogger.Info("UninstallAsync", $"========== 卸载任务开始 ==========");
@@ -435,6 +442,11 @@ public class InstallerService
             task.UpdateProgress(ParseStage(stage), progressVal);
             progressReporter?.Report(task);
             try { _databaseService.SaveTask(task); } catch { }
+        };
+
+        logCollector.LogReceived += entry =>
+        {
+            logReporter?.Report(entry);
         };
 
         string? remoteWorkDir = null;
@@ -493,6 +505,12 @@ public class InstallerService
                     : $"{remoteWorkDir}/uninstall.{scriptExt}";
 
                 _fileLogger.Info("UninstallAsync", $"上传卸载脚本到: {remoteScriptPath}");
+                if (host.OsType != OperatingSystemType.Windows)
+                {
+                    scriptContent = scriptContent
+                        .Replace("\r\n", "\n")
+                        .Replace("\r", "\n");
+                }
                 await _sshService.UploadTextAsync(scriptContent, remoteScriptPath, host.OsType, cancellationToken);
 
                 if (host.OsType != OperatingSystemType.Windows)
@@ -872,23 +890,6 @@ if ($isInstalled) {
 }
 Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
 
-                "nacos" => @"
-$isInstalled=$false; $version='未知'; $isRunning=$false
-if (Test-Path 'C:\nacos\bin\startup.cmd') { $isInstalled=$true }
-if (Test-Path 'D:\nacos\bin\startup.cmd') { $isInstalled=$true }
-$svc = Get-Service -Name 'Nacos*' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($svc) { $isInstalled=$true }
-if ($isInstalled) {
-    $jar = Get-ChildItem 'C:\nacos\target\*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($jar) { $version = $jar.BaseName -replace 'nacos-server-', '' }
-    $proc = Get-CimInstance Win32_Process -Filter ""Name='java.exe'"" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*nacos*' -and ($_.CommandLine -like '*nacos.nacos*' -or $_.CommandLine -like '*nacos-server.jar*') }
-    if ($proc) { $isRunning=$true }
-    $port8848 = Get-NetTCPConnection -LocalPort 8848 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($port8848) { $isRunning=$true }
-    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
-}
-Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
-
                 _ => null
             };
         }
@@ -975,17 +976,36 @@ INSTALLED=false; VERSION=""未知""; RUNNING=false;
 # 检查安装状态
 if which mysqld >/dev/null 2>&1 || [ -x /usr/sbin/mysqld ] || [ -x /usr/bin/mysqld ]; then INSTALLED=true; fi
 if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mysql|mysqld' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
-if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mariadb-server|mysql-community-server' | grep -q '^ii'; then INSTALLED=true; fi
-if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server|mariadb-server' | grep -qE 'server'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mysql-community-server' | grep -q '^ii'; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server' | grep -qE 'server'; then INSTALLED=true; fi
 # 获取版本
 if [ ""$INSTALLED"" = true ]; then
     VER_OUT=$(mysql --version 2>/dev/null || mysqld --version 2>/dev/null || echo '')
     VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
     if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
     # 检查运行状态
-    if pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1; then RUNNING=true; fi
+    if pgrep -x mysqld >/dev/null 2>&1; then RUNNING=true; fi
     if systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then RUNNING=true; fi
     if ss -tulnp 2>/dev/null | grep -q "":3306""; then RUNNING=true; fi
+fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+
+"mariadb" => @"
+INSTALLED=false; VERSION=""未知""; RUNNING=false;
+# 检查安装状态（仅认服务端，不将 client/common 误判为已安装）
+if which mariadbd >/dev/null 2>&1 || [ -x /usr/sbin/mariadbd ] || [ -x /usr/bin/mariadbd ] || [ -x /usr/libexec/mariadbd ]; then INSTALLED=true; fi
+if systemctl list-unit-files 2>/dev/null | grep -Eq '^mariadb\.service|^mysql\.service|^mysqld\.service'; then INSTALLED=true; fi
+if dpkg -l 2>/dev/null | grep -Ei '^ii[[:space:]]+mariadb-server([[:space:]:-]|$)' | grep -q .; then INSTALLED=true; fi
+if rpm -qa 2>/dev/null | grep -Ei '^(MariaDB-server|mariadb-server)(-|$)' | grep -q .; then INSTALLED=true; fi
+# 获取版本
+if [ ""$INSTALLED"" = true ]; then
+    VER_OUT=$(mariadbd --version 2>/dev/null || mariadb --version 2>/dev/null || mysql --version 2>/dev/null || echo '')
+    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
+    # 检查运行状态
+    if pgrep -x mariadbd >/dev/null 2>&1; then RUNNING=true; fi
+    if systemctl is-active --quiet mariadb 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mysqld 2>/dev/null; then RUNNING=true; fi
+    if ss -tulnp 2>/dev/null | grep -E "":3306[[:space:]]"" | grep -qiE 'mariadb|mariadbd|mysqld'; then RUNNING=true; fi
 fi
 echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
 
@@ -1004,27 +1024,6 @@ if [ ""$INSTALLED"" = true ]; then
     # 检查运行状态
     if pgrep -x beam.smp >/dev/null 2>&1 || pgrep -f ""[b]eam.smp"" >/dev/null 2>&1; then RUNNING=true; fi
     if systemctl is-active --quiet rabbitmq-server 2>/dev/null; then RUNNING=true; fi
-fi
-echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
-
-"nacos" => @"
-INSTALLED=false; VERSION=""未知""; RUNNING=false;
-# 检查安装状态
-for dir in /opt/nacos /usr/local/nacos /usr/share/nacos; do
-    if [ -d ""$dir/conf"" ] && [ -f ""$dir/conf/application.properties"" ]; then INSTALLED=true; break; fi
-done
-if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then INSTALLED=true; fi
-if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nacos(-server)?(\.service)?' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
-# 获取版本
-if [ ""$INSTALLED"" = true ]; then
-    NACOS_JAR=$(find /opt/nacos /usr/local/nacos /usr/share/nacos -name 'nacos-server.jar' 2>/dev/null | head -n 1)
-    if [ -n ""$NACOS_JAR"" ]; then
-        VERSION=$(echo ""$NACOS_JAR"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-    fi
-    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
-    # 检查运行状态
-    if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then RUNNING=true; fi
-    if systemctl is-active --quiet nacos 2>/dev/null || systemctl is-active --quiet nacos-server 2>/dev/null; then RUNNING=true; fi
 fi
 echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
 
@@ -1164,23 +1163,23 @@ _ => null
                         echo 'not_installed'
                     ";
                     break;
-                    
-                case "nacos":
+
+                case "mosquitto":
                     checkCommand = @"
-                        # 1. 检查常见安装目录
-                        for dir in /opt/nacos /usr/local/nacos /usr/share/nacos; do
-                            if [ -d ""$dir/conf"" ] && [ -f ""$dir/conf/application.properties"" ]; then
-                                echo 'installed'
-                                exit 0
-                            fi
-                        done
-                        # 2. 检查进程中是否存在 nacos 相关字样 (使用 [n] 技巧避免匹配当前脚本进程)
-                        if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then
+                        if which mosquitto >/dev/null 2>&1 || which mosquitto_passwd >/dev/null 2>&1 || test -f /usr/sbin/mosquitto || test -f /usr/bin/mosquitto; then
                             echo 'installed'
                             exit 0
                         fi
-                        # 3. 检查系统服务
-                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'nacos(-server)?(\.service)?' | grep -qvE 'not-found|masked'; then
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mosquitto(\.service)?' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if dpkg-query -W -f='${Status} ${Package}\n' mosquitto 2>/dev/null | grep -Eq '^install ok installed mosquitto$' || \
+                           rpm -qa 2>/dev/null | grep -Ei '^mosquitto(-|$)' | grep -q .; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if [ -f /etc/mosquitto/mosquitto.conf ] || [ -f /etc/mosquitto/conf.d/remote-installer.conf ]; then
                             echo 'installed'
                             exit 0
                         fi
@@ -1201,19 +1200,41 @@ _ => null
                             exit 0
                         fi
                         # 3. 检查包管理器中是否存在服务端包 (ii 表示已安装)
-                        if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mariadb-server|mysql-community-server|percona-server-server' | grep -q '^ii'; then
+                        if dpkg -l 2>/dev/null | grep -Ei 'mysql-server|mysql-community-server|percona-server-server' | grep -q '^ii'; then
                             echo 'installed'
                             exit 0
                         fi
                         # 针对 RPM，优先匹配 server 包，排查仅包含 libs 的情况
-                        if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server|mariadb-server|percona-server-server' | grep -qE 'server'; then
+                        if rpm -qa 2>/dev/null | grep -Ei 'mysql-community-server|mysql-server|percona-server-server' | grep -qE 'server'; then
                             echo 'installed'
                             exit 0
                         fi
                         echo 'not_installed'
                     ";
                     break;
-                    
+
+                case "mariadb":
+                    checkCommand = @"
+                        if which mariadbd >/dev/null 2>&1 || [ -x /usr/sbin/mariadbd ] || [ -x /usr/bin/mariadbd ] || [ -x /usr/libexec/mariadbd ]; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mariadb|mysql|mysqld' | grep -qvE 'not-found|masked'; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if dpkg -l 2>/dev/null | grep -Ei '^ii[[:space:]]+mariadb-server([[:space:]:-]|$)' | grep -q .; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if rpm -qa 2>/dev/null | grep -Ei '^(MariaDB-server|mariadb-server)(-|$)' | grep -q .; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        echo 'not_installed'
+                    ";
+                    break;
+
                 case "redis":
                     checkCommand = @"
                         # 1. 检查二进制文件
@@ -1293,10 +1314,14 @@ _ => null
     {
         var versionCommands = app.Name.ToLower() switch
         {
-            "mysql" => host.OsType == OperatingSystemType.Windows 
+            "mysql" => host.OsType == OperatingSystemType.Windows
                 ? "mysql --version 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\Program Files\\MySQL' -Filter 'mysql.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName --version } else { echo '未知' } }"
                 : "mysql --version 2>/dev/null || /usr/local/mysql/bin/mysql --version 2>/dev/null || /usr/bin/mysql --version 2>/dev/null || /usr/sbin/mysqld --version 2>/dev/null || mysqld --version 2>/dev/null",
-            
+
+            "mariadb" => host.OsType == OperatingSystemType.Windows
+                ? null
+                : "mariadb --version 2>/dev/null || /usr/bin/mariadb --version 2>/dev/null || /usr/sbin/mariadbd --version 2>/dev/null || mariadbd --version 2>/dev/null || mysql --version 2>/dev/null",
+
             "redis" => host.OsType == OperatingSystemType.Windows
                 ? "redis-server --version 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\Program Files\\Redis' -Filter 'redis-server.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName --version } else { echo '未知' } }"
                 : "redis-server --version 2>/dev/null || /usr/local/bin/redis-server --version 2>/dev/null || /usr/bin/redis-server --version 2>/dev/null || /usr/sbin/redis-server --version 2>/dev/null || /opt/redis/bin/redis-server --version 2>/dev/null || /snap/bin/redis-server --version 2>/dev/null",
@@ -1308,8 +1333,10 @@ _ => null
             "nginx" => host.OsType == OperatingSystemType.Windows
                 ? "nginx -v 2>$null; if ($LASTEXITCODE -ne 0) { $file = Get-ChildItem -Path 'C:\\' -Filter 'nginx.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName -v } else { echo '未知' } }"
                 : "nginx -v 2>&1 || /usr/sbin/nginx -v 2>&1 || /usr/bin/nginx -v 2>&1 || /usr/local/nginx/sbin/nginx -v 2>&1",
-            
-            "nacos" => "find /opt/nacos /usr/local/nacos -name 'nacos-server.jar' 2>/dev/null | head -n 1 | xargs -I {} dirname {} | xargs -I {} ls {}/../lib/ 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n 1 || echo '未知'",
+
+            "mosquitto" => host.OsType == OperatingSystemType.Windows
+                ? "$file = Get-ChildItem -Path 'C:\\Program Files\\mosquitto' -Filter 'mosquitto.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($file) { & $file.FullName -h 2>&1 } else { echo '未知' }"
+                : "mosquitto -h 2>&1 || /usr/sbin/mosquitto -h 2>&1 || /usr/bin/mosquitto -h 2>&1 || dpkg-query -W -f='${Version}' mosquitto 2>/dev/null || rpm -q --queryformat '%{VERSION}' mosquitto 2>/dev/null",
             _ => null
         };
 
@@ -1340,12 +1367,8 @@ _ => null
             var serviceName = GetServiceName(app.Name);
             checkCommand = $@"
                 # 1. 检查进程
-                if ('{appName}' -eq 'nacos') {{
-                    if (Get-CimInstance Win32_Process -Filter ""name = 'java.exe'"" -ErrorAction SilentlyContinue | Where-Object {{ $_.CommandLine -like '*nacos*' }}) {{ echo 'running'; exit 0 }}
-                }} else {{
-                    if (Get-Process {processName} -ErrorAction SilentlyContinue) {{ echo 'running'; exit 0 }}
-                }}
-                
+                if (Get-Process {processName} -ErrorAction SilentlyContinue) {{ echo 'running'; exit 0 }}
+
                 # 2. 检查服务
                 if (Get-Service '{serviceName}' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
                 # MySQL 特殊处理：常见服务名如 MySQL80, MySQL57 等
@@ -1361,11 +1384,7 @@ _ => null
                     if (Get-Service 'Nginx*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
                 }}
                 # 3. 备选进程检查 (tasklist / command line)
-                if ('{appName}' -eq 'nacos') {{
-                     if (wmic process where ""name='java.exe'"" get commandline 2>$null | findstr /i ""nacos"") {{ echo 'running'; exit 0 }}
-                }} else {{
-                     if (tasklist /FI ""IMAGENAME eq {processName}.exe"" | findstr {processName}) {{ echo 'running'; exit 0 }}
-                }}
+                if (tasklist /FI ""IMAGENAME eq {processName}.exe"" | findstr {processName}) {{ echo 'running'; exit 0 }}
                 echo 'not_running'
             ";
         }
@@ -1427,51 +1446,28 @@ _ => null
                         echo 'not_running'
                     ";
                     break;
-                    
-                case "nacos":
+
+                case "mosquitto":
                     checkCommand = @"
-                        # 1. 默认端口
-                        DEFAULT_PORT=8848
-                        NACOS_PORT=$DEFAULT_PORT
-                        
-                        # 2. 尝试从配置文件中获取 server.port
-                        CONFIG_FILE=$(find /opt/nacos /usr/local/nacos /usr/share/nacos -name application.properties 2>/dev/null | head -n 1)
-                        if [ -z ""$CONFIG_FILE"" ]; then
-                             # 如果通过 find 没找到，尝试从进程路径推断
-                             NACOS_CONF=$(ps -ef | grep -i nacos | grep -i java | grep -oE '/[^ ]+/conf/application\.properties' | head -n 1)
-                             if [ ! -z ""$NACOS_CONF"" ]; then
-                                 CONFIG_FILE=""$NACOS_CONF""
-                             fi
-                        fi
-                        
-                        if [ -f ""$CONFIG_FILE"" ]; then
-                            EXTRACTED_PORT=$(grep -E '^[[:space:]]*server\.port=' ""$CONFIG_FILE"" | cut -d'=' -f2 | tr -d ' \r\n')
-                            if [ ! -z ""$EXTRACTED_PORT"" ]; then
-                                NACOS_PORT=$EXTRACTED_PORT
+                        MQTT_PORT=1883
+                        CONFIG_FILES=""/etc/mosquitto/conf.d/remote-installer.conf /etc/mosquitto/mosquitto.conf""
+                        for config_file in $CONFIG_FILES; do
+                            if [ -f ""$config_file"" ]; then
+                                EXTRACTED_PORT=$(grep -E '^[[:space:]]*listener[[:space:]]+[0-9]+' ""$config_file"" | head -n 1 | awk '{print $2}' | tr -d ';\r\n')
+                                if [ -n ""$EXTRACTED_PORT"" ]; then
+                                    MQTT_PORT=$EXTRACTED_PORT
+                                    break
+                                fi
                             fi
-                        fi
-
-                        # 3. 检查进程
-                        if pgrep -f ""nacos\.[n]acos"" >/dev/null 2>&1 || pgrep -f ""nacos-server\.[j]ar"" >/dev/null 2>&1; then
+                        done
+                        if pgrep -x mosquitto >/dev/null 2>&1 || pgrep -f '[m]osquitto' >/dev/null 2>&1 || \
+                           systemctl is-active --quiet mosquitto 2>/dev/null || \
+                           ss -tulnp 2>/dev/null | grep -qE "":$MQTT_PORT[[:space:]]"" || \
+                           netstat -tulnp 2>/dev/null | grep -qE "":$MQTT_PORT[[:space:]]""; then
                             echo 'running'
-                            echo ""PORT:$NACOS_PORT""
+                            echo ""PORT:$MQTT_PORT""
                             exit 0
                         fi
-
-                        # 4. 检查服务状态
-                        if systemctl is-active --quiet nacos 2>/dev/null || systemctl is-active --quiet nacos-server 2>/dev/null; then
-                            echo 'running'
-                            echo ""PORT:$NACOS_PORT""
-                            exit 0
-                        fi
-
-                        # 5. 检查端口监听
-                        if ss -tulnp 2>/dev/null | grep -qE "":$NACOS_PORT[[:space:]]"" | grep -qi java; then
-                            echo 'running'
-                            echo ""PORT:$NACOS_PORT""
-                            exit 0
-                        fi
-
                         echo 'not_running'
                     ";
                     break;
@@ -1484,19 +1480,38 @@ _ => null
                             exit 0
                         fi
                         # 2. 检查服务端进程 (排除 mysql 客户端干扰，确保进程确实在运行)
-                        if pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1 || pgrep -f ""/usr/sbin/mysqld"" >/dev/null 2>&1; then
+                        if pgrep -x mysqld >/dev/null 2>&1 || pgrep -f ""/usr/sbin/mysqld"" >/dev/null 2>&1; then
                             echo 'running'
                             exit 0
                         fi
                         # 3. 检查服务状态
-                        if systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mariadb 2>/dev/null; then
+                        if systemctl is-active --quiet mysqld 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then
                             echo 'running'
                             exit 0
                         fi
                         echo 'not_running'
                     ";
                     break;
-                    
+
+                case "mariadb":
+                    checkCommand = @"
+                        if ss -tulnp 2>/dev/null | grep -E "":3306[[:space:]]"" | grep -qiE 'mariadb|mariadbd|mysql|mysqld' || \
+                           netstat -tulnp 2>/dev/null | grep -E "":3306[[:space:]]"" | grep -qiE 'mariadb|mariadbd|mysql|mysqld'; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        if pgrep -x mariadbd >/dev/null 2>&1 || pgrep -x mysqld >/dev/null 2>&1 || pgrep -f ""/usr/sbin/mariadbd"" >/dev/null 2>&1; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        if systemctl is-active --quiet mariadb 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mysqld 2>/dev/null; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        echo 'not_running'
+                    ";
+                    break;
+
                 case "redis":
                     checkCommand = @"
                         # 1. 默认端口
@@ -1876,36 +1891,43 @@ _ => null
             return;
         }
 
-                
+        
         if (host.OsType != OperatingSystemType.Windows)
         {
-            // 使用 && 连接所有命令，确保环境变量作用域正确传递
-            var envExports = string.Join(" && ", parameters.Keys.Select(k => 
-                $"export {k}=\"{parameters[k].Replace("\"", "\\\"")}\""));
-            
+
+            var envParameters = parameters
+                .Where(param => !string.Equals(param.Key, "version", StringComparison.OrdinalIgnoreCase))
+                .Where(param => !string.Equals(param.Key, "PASSWORD", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(param => param.Key, param => param.Value, StringComparer.OrdinalIgnoreCase);
+
+            var escapedEnvAssignments = string.Join(" ", envParameters.Select(param =>
+                $"{ValidateBashEnvironmentVariableName(param.Key)}={EscapeBashSingleQuotedValue(param.Value)}"));
+
             string command;
             if (isFilePath)
             {
-                // 脚本文件：先 cd 到脚本目录，然后设置环境变量，最后执行脚本
-                // 转换路径分隔符为 Linux 风格
+                // 脚本文件：先 cd 到脚本目录，再通过 sudo env 显式传递变量执行脚本
                 var scriptPathLinux = script!.Replace("\\", "/");
                 var scriptDir = Path.GetDirectoryName(scriptPathLinux)?.Replace("\\", "/") ?? "/tmp";
                 var scriptName = Path.GetFileName(scriptPathLinux);
-                
-                // 使用 && 连接，确保在同一个 bash 子 shell 中执行
-                command = $"cd \"{scriptDir}\" && {envExports} && ./{scriptName}";
+
+                command = string.IsNullOrEmpty(escapedEnvAssignments)
+                    ? $"cd \"{scriptDir}\" && sudo bash \"./{scriptName}\""
+                    : $"cd \"{scriptDir}\" && sudo env {escapedEnvAssignments} bash \"./{scriptName}\"";
             }
             else
             {
-                // 字符串脚本：在当前目录设置环境变量并执行
-                command = $"{envExports} && {script.Trim().Replace("\\r\n", "\\n")}";
+                // 字符串脚本：在同一个 bash 进程中注入环境变量并执行
+                var normalizedScript = script.Trim()
+                    .Replace("\r\n", "\n")
+                    .Replace("\r", "\n");
+
+                command = string.IsNullOrEmpty(escapedEnvAssignments)
+                    ? normalizedScript
+                    : $"env {escapedEnvAssignments} {normalizedScript}";
             }
-            
-                        
-            _logger.Info($"准备执行远程安装脚本...");
-            foreach (var param in parameters)
-            {
-                            }
+
+            _logger.Info("准备执行远程安装脚本...");
             
             await _sshService.ExecuteCommandAsync(
                 $"bash -c '{command.Replace("'", "'\"'\"'")}'", 
@@ -1918,23 +1940,28 @@ _ => null
         }
         else
         {
-            var envVars = string.Join("; ", parameters.Keys.Select(k => 
-                $"$env:{k}=\"{parameters[k]}\""));
-            
             string command;
             if (isFilePath)
             {
-                // 先 cd 到脚本所在目录，再设置变量，最后执行脚本
-                var scriptDir = Path.GetDirectoryName(script);
-                command = $"Set-Location \"{scriptDir}\"; {envVars}; & \"{script}\"";
+                var version = parameters.TryGetValue("version", out var selectedVersion) ? selectedVersion : app.Version;
+                var localScriptPath = GetLocalScriptPath(app.Id, version, host.OsType);
+                var parameterMetadata = ExtractPowerShellScriptParameterMetadata(localScriptPath);
+                var explicitArguments = BuildWindowsPowerShellArguments(parameters, parameterMetadata);
+                var scriptDir = Path.GetDirectoryName(script) ?? @"C:\Windows\Temp";
+                var escapedScriptDir = EscapePowerShellSingleQuotedValue(scriptDir);
+                var escapedScriptPath = EscapePowerShellSingleQuotedValue(script);
+
+                command = string.IsNullOrWhiteSpace(explicitArguments)
+                    ? $"Set-Location {escapedScriptDir}; & {escapedScriptPath}"
+                    : $"Set-Location {escapedScriptDir}; & {escapedScriptPath} {explicitArguments}";
             }
             else
             {
-                command = $"{envVars}; {script.Trim()}";
+                command = ReplacePowerShellPlaceholders(script.Trim(), parameters);
             }
-            
-            await _sshService.ExecuteCommandAsync(command, 
-                output => logCollector.ProcessOutput(output), 
+
+            await _sshService.ExecuteCommandAsync(command,
+                output => logCollector.ProcessOutput(output),
                 cancellationToken,
                 throwOnError: true);
         }
@@ -2011,15 +2038,275 @@ _ => null
                 return null;
     }
 
+    private static string EscapeBashSingleQuotedValue(string value)
+    {
+        return $"'{value.Replace("'", "'\"'\"'")}'";
+    }
+
+    private static string ValidateBashEnvironmentVariableName(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || !Regex.IsMatch(key, "^[A-Z_][A-Z0-9_]*$"))
+        {
+            throw new InvalidOperationException($"无效的环境变量名：{key}");
+        }
+
+        return key;
+    }
+
+    private static string EscapePowerShellSingleQuotedValue(string value)
+    {
+        return $"'{(value ?? string.Empty).Replace("'", "''")}'";
+    }
+
+    private async Task PrepareMosquittoSecretFilesAsync(RemoteHost host, Dictionary<string, string> parameters, string remoteWorkDir, CancellationToken cancellationToken)
+    {
+        if (!parameters.TryGetValue("PASSWORD", out var password) || string.IsNullOrWhiteSpace(password))
+        {
+            parameters.Remove("PASSWORD_FILE");
+            return;
+        }
+
+        if (host.OsType == OperatingSystemType.Windows)
+        {
+            var passwordFilePath = Path.Combine(remoteWorkDir, "mqtt-password.txt").Replace("/", "\\");
+            await _sshService.UploadTextAsync(password, passwordFilePath, host.OsType, cancellationToken);
+            parameters["PASSWORD_FILE"] = passwordFilePath;
+        }
+        else
+        {
+            var passwordFilePath = $"{remoteWorkDir}/mqtt-password.txt";
+            await _sshService.UploadTextAsync(password.Replace("\r\n", "\n").Replace("\r", "\n"), passwordFilePath, host.OsType, cancellationToken);
+            await _sshService.ExecuteCommandAsync($"chmod 600 \"{passwordFilePath}\"", cancellationToken: cancellationToken);
+            parameters["PASSWORD_FILE"] = passwordFilePath;
+        }
+
+        parameters.Remove("PASSWORD");
+    }
+
+    private async Task CleanupMosquittoSecretFilesAsync(RemoteHost host, Dictionary<string, string> parameters, CancellationToken cancellationToken)
+    {
+        if (!parameters.TryGetValue("PASSWORD_FILE", out var passwordFilePath) || string.IsNullOrWhiteSpace(passwordFilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            if (host.OsType == OperatingSystemType.Windows)
+            {
+                await _sshService.ExecuteCommandAsync(
+                    $"Remove-Item -Force -Path {EscapePowerShellSingleQuotedValue(passwordFilePath)} -ErrorAction SilentlyContinue",
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await _sshService.ExecuteCommandAsync(
+                    $"rm -f \"{passwordFilePath.Replace("\"", "\\\"")}\"",
+                    cancellationToken: cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"清理 Mosquitto 临时密码文件失败: {ex.Message}");
+        }
+        finally
+        {
+            parameters.Remove("PASSWORD_FILE");
+        }
+    }
+
+    private static string NormalizeWindowsParameterKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        var parts = key.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Concat(parts.Select(part =>
+            char.ToUpperInvariant(part[0]) + (part.Length > 1 ? part.Substring(1).ToLowerInvariant() : string.Empty)));
+    }
+
+    private static Dictionary<string, bool> ExtractPowerShellScriptParameterMetadata(string? localScriptPath)
+    {
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(localScriptPath) || !File.Exists(localScriptPath))
+        {
+            return result;
+        }
+
+        var content = File.ReadAllText(localScriptPath);
+        var paramStart = content.IndexOf("param(", StringComparison.OrdinalIgnoreCase);
+        if (paramStart < 0)
+        {
+            return result;
+        }
+
+        var bodyStart = paramStart + "param(".Length;
+        var bodyEnd = content.IndexOf(")", bodyStart, StringComparison.Ordinal);
+        if (bodyEnd <= bodyStart)
+        {
+            return result;
+        }
+
+        var paramBody = content.Substring(bodyStart, bodyEnd - bodyStart);
+        var matches = System.Text.RegularExpressions.Regex.Matches(paramBody, @"\[(?<type>[^\]]+)\]\s*\$(?<name>[A-Za-z_][A-Za-z0-9_]*)");
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var name = match.Groups["name"].Value;
+            var type = match.Groups["type"].Value;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                result[name] = type.Contains("switch", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        return result;
+    }
+
+    private static string BuildWindowsPowerShellArguments(Dictionary<string, string> parameters, Dictionary<string, bool> parameterMetadata)
+    {
+        var arguments = new List<string>();
+
+        foreach (var parameter in parameters)
+        {
+            if (string.Equals(parameter.Key, "version", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var normalizedName = NormalizeWindowsParameterKey(parameter.Key);
+            if (string.IsNullOrWhiteSpace(normalizedName))
+            {
+                continue;
+            }
+
+            var candidateNames = new List<string> { normalizedName };
+            if (string.Equals(parameter.Key, "INSTALL_DIR", StringComparison.OrdinalIgnoreCase))
+            {
+                candidateNames.Add("InstallPath");
+            }
+
+            var matchedName = candidateNames.FirstOrDefault(parameterMetadata.ContainsKey);
+            if (string.IsNullOrWhiteSpace(matchedName) || !parameterMetadata.TryGetValue(matchedName, out var isSwitch))
+            {
+                continue;
+            }
+
+            if (isSwitch)
+            {
+                var switchValue = string.Equals(parameter.Value, "true", StringComparison.OrdinalIgnoreCase)
+                    ? "$true"
+                    : "$false";
+                arguments.Add($"-{matchedName}:{switchValue}");
+                continue;
+            }
+
+            arguments.Add($"-{matchedName} {EscapePowerShellSingleQuotedValue(parameter.Value)}");
+        }
+
+        return string.Join(" ", arguments);
+    }
+
+    private static string ReplacePowerShellPlaceholders(string script, Dictionary<string, string> parameters)
+    {
+        var resolvedScript = script;
+        foreach (var parameter in parameters)
+        {
+            var aliases = new List<string>
+            {
+                parameter.Key.ToLowerInvariant()
+            };
+
+            if (string.Equals(parameter.Key, "PACKAGE_PATH", StringComparison.OrdinalIgnoreCase))
+            {
+                aliases.Add("package");
+            }
+
+            foreach (var alias in aliases.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var placeholder = $"{{{alias}}}";
+                resolvedScript = resolvedScript.Replace(placeholder, EscapePowerShellSingleQuotedValue(parameter.Value), StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        return resolvedScript;
+    }
+
+    private static bool IsJdkApplication(ApplicationInfo app)
+    {
+        return (app.Id?.StartsWith("jdk", StringComparison.OrdinalIgnoreCase) == true) ||
+               (app.Name?.StartsWith("jdk", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    private static string NormalizeRemoteDirectoryPath(OperatingSystemType osType, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var trimmedPath = path.Trim();
+        if (trimmedPath.Contains("..", StringComparison.Ordinal)
+            || trimmedPath.IndexOfAny(['"', '\'', '`', ';', '\r', '\n']) >= 0)
+        {
+            throw new InvalidOperationException("远端上传目录包含不允许的字符或路径跳转。请选择安全的绝对路径。");
+        }
+
+        var normalizedPath = osType == OperatingSystemType.Windows
+            ? trimmedPath.Replace("/", "\\")
+            : trimmedPath.Replace("\\", "/");
+
+        if (osType == OperatingSystemType.Windows)
+        {
+            if (!Regex.IsMatch(normalizedPath, @"^[a-zA-Z]:\\"))
+            {
+                throw new InvalidOperationException("Windows 远端上传目录必须使用绝对路径。请选择类似 C:\\Windows\\Temp\\jdk-upload 的目录。");
+            }
+
+            return normalizedPath.EndsWith(":\\", StringComparison.Ordinal)
+                ? normalizedPath
+                : normalizedPath.TrimEnd('\\');
+        }
+
+        if (!normalizedPath.StartsWith("/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Linux 远端上传目录必须使用绝对路径。请选择类似 /tmp/jdk-upload 的目录。");
+        }
+
+        return normalizedPath == "/"
+            ? normalizedPath
+            : normalizedPath.TrimEnd('/');
+    }
+
+    private static string CombineRemotePath(OperatingSystemType osType, string basePath, string childPath)
+    {
+        if (osType == OperatingSystemType.Windows)
+        {
+            return Path.Combine(basePath, childPath).Replace("/", "\\");
+        }
+
+        var normalizedBasePath = NormalizeRemoteDirectoryPath(osType, basePath);
+        return normalizedBasePath == "/"
+            ? $"/{childPath.TrimStart('/')}"
+            : $"{normalizedBasePath}/{childPath.TrimStart('/')}";
+    }
+
     private async Task StartServiceAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
     {
         var serviceName = app.Name.ToLower() switch
         {
-            "mysql" => host.OsType == OperatingSystemType.Windows ? "mysql" : "mysqld",
+            "mysql" => "mysql",
+            "mariadb" => "mariadb",
             "redis" => host.OsType == OperatingSystemType.Windows ? "redis-server" : "redis",
             "elasticsearch" => "elasticsearch",
             "rabbitmq" => "rabbitmq-server",
-            "nacos" => "nacos",
+            "mosquitto" => "mosquitto",
             "nginx" => "nginx",
             "consul" => "consul",
             "traefik" => "traefik",
@@ -2035,8 +2322,14 @@ _ => null
         }
         else
         {
+            var startCommand = app.Name.Equals("MySQL", StringComparison.OrdinalIgnoreCase)
+                ? "systemctl restart mysql || systemctl start mysql || systemctl restart mysqld || systemctl start mysqld"
+                : app.Name.Equals("MariaDB", StringComparison.OrdinalIgnoreCase)
+                    ? "systemctl restart mariadb || systemctl start mariadb || systemctl restart mysql || systemctl start mysql || systemctl restart mysqld || systemctl start mysqld"
+                    : $"systemctl restart {serviceName} || systemctl start {serviceName}";
+
             await _sshService.ExecuteCommandAsync(
-                $"systemctl restart {serviceName} || systemctl start {serviceName}",
+                startCommand,
                 cancellationToken: cancellationToken);
         }
     }
@@ -2046,10 +2339,11 @@ _ => null
         return app.Name.ToLower() switch
         {
             "mysql" => "mysql",
+            "mariadb" => "mariadb",
             "redis" => "redis-server",
             "elasticsearch" => "elasticsearch",
             "rabbitmq" => "rabbitmq-server",
-            "nacos" => "nacos",
+            "mosquitto" => "mosquitto",
             "nginx" => "nginx",
             "consul" => "consul",
             "traefik" => "traefik",
@@ -2061,11 +2355,12 @@ _ => null
     {
         return app.Name.ToLower() switch
         {
-            "mysql" => "mysqld",
+            "mysql" => "mysql",
+            "mariadb" => "mariadbd",
             "redis" => "redis-server",
             "elasticsearch" => "elasticsearch",
             "rabbitmq" => "beam.smp",
-            "nacos" => "java",
+            "mosquitto" => "mosquitto",
             "nginx" => "nginx",
             "consul" => "consul",
             "traefik" => "traefik",
@@ -2084,11 +2379,12 @@ _ => null
         
         return appName switch
         {
-            "mysql" => "mysqld",
+            "mysql" => "mysql",
+            "mariadb" => "mariadb",
             "redis" => "redis",
             "elasticsearch" => "elasticsearch",
             "rabbitmq" => "rabbitmq-server",
-            "nacos" => "nacos",
+            "mosquitto" => "mosquitto",
             "nginx" => "nginx",
             "consul" => "consul",
             "traefik" => "traefik",

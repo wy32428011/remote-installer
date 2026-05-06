@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -21,7 +23,14 @@ public partial class InstallConfigViewModel : BaseViewModel
     private readonly ApplicationInfo _application;
     private readonly RemoteHost _host;
     private readonly ILogger _logger;
+    private readonly bool _isJdkUploadMode;
     private readonly Dictionary<string, string> _parameterValues = new();
+    private static readonly AsyncLocal<Func<IEnumerable<string>>?> ScriptRootOverridesFactoryHolder = new();
+    internal static Func<IEnumerable<string>>? ScriptRootOverridesFactory
+    {
+        get => ScriptRootOverridesFactoryHolder.Value;
+        set => ScriptRootOverridesFactoryHolder.Value = value;
+    }
 
     [ObservableProperty]
     private string _dialogTitle;
@@ -71,6 +80,69 @@ public partial class InstallConfigViewModel : BaseViewModel
     [ObservableProperty]
     private string _localResourceHint = "请将安装资源放入 Scripts 对应应用目录后点击刷新检测。";
 
+    [ObservableProperty]
+    private string _remoteUploadPath = string.Empty;
+
+    public bool IsMySqlApplication => IsMySql;
+
+    public bool IsNonMySqlApplication => !IsMySql;
+
+    public bool SupportsOnlineInstall => !IsMariaDb && !IsMosquitto;
+
+    public bool IsJdkApplication => IsJdk;
+
+    public bool IsJdkUploadMode => IsJdk && _isJdkUploadMode;
+
+    public bool ShowVersionSelectionSection => !IsJdkUploadMode;
+
+    public bool ShowPackageSourceSection => !IsJdkUploadMode;
+
+    public bool ShowGenericLocalPackageControls => ShowPackageSourceSection && PackageSource == "local";
+
+    public bool ShowOnlineInstallOption => SupportsOnlineInstall && !IsJdkUploadMode;
+
+    public bool ShowJdkSection => IsJdk;
+
+    public bool ShowJdkVersionSelector => IsJdk && !IsJdkUploadMode;
+
+    public bool ShowJdkLocalControls => IsJdk && PackageSource == "local";
+
+    public bool ShowJdkFolderPicker => IsJdk && PackageSource == "local";
+
+    public bool ShowJdkRefreshButton => IsJdk && !IsJdkUploadMode;
+
+    public bool ShowRefreshDetectionButton => !IsMySql && !IsJdk;
+
+    public bool ShowRefreshDetectionHint => ShowRefreshDetectionButton && PackageSource == "local";
+
+    public bool ShowLocalPackageIntroText => (IsMySql || IsJdk || IsMosquitto) && PackageSource == "local";
+
+    public string LocalPackageInputHint => IsMySql
+        ? "请选择 MySQL 本地资源目录"
+        : IsJdk
+            ? IsJdkUploadMode
+                ? "请选择本地 JDK 文件夹"
+                : "可选择本地 JDK 目录，或从 Scripts 对应目录自动检测本地资源"
+            : IsMosquitto
+                ? "请从 Scripts/Mosquitto 对应离线目录自动检测本地资源"
+                : "从 Scripts 对应目录自动检测本地资源";
+
+    public string LocalPackageIntroText => IsMySql
+        ? "请选择本地 MySQL 离线资源目录"
+        : IsJdk
+            ? IsJdkUploadMode
+                ? "JDK 上传入口会直接根据所选本地 JDK 文件夹识别版本，并上传到远端临时目录后安装"
+                : "JDK 支持选择本地目录上传到远端指定位置，也支持继续使用 Scripts 目录中的离线资源"
+            : IsMosquitto
+                ? "Mosquitto 仅支持离线安装，请将资源放入 Scripts/Mosquitto 对应系统目录后再刷新检测"
+                : "推荐优先使用本地资源安装，请将安装包放入 Scripts 对应应用目录后再刷新检测";
+
+    public string LocalOnlyInstallHintText => IsMariaDb
+        ? "MariaDB 当前仅支持 Scripts/MariaDB 下的离线资源安装。"
+        : IsMosquitto
+            ? "Mosquitto 当前仅支持 Scripts/Mosquitto 下的离线资源安装。"
+            : "当前应用仅支持离线资源安装。";
+
     public ObservableCollection<ParameterViewModel> ParameterViewModels { get; } = new();
 
 
@@ -94,10 +166,16 @@ public partial class InstallConfigViewModel : BaseViewModel
                 AvailableVersions.Add(version);
             }
 
+            var preferredMosquittoVersion = GetDefaultMosquittoVersionForCurrentHost();
+
             // 默认选中第一个版本或应用的 SelectedVersion
             if (!string.IsNullOrEmpty(_application.SelectedVersion) && AvailableVersions.Contains(_application.SelectedVersion))
             {
                 SelectedVersion = _application.SelectedVersion;
+            }
+            else if (IsMosquitto && !string.IsNullOrEmpty(preferredMosquittoVersion) && AvailableVersions.Contains(preferredMosquittoVersion))
+            {
+                SelectedVersion = preferredMosquittoVersion;
             }
             else if (AvailableVersions.Count > 0)
             {
@@ -115,6 +193,57 @@ public partial class InstallConfigViewModel : BaseViewModel
         }
     }
 
+    private string GetDefaultMosquittoVersionForCurrentHost()
+    {
+        if (!IsMosquitto)
+        {
+            return string.Empty;
+        }
+
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            return "2.0.21";
+        }
+
+        if (_host.OsType == OperatingSystemType.Ubuntu && TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor))
+        {
+            return ubuntuMajor switch
+            {
+                22 => "2.0.22",
+                24 => "2.1.2",
+                _ => string.Empty
+            };
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS && TryGetMajorVersion(_host.OsVersion, out var centOsMajor) && centOsMajor == 7)
+        {
+            return "1.6.10";
+        }
+
+        return string.Empty;
+    }
+
+    private void UpdateDisplayedApplicationVersion()
+    {
+        var version = _application.Version;
+
+        if (IsMosquitto)
+        {
+            version = PackageSource == "local" && !string.IsNullOrWhiteSpace(LocalPackageVersion)
+                ? LocalPackageVersion
+                : !string.IsNullOrWhiteSpace(SelectedVersion)
+                    ? SelectedVersion
+                    : !string.IsNullOrWhiteSpace(GetDefaultMosquittoVersionForCurrentHost())
+                        ? GetDefaultMosquittoVersionForCurrentHost()
+                        : _application.Version;
+        }
+
+        ApplicationVersion = version;
+        DialogTitle = string.IsNullOrWhiteSpace(version)
+            ? $"安装 {ApplicationName}"
+            : $"安装 {ApplicationName} {version}";
+    }
+
     /// <summary>
     /// 从本地包文件名提取版本
     /// </summary>
@@ -128,33 +257,309 @@ public partial class InstallConfigViewModel : BaseViewModel
 
         try
         {
-            var fileName = Path.GetFileName(LocalPackagePath).ToLower();
-
-            // 尝试从文件名中提取版本号（格式：appname-version.ext 或 appname_version.ext）
-            // 例如：mysql-8.0.35.rpm, redis_7.2.3.deb, nginx-1.24.0.tar.gz
-            var version = ExtractVersionFromFileName(fileName);
+            var version = Directory.Exists(LocalPackagePath)
+                ? ExtractVersionFromLocalPackageDirectory(LocalPackagePath)
+                : ExtractVersionFromFileName(Path.GetFileName(LocalPackagePath).ToLower());
 
             if (!string.IsNullOrEmpty(version))
             {
                 LocalPackageVersion = version;
 
-                // 如果是本地包模式，自动同步到 SelectedVersion 供脚本匹配使用
                 if (!AvailableVersions.Contains(version))
                 {
                     AvailableVersions.Add(version);
                 }
-                SelectedVersion = version;
+
+                if (!IsJdk)
+                {
+                    SelectedVersion = version;
+                }
             }
             else
             {
                 LocalPackageVersion = "未知版本";
-                // 此时不重置 SelectedVersion，保持用户之前的选择（如果有）
             }
         }
-        catch (Exception ex)
+        catch
         {
             LocalPackageVersion = "未知版本";
         }
+    }
+
+    private string ExtractVersionFromLocalPackageDirectory(string directoryPath)
+    {
+        if (IsJdk)
+        {
+            return ExtractVersionFromJdkDirectory(directoryPath);
+        }
+
+        if (IsMosquitto && _host.OsType != OperatingSystemType.Windows)
+        {
+            var mosquittoPackageFile = GetPreferredMosquittoPackageFiles(directoryPath)
+                .OrderByDescending(path => IsVersionMatch(path, GetExpectedMosquittoOfflineVersion()))
+                .ThenByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+
+            return string.IsNullOrEmpty(mosquittoPackageFile)
+                ? string.Empty
+                : ExtractVersionFromFileName(Path.GetFileName(mosquittoPackageFile).ToLower());
+        }
+
+        // MySQL 兼容根目录平铺与 mysql 子目录；Redis 仅扫描主包目录，避免误读 deps 依赖版本。
+        var searchDirectories = IsMySql
+            ? GetMySqlOfflinePackageDirectories(directoryPath)
+            : new[] { directoryPath };
+
+        var packageFile = searchDirectories
+            .Where(Directory.Exists)
+            .SelectMany(path => GetOfflineVersionCandidateFiles(path))
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        if (!string.IsNullOrEmpty(packageFile))
+        {
+            return ExtractVersionFromFileName(Path.GetFileName(packageFile).ToLower());
+        }
+
+        if (IsMosquitto && _host.OsType == OperatingSystemType.Windows)
+        {
+            return ExtractVersionFromMosquittoWindowsDirectory(directoryPath);
+        }
+
+        return string.Empty;
+    }
+
+    private string ExtractVersionFromMosquittoWindowsDirectory(string directoryPath)
+    {
+        var directoryNameVersion = ExtractVersionFromFileName(Path.GetFileName(directoryPath).ToLower());
+        if (!string.IsNullOrEmpty(directoryNameVersion))
+        {
+            return directoryNameVersion;
+        }
+
+        var executableVersion = Directory.GetFiles(directoryPath, "mosquitto*.exe", SearchOption.TopDirectoryOnly)
+            .Select(path => ExtractVersionFromFileName(Path.GetFileName(path).ToLower()))
+            .FirstOrDefault(version => !string.IsNullOrEmpty(version));
+
+        return executableVersion ?? string.Empty;
+    }
+
+    private string ExtractVersionFromJdkDirectory(string directoryPath)
+    {
+        var releaseFilePath = Path.Combine(directoryPath, "release");
+        if (File.Exists(releaseFilePath))
+        {
+            try
+            {
+                var releaseContent = File.ReadAllText(releaseFilePath);
+                var releaseVersion = Regex.Match(releaseContent, "JAVA_VERSION\\s*=\\s*\"(?<version>[^\"]+)\"");
+                if (releaseVersion.Success)
+                {
+                    var normalizedReleaseVersion = NormalizeJdkVersion(releaseVersion.Groups["version"].Value);
+                    if (!string.IsNullOrEmpty(normalizedReleaseVersion))
+                    {
+                        return normalizedReleaseVersion;
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略 release 文件读取异常，继续尝试其他识别方式
+            }
+        }
+
+        if (!HasJdkDirectoryStructure(directoryPath))
+        {
+            return string.Empty;
+        }
+
+        return NormalizeJdkVersion(ExtractVersionFromJdkText(Path.GetFileName(directoryPath)));
+    }
+
+    private static bool HasJdkDirectoryStructure(string directoryPath)
+    {
+        return File.Exists(Path.Combine(directoryPath, "release"))
+            || File.Exists(Path.Combine(directoryPath, "bin", "java.exe"))
+            || File.Exists(Path.Combine(directoryPath, "bin", "java"));
+    }
+
+    private string ExtractVersionFromJdkText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var normalizedText = text.Trim();
+
+        if (Regex.IsMatch(normalizedText, @"(?:^|[^0-9])1\.8(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])8u\d+(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])jdk8(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])java-?8(?:[^0-9]|$)", RegexOptions.IgnoreCase))
+        {
+            return "8";
+        }
+
+        if (Regex.IsMatch(normalizedText, @"(?:^|[^0-9])11(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])jdk11(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])java-?11(?:[^0-9]|$)", RegexOptions.IgnoreCase))
+        {
+            return "11";
+        }
+
+        if (Regex.IsMatch(normalizedText, @"(?:^|[^0-9])17(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])jdk17(?:[^0-9]|$)", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(normalizedText, @"(?:^|[^0-9])java-?17(?:[^0-9]|$)", RegexOptions.IgnoreCase))
+        {
+            return "17";
+        }
+
+        return string.Empty;
+    }
+
+    private string NormalizeJdkVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return string.Empty;
+        }
+
+        var normalizedVersion = version.Trim();
+        if (normalizedVersion.StartsWith("1.8", StringComparison.OrdinalIgnoreCase)
+            || normalizedVersion.StartsWith("8", StringComparison.OrdinalIgnoreCase))
+        {
+            return "8";
+        }
+
+        if (normalizedVersion.StartsWith("11", StringComparison.OrdinalIgnoreCase))
+        {
+            return "11";
+        }
+
+        if (normalizedVersion.StartsWith("17", StringComparison.OrdinalIgnoreCase))
+        {
+            return "17";
+        }
+
+        return string.Empty;
+    }
+
+    private static readonly char[] InvalidRemoteUploadPathCharacters = new[] { '"', '\'', '`', ';', '\r', '\n' };
+
+    private bool TryValidateRemoteUploadPath(out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (!IsJdk || string.IsNullOrWhiteSpace(RemoteUploadPath))
+        {
+            return true;
+        }
+
+        var trimmedPath = RemoteUploadPath.Trim();
+        if (trimmedPath.Contains("..", StringComparison.Ordinal))
+        {
+            errorMessage = "远端上传目录不能包含 .. 路径跳转。";
+            return false;
+        }
+
+        if (trimmedPath.IndexOfAny(InvalidRemoteUploadPathCharacters) >= 0)
+        {
+            errorMessage = "远端上传目录不能包含引号、分号、反引号或换行。";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            var normalizedPath = trimmedPath.Replace("/", "\\");
+            if (!Regex.IsMatch(normalizedPath, @"^[a-zA-Z]:\\"))
+            {
+                errorMessage = "Windows 远端上传目录必须使用绝对路径，例如 C:\\Windows\\Temp\\jdk-upload。";
+                return false;
+            }
+        }
+        else
+        {
+            var normalizedPath = trimmedPath.Replace("\\", "/");
+            if (!normalizedPath.StartsWith("/", StringComparison.Ordinal))
+            {
+                errorMessage = "Linux 远端上传目录必须使用绝对路径，例如 /tmp/jdk-upload。";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private IEnumerable<string> GetOfflineVersionCandidateFiles(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+        {
+            return Enumerable.Empty<string>();
+        }
+
+        if (IsRedis)
+        {
+            var redisPatterns = _host.OsType switch
+            {
+                OperatingSystemType.CentOS => new[] { "redis-*.rpm" },
+                OperatingSystemType.Ubuntu => new[] { "redis-server*.deb", "redis-*.tar.gz", "redis-*.tgz", "redis-*.tar.xz" },
+                _ => Array.Empty<string>()
+            };
+
+            return redisPatterns.SelectMany(pattern => Directory.GetFiles(directoryPath, pattern, SearchOption.TopDirectoryOnly));
+        }
+
+        if (IsRabbitMq)
+        {
+            var rabbitMqPatterns = _host.OsType switch
+            {
+                OperatingSystemType.CentOS => new[] { "rabbitmq-server-*.rpm" },
+                OperatingSystemType.Ubuntu => new[] { "rabbitmq-server*.deb", "rabbitmq-server*.tar.gz", "rabbitmq-server*.tgz", "rabbitmq-server*.tar.xz" },
+                _ => Array.Empty<string>()
+            };
+
+            return rabbitMqPatterns.SelectMany(pattern => Directory.GetFiles(directoryPath, pattern, SearchOption.TopDirectoryOnly));
+        }
+
+        if (IsNginx)
+        {
+            var nginxPatterns = _host.OsType switch
+            {
+                OperatingSystemType.CentOS => new[] { "nginx-*.rpm" },
+                OperatingSystemType.Ubuntu => new[] { "nginx_*.deb", "nginx-common_*.deb" },
+                _ => Array.Empty<string>()
+            };
+
+            return nginxPatterns.SelectMany(pattern => Directory.GetFiles(directoryPath, pattern, SearchOption.TopDirectoryOnly));
+        }
+
+        if (IsElasticsearch)
+        {
+            var elasticsearchPatterns = _host.OsType switch
+            {
+                OperatingSystemType.CentOS => new[] { "elasticsearch-*.rpm", "elasticsearch-*.tar.gz", "elasticsearch-*.tar" },
+                OperatingSystemType.Ubuntu => new[] { "elasticsearch-*.deb", "elasticsearch-*.tar.gz", "elasticsearch-*.tar" },
+                _ => Array.Empty<string>()
+            };
+
+            return elasticsearchPatterns.SelectMany(pattern => Directory.GetFiles(directoryPath, pattern, SearchOption.TopDirectoryOnly));
+        }
+
+        if (IsMosquitto)
+        {
+            var mosquittoPatterns = _host.OsType switch
+            {
+                OperatingSystemType.CentOS => new[] { "mosquitto-*.rpm" },
+                OperatingSystemType.Ubuntu => new[] { "mosquitto_*.deb", "mosquitto-*.deb" },
+                OperatingSystemType.Windows => new[] { "mosquitto-*.zip" },
+                _ => Array.Empty<string>()
+            };
+
+            return mosquittoPatterns.SelectMany(pattern => Directory.GetFiles(directoryPath, pattern, SearchOption.TopDirectoryOnly));
+        }
+
+        return Directory.GetFiles(directoryPath, "*", SearchOption.TopDirectoryOnly)
+            .Where(path => GetPackageExtensions().Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>
@@ -214,6 +619,12 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     partial void OnSelectedVersionChanged(string value)
     {
+        if (IsJdk && PackageSource == "local" && !IsJdkUploadMode)
+        {
+            InitializeLocalResourceDefaults();
+        }
+
+        UpdateDisplayedApplicationVersion();
         NotifyCanExecuteChanged();
     }
 
@@ -222,6 +633,12 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     partial void OnLocalPackageVersionChanged(string value)
     {
+        if (IsJdkUploadMode)
+        {
+            SelectedVersion = NormalizeJdkVersion(value);
+        }
+
+        UpdateDisplayedApplicationVersion();
         NotifyCanExecuteChanged();
     }
 
@@ -230,6 +647,12 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     partial void OnPackageSourceChanged(string value)
     {
+        if (IsJdkUploadMode && value != "local")
+        {
+            PackageSource = "local";
+            return;
+        }
+
         if (value == "local")
         {
             IsLocalPackage = true;
@@ -245,6 +668,19 @@ public partial class InstallConfigViewModel : BaseViewModel
             LocalPackageVersion = string.Empty;
         }
 
+        UpdateDisplayedApplicationVersion();
+        OnPropertyChanged(nameof(ShowVersionSelectionSection));
+        OnPropertyChanged(nameof(ShowPackageSourceSection));
+        OnPropertyChanged(nameof(ShowGenericLocalPackageControls));
+        OnPropertyChanged(nameof(ShowOnlineInstallOption));
+        OnPropertyChanged(nameof(ShowJdkSection));
+        OnPropertyChanged(nameof(ShowJdkVersionSelector));
+        OnPropertyChanged(nameof(ShowJdkLocalControls));
+        OnPropertyChanged(nameof(ShowJdkFolderPicker));
+        OnPropertyChanged(nameof(ShowJdkRefreshButton));
+        OnPropertyChanged(nameof(ShowRefreshDetectionButton));
+        OnPropertyChanged(nameof(ShowRefreshDetectionHint));
+        OnPropertyChanged(nameof(ShowLocalPackageIntroText));
         NotifyCanExecuteChanged();
     }
 
@@ -258,6 +694,16 @@ public partial class InstallConfigViewModel : BaseViewModel
             ExtractVersionFromLocalPackage();
         }
 
+        OnPropertyChanged(nameof(ShowJdkSection));
+        OnPropertyChanged(nameof(ShowGenericLocalPackageControls));
+        OnPropertyChanged(nameof(ShowJdkLocalControls));
+        OnPropertyChanged(nameof(ShowJdkFolderPicker));
+        OnPropertyChanged(nameof(ShowJdkRefreshButton));
+        NotifyCanExecuteChanged();
+    }
+
+    partial void OnRemoteUploadPathChanged(string value)
+    {
         NotifyCanExecuteChanged();
     }
 
@@ -273,6 +719,8 @@ public partial class InstallConfigViewModel : BaseViewModel
 
         foreach (var param in _application.Parameters)
         {
+            NormalizeMosquittoCredentialParameter(param);
+
             var paramVm = new ParameterViewModel(param);
             // 设置回调，当参数值变化时触发 CanExecute 重新评估
             paramVm.OnValueChangeNotify = () =>
@@ -284,8 +732,59 @@ public partial class InstallConfigViewModel : BaseViewModel
         }
     }
 
+    private void NormalizeMosquittoCredentialParameter(InstallParameter parameter)
+    {
+        if (!IsMosquitto)
+        {
+            return;
+        }
+
+        if (!string.Equals(parameter.Key, "USERNAME", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(parameter.Key, "PASSWORD", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        parameter.Required = false;
+        parameter.DefaultValue = string.Empty;
+    }
+
+    private string GetParameterValue(string key)
+    {
+        return ParameterViewModels.FirstOrDefault(param => string.Equals(param.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;
+    }
+
+    private bool TryValidateMosquittoCredentialPair(out string errorMessage)
+    {
+        var username = GetParameterValue("USERNAME");
+        var password = GetParameterValue("PASSWORD");
+        var hasUsername = !string.IsNullOrWhiteSpace(username);
+        var hasPassword = !string.IsNullOrWhiteSpace(password);
+
+        if (hasUsername == hasPassword)
+        {
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        errorMessage = "Mosquitto 用户名和密码必须同时填写，或同时留空以启用匿名访问。";
+        return false;
+    }
+
     private void InitializeLocalResourceDefaults()
     {
+        if (IsJdkUploadMode)
+        {
+            PackageSource = "local";
+            LocalPackagePath = string.Empty;
+            LocalPackageVersion = string.Empty;
+            SelectedVersion = string.Empty;
+            _application.LocalPackagePath = string.Empty;
+            _application.UseLocalPackage = false;
+            LocalResourceHint = "请选择本地 JDK 文件夹，系统会自动识别 JDK 8 / 11 / 17 版本。";
+            return;
+        }
+
         if (TryResolveLocalPackage(out var packagePath, out var hint))
         {
             PackageSource = "local";
@@ -321,9 +820,24 @@ public partial class InstallConfigViewModel : BaseViewModel
             return TryResolveNginxLocalPackage(out packagePath, out hint);
         }
 
+        if (IsElasticsearch)
+        {
+            return TryResolveElasticsearchLocalPackage(out packagePath, out hint);
+        }
+
         if (IsMySql)
         {
             return TryResolveMySqlLocalPackage(out packagePath, out hint);
+        }
+
+        if (IsMariaDb)
+        {
+            return TryResolveMariaDbLocalPackage(out packagePath, out hint);
+        }
+
+        if (IsMosquitto)
+        {
+            return TryResolveMosquittoLocalPackage(out packagePath, out hint);
         }
 
         if (IsConsul)
@@ -334,6 +848,11 @@ public partial class InstallConfigViewModel : BaseViewModel
         if (IsTraefik)
         {
             return TryResolveTraefikLocalPackage(out packagePath, out hint);
+        }
+
+        if (IsJdk)
+        {
+            return TryResolveJdkLocalPackage(out packagePath, out hint);
         }
 
         var roots = GetApplicationScriptRoots();
@@ -348,13 +867,7 @@ public partial class InstallConfigViewModel : BaseViewModel
                     continue;
                 }
 
-                var packageFiles = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
-                    .Where(path => packageExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
-                    .OrderByDescending(path => IsVersionMatch(path, _application.Version))
-                    .ThenByDescending(File.GetLastWriteTimeUtc)
-                    .ToList();
-
-                var selectedPath = packageFiles.FirstOrDefault();
+                var selectedPath = TryFindPreferredGenericPackageFile(root, packageExtensions);
                 if (!string.IsNullOrEmpty(selectedPath))
                 {
                     packagePath = selectedPath;
@@ -432,26 +945,13 @@ public partial class InstallConfigViewModel : BaseViewModel
 
     private bool TryResolveNginxLocalPackage(out string packagePath, out string hint)
     {
-        string? offlineFolder = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "nginx-centos7",
-            OperatingSystemType.Ubuntu => "nginx-ubuntu",
-            _ => null
-        };
-
-        if (string.IsNullOrEmpty(offlineFolder))
+        if (!TryGetCompatibleNginxOfflineFolder(out var offlineFolder, out hint))
         {
             packagePath = string.Empty;
-            hint = "当前系统未配置 Nginx 本地资源目录。";
             return false;
         }
 
-        string packagePattern = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "nginx-*.rpm",
-            OperatingSystemType.Ubuntu => "nginx*.deb",
-            _ => string.Empty
-        };
+        string? validationHint = null;
 
         foreach (var root in GetNginxScriptRoots(offlineFolder))
         {
@@ -462,13 +962,9 @@ public partial class InstallConfigViewModel : BaseViewModel
                     continue;
                 }
 
-                var selectedPath = Directory.GetFiles(root, packagePattern, SearchOption.TopDirectoryOnly)
-                    .OrderByDescending(path => IsVersionMatch(path, _application.Version))
-                    .ThenByDescending(File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-
-                if (string.IsNullOrEmpty(selectedPath))
+                if (!TryValidateNginxOfflineDirectory(root, out var currentHint))
                 {
+                    validationHint ??= currentHint;
                     continue;
                 }
 
@@ -483,23 +979,475 @@ public partial class InstallConfigViewModel : BaseViewModel
         }
 
         packagePath = string.Empty;
-        hint = $"未在 Scripts/Nginx/{offlineFolder} 中找到可用本地资源。";
+        hint = validationHint ?? $"未在 Scripts/Nginx/{offlineFolder} 中找到可用本地资源。";
         return false;
+    }
+
+    private bool TryGetCompatibleNginxOfflineFolder(out string offlineFolder, out string hint)
+    {
+        offlineFolder = string.Empty;
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 Nginx 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolder = Path.Combine("nginx-ubuntu", "22");
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolder = Path.Combine("nginx-ubuntu", "24");
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {_host.OsVersion} 与本地 Nginx 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 Nginx 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {_host.OsVersion} 与本地 Nginx 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolder = "nginx-centos7";
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 Nginx 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateNginxOfflineDirectory(string root, out string hint)
+    {
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryValidateNginxUbuntuOfflineDirectory(root, out hint);
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryValidateNginxCentOsOfflineDirectory(root, out hint);
+        }
+
+        hint = "当前系统未配置 Nginx 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateNginxOfflinePath(string path, out string hint)
+    {
+        if (Directory.Exists(path))
+        {
+            return TryValidateNginxOfflineDirectory(path, out hint);
+        }
+
+        if (!File.Exists(path))
+        {
+            hint = $"Scripts 对应目录中的本地资源不存在：{path}";
+            return false;
+        }
+
+        var parentDirectory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(parentDirectory) || !Directory.Exists(parentDirectory))
+        {
+            hint = $"无法定位 Nginx 本地资源所属目录：{path}";
+            return false;
+        }
+
+        return TryValidateNginxOfflineDirectory(parentDirectory, out hint);
+    }
+
+    private bool TryValidateNginxUbuntuOfflineDirectory(string root, out string hint)
+    {
+        var mainPackageExists = Directory.GetFiles(root, "nginx_*.deb", SearchOption.TopDirectoryOnly).Any();
+        if (!mainPackageExists)
+        {
+            hint = $"{GetNginxOfflinePlatformDisplayName()} 离线资源目录缺少主包：nginx_*.deb。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        if (RequiresNginxCommonPackage())
+        {
+            var commonPackageExists = Directory.GetFiles(root, "nginx-common_*.deb", SearchOption.TopDirectoryOnly).Any();
+            if (!commonPackageExists)
+            {
+                hint = $"{GetNginxOfflinePlatformDisplayName()} 离线资源目录缺少公共包：nginx-common_*.deb。请补齐后再点击刷新检测。";
+                return false;
+            }
+        }
+
+        var dependencyFileNames = GetNginxOfflineDependencyDirectories(root)
+            .Where(Directory.Exists)
+            .SelectMany(directory => Directory.GetFiles(directory, "*.deb", SearchOption.TopDirectoryOnly))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+
+        var missingDependencies = GetRequiredNginxUbuntuDebPrefixes()
+            .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (missingDependencies.Count > 0)
+        {
+            hint = $"{GetNginxOfflinePlatformDisplayName()} 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        hint = string.Empty;
+        return true;
+    }
+
+    private bool TryValidateNginxCentOsOfflineDirectory(string root, out string hint)
+    {
+        var mainPackageExists = Directory.GetFiles(root, "nginx-*.rpm", SearchOption.TopDirectoryOnly).Any();
+        if (!mainPackageExists)
+        {
+            hint = $"{GetNginxOfflinePlatformDisplayName()} 离线资源目录缺少主包：nginx-*.rpm。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        var dependencyFileNames = GetNginxOfflineDependencyDirectories(root)
+            .Where(Directory.Exists)
+            .SelectMany(directory => Directory.GetFiles(directory, "*.rpm", SearchOption.TopDirectoryOnly))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+
+        var missingDependencies = GetRequiredNginxCentOsRpmPrefixes()
+            .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (missingDependencies.Count > 0)
+        {
+            hint = $"{GetNginxOfflinePlatformDisplayName()} 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        hint = string.Empty;
+        return true;
+    }
+
+    private static IEnumerable<string> GetNginxOfflineDependencyDirectories(string root)
+    {
+        return new[]
+        {
+            Path.Combine(root, "deps"),
+            root
+        }.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyList<string> GetRequiredNginxUbuntuDebPrefixes()
+    {
+        if (TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor) && ubuntuMajor == 24)
+        {
+            return new[] { "iproute2", "libssl3t64", "libc6", "libcrypt1", "libpcre2-8-0", "zlib1g" };
+        }
+
+        return new[] { "adduser", "lsb-base", "libssl3", "libc6", "libcrypt1", "libpcre2-8-0", "zlib1g" };
+    }
+
+    private bool RequiresNginxCommonPackage()
+    {
+        return TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor) && ubuntuMajor == 24;
+    }
+
+    private static IReadOnlyList<string> GetRequiredNginxCentOsRpmPrefixes()
+    {
+        return new[] { "pcre2-", "openssl-libs-", "glibc-", "procps-ng-", "shadow-utils-", "systemd-" };
+    }
+
+    private string GetNginxOfflinePlatformDisplayName()
+    {
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor)
+                ? $"Nginx Ubuntu {ubuntuMajor}"
+                : "Nginx Ubuntu";
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var centOsMajor)
+                ? $"Nginx CentOS {centOsMajor}"
+                : "Nginx CentOS";
+        }
+
+        return "Nginx";
+    }
+
+    private bool TryResolveElasticsearchLocalPackage(out string packagePath, out string hint)
+    {
+        if (!TryGetCompatibleElasticsearchOfflineFolder(out var offlineFolder, out hint))
+        {
+            packagePath = string.Empty;
+            return false;
+        }
+
+        string? validationHint = null;
+
+        foreach (var root in GetElasticsearchScriptRoots(offlineFolder))
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                if (!TryValidateElasticsearchOfflineDirectory(root, out var currentHint))
+                {
+                    validationHint ??= currentHint;
+                    continue;
+                }
+
+                packagePath = root;
+                hint = $"已从 Scripts 目录自动匹配 Elasticsearch 本地资源目录：{root}";
+                return true;
+            }
+            catch
+            {
+                // 忽略当前路径异常，继续尝试其他路径
+            }
+        }
+
+        packagePath = string.Empty;
+        hint = validationHint ?? $"未在 Scripts/Elasticsearch/{offlineFolder} 中找到可用本地资源。";
+        return false;
+    }
+
+    private bool TryGetCompatibleElasticsearchOfflineFolder(out string offlineFolder, out string hint)
+    {
+        offlineFolder = string.Empty;
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 Elasticsearch 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolder = Path.Combine("elasticsearch-ubuntu", "22");
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolder = Path.Combine("elasticsearch-ubuntu", "24");
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {_host.OsVersion} 与本地 Elasticsearch 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 Elasticsearch 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {_host.OsVersion} 与本地 Elasticsearch 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolder = "elasticsearch-centos7";
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 Elasticsearch 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateElasticsearchOfflineDirectory(string root, out string hint)
+    {
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryValidateElasticsearchUbuntuOfflineDirectory(root, out hint);
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryValidateElasticsearchCentOsOfflineDirectory(root, out hint);
+        }
+
+        hint = "当前系统未配置 Elasticsearch 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateElasticsearchOfflinePath(string path, out string hint)
+    {
+        if (Directory.Exists(path))
+        {
+            return TryValidateElasticsearchOfflineDirectory(path, out hint);
+        }
+
+        if (!File.Exists(path))
+        {
+            hint = $"Scripts 对应目录中的本地资源不存在：{path}";
+            return false;
+        }
+
+        if (path.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".tar", StringComparison.OrdinalIgnoreCase))
+        {
+            hint = "Elasticsearch Linux 本地资源仅支持目录型离线包，请选择包含主包和 deps 的离线目录。";
+            return false;
+        }
+
+        var parentDirectory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(parentDirectory) || !Directory.Exists(parentDirectory))
+        {
+            hint = $"无法定位 Elasticsearch 本地资源所属目录：{path}";
+            return false;
+        }
+
+        return TryValidateElasticsearchOfflineDirectory(parentDirectory, out hint);
+    }
+
+    private bool TryValidateElasticsearchUbuntuOfflineDirectory(string root, out string hint)
+    {
+        var expectedVersion = GetExpectedElasticsearchOfflineVersion();
+        var mainPackagePatterns = new[] { $"elasticsearch-{expectedVersion}*.deb" };
+        var mainPackageExists = mainPackagePatterns
+            .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.TopDirectoryOnly))
+            .Any();
+
+        if (!mainPackageExists)
+        {
+            hint = $"{GetElasticsearchOfflinePlatformDisplayName()} 离线资源目录缺少主包：elasticsearch-{expectedVersion}*.deb。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        var dependencyFileNames = GetElasticsearchOfflineDependencyDirectories(root)
+            .Where(Directory.Exists)
+            .SelectMany(directory => Directory.GetFiles(directory, "*.deb", SearchOption.TopDirectoryOnly))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+
+        var missingDependencies = GetRequiredElasticsearchUbuntuDebPrefixes()
+            .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (missingDependencies.Count > 0)
+        {
+            hint = $"{GetElasticsearchOfflinePlatformDisplayName()} 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        hint = string.Empty;
+        return true;
+    }
+
+    private bool TryValidateElasticsearchCentOsOfflineDirectory(string root, out string hint)
+    {
+        var expectedVersion = GetExpectedElasticsearchOfflineVersion();
+        var mainPackageExists = Directory.GetFiles(root, $"elasticsearch-{expectedVersion}*.rpm", SearchOption.TopDirectoryOnly).Any();
+
+        if (!mainPackageExists)
+        {
+            hint = $"{GetElasticsearchOfflinePlatformDisplayName()} 离线资源目录缺少主包：elasticsearch-{expectedVersion}*.rpm。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        var dependencyFileNames = GetElasticsearchOfflineDependencyDirectories(root)
+            .Where(Directory.Exists)
+            .SelectMany(directory => Directory.GetFiles(directory, "*.rpm", SearchOption.TopDirectoryOnly))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+
+        var missingDependencies = GetRequiredElasticsearchCentOsRpmPrefixes()
+            .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (missingDependencies.Count > 0)
+        {
+            hint = $"{GetElasticsearchOfflinePlatformDisplayName()} 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
+            return false;
+        }
+
+        hint = string.Empty;
+        return true;
+    }
+
+    private static IEnumerable<string> GetElasticsearchOfflineDependencyDirectories(string root)
+    {
+        // 兼容新的 deps 目录以及旧版平铺目录，避免历史资源立即失效。
+        return new[]
+        {
+            Path.Combine(root, "deps"),
+            root
+        }.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> GetRequiredElasticsearchUbuntuDebPrefixes()
+    {
+        return new[] { "bash", "lsb-base", "libc6", "adduser", "coreutils" };
+    }
+
+    private static IReadOnlyList<string> GetRequiredElasticsearchCentOsRpmPrefixes()
+    {
+        return new[] { "bash-", "coreutils-" };
+    }
+
+    private string GetExpectedElasticsearchOfflineVersion()
+    {
+        return string.IsNullOrWhiteSpace(_application.Version) ? "8.5.3" : _application.Version;
+    }
+
+    private string GetElasticsearchOfflinePlatformDisplayName()
+    {
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor)
+                ? $"Elasticsearch Ubuntu {ubuntuMajor}"
+                : "Elasticsearch Ubuntu";
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var centOsMajor)
+                ? $"Elasticsearch CentOS {centOsMajor}"
+                : "Elasticsearch CentOS";
+        }
+
+        return "Elasticsearch";
     }
 
     private bool TryResolveMySqlLocalPackage(out string packagePath, out string hint)
     {
-        string? offlineFolder = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "mysql-centos7",
-            OperatingSystemType.Ubuntu => "mysql-ubuntu",
-            _ => null
-        };
-
-        if (string.IsNullOrEmpty(offlineFolder))
+        if (!TryGetCompatibleMySqlOfflineFolder(out var offlineFolder, out hint))
         {
             packagePath = string.Empty;
-            hint = "当前系统未配置 MySQL 本地资源目录。";
             return false;
         }
 
@@ -519,8 +1467,10 @@ public partial class InstallConfigViewModel : BaseViewModel
                     continue;
                 }
 
-                var selectedPath = packagePatterns
-                    .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.TopDirectoryOnly))
+                var selectedPath = GetMySqlOfflinePackageDirectories(root)
+                    .Where(Directory.Exists)
+                    .SelectMany(searchRoot => packagePatterns
+                        .SelectMany(pattern => Directory.GetFiles(searchRoot, pattern, SearchOption.TopDirectoryOnly)))
                     .OrderByDescending(path => IsVersionMatch(path, _application.Version))
                     .ThenByDescending(File.GetLastWriteTimeUtc)
                     .FirstOrDefault();
@@ -543,6 +1493,697 @@ public partial class InstallConfigViewModel : BaseViewModel
         packagePath = string.Empty;
         hint = $"未在 Scripts/MySQL/{offlineFolder} 中找到可用本地资源。";
         return false;
+    }
+
+    private bool TryGetCompatibleMySqlOfflineFolder(out string offlineFolder, out string hint)
+    {
+        offlineFolder = string.Empty;
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 MySQL 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolder = Path.Combine("mysql-ubuntu", "22");
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolder = Path.Combine("mysql-ubuntu", "24");
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {_host.OsVersion} 与本地 MySQL 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 MySQL 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {_host.OsVersion} 与本地 MySQL 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolder = "mysql-centos7";
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 MySQL 本地资源目录。";
+        return false;
+    }
+
+    private bool TryResolveMariaDbLocalPackage(out string packagePath, out string hint)
+    {
+        return TryResolveMariaDbLocalPackage(_application.Version, _host, out packagePath, out hint);
+    }
+
+    public static bool TryResolveMariaDbLocalPackage(string version, RemoteHost host, out string packagePath, out string hint)
+    {
+        if (!TryGetCompatibleMariaDbOfflineFolder(host, out var offlineFolder, out hint))
+        {
+            packagePath = string.Empty;
+            return false;
+        }
+
+        string[] packagePatterns = host.OsType switch
+        {
+            OperatingSystemType.CentOS => new[] { "MariaDB-server-*.rpm", "mariadb-server-*.rpm" },
+            OperatingSystemType.Ubuntu => new[] { "mariadb-server_*.deb", "mariadb-server-core_*.deb" },
+            _ => Array.Empty<string>()
+        };
+
+        foreach (var root in GetMariaDbScriptRoots(offlineFolder))
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                var selectedPath = packagePatterns
+                    .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.TopDirectoryOnly))
+                    .OrderByDescending(path => IsVersionMatch(path, version))
+                    .ThenByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+
+                if (string.IsNullOrEmpty(selectedPath))
+                {
+                    continue;
+                }
+
+                packagePath = root;
+                hint = $"已从 Scripts 目录自动匹配 MariaDB 本地资源目录：{root}";
+                return true;
+            }
+            catch
+            {
+                // 忽略当前路径异常，继续尝试其他路径
+            }
+        }
+
+        packagePath = string.Empty;
+        hint = $"未在 Scripts/MariaDB/{offlineFolder} 中找到可用本地资源。";
+        return false;
+    }
+
+    private bool TryGetCompatibleMariaDbOfflineFolder(out string offlineFolder, out string hint)
+    {
+        return TryGetCompatibleMariaDbOfflineFolder(_host, out offlineFolder, out hint);
+    }
+
+    public static bool TryGetCompatibleMariaDbOfflineFolder(RemoteHost host, out string offlineFolder, out string hint)
+    {
+        offlineFolder = string.Empty;
+
+        if (host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 MariaDB 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolder = Path.Combine("mariadb-ubuntu", "22");
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolder = Path.Combine("mariadb-ubuntu", "24");
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {host.OsVersion} 与本地 MariaDB 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 MariaDB 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {host.OsVersion} 与本地 MariaDB 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolder = "mariadb-centos7";
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 MariaDB 本地资源目录。";
+        return false;
+    }
+
+    private static bool TryGetMajorVersion(string version, out int majorVersion)
+    {
+        majorVersion = 0;
+
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(version, @"\d+");
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        return int.TryParse(match.Value, out majorVersion);
+    }
+
+    private bool TryResolveMosquittoLocalPackage(out string packagePath, out string hint)
+    {
+        if (!TryGetCompatibleMosquittoOfflineFolder(out var offlineFolder, out hint))
+        {
+            packagePath = string.Empty;
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            return TryResolveMosquittoWindowsLocalPackage(offlineFolder, out packagePath, out hint);
+        }
+
+        string? validationHint = null;
+
+        foreach (var root in GetMosquittoScriptRoots(offlineFolder))
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                if (!TryValidateMosquittoOfflineDirectory(root, out var currentHint))
+                {
+                    validationHint ??= currentHint;
+                    continue;
+                }
+
+                packagePath = root;
+                hint = $"已从 Scripts 目录自动匹配 Mosquitto 本地资源目录：{root}";
+                return true;
+            }
+            catch
+            {
+            }
+        }
+
+        packagePath = string.Empty;
+        hint = validationHint ?? $"未在 Scripts/Mosquitto/{offlineFolder} 中找到可用本地资源。";
+        return false;
+    }
+
+    private bool TryResolveMosquittoWindowsLocalPackage(string offlineFolder, out string packagePath, out string hint)
+    {
+        string? validationHint = null;
+        var candidates = new List<(string Path, bool IsDirectory, bool VersionMatch, DateTime LastWriteTimeUtc)>();
+
+        foreach (var root in GetMosquittoScriptRoots(offlineFolder))
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                candidates.AddRange(GetMosquittoWindowsZipFiles(root)
+                    .Select(path => (
+                        Path: path,
+                        IsDirectory: false,
+                        VersionMatch: IsVersionMatch(path, GetExpectedMosquittoOfflineVersion()),
+                        LastWriteTimeUtc: File.GetLastWriteTimeUtc(path))));
+
+                foreach (var directory in GetMosquittoWindowsExtractedDirectories(root))
+                {
+                    if (!TryValidateMosquittoWindowsOfflineDirectory(directory, out var currentHint))
+                    {
+                        validationHint ??= currentHint;
+                        continue;
+                    }
+
+                    var directoryVersion = ExtractVersionFromMosquittoWindowsDirectory(directory);
+                    candidates.Add((
+                        Path: directory,
+                        IsDirectory: true,
+                        VersionMatch: string.Equals(directoryVersion, GetExpectedMosquittoOfflineVersion(), StringComparison.OrdinalIgnoreCase)
+                            || IsVersionMatch(directory, GetExpectedMosquittoOfflineVersion()),
+                        LastWriteTimeUtc: Directory.GetLastWriteTimeUtc(directory)));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        if (candidates.Count > 0)
+        {
+            var selected = candidates
+                .OrderByDescending(candidate => candidate.VersionMatch)
+                .ThenByDescending(candidate => candidate.LastWriteTimeUtc)
+                .First();
+
+            packagePath = selected.Path;
+            hint = selected.IsDirectory
+                ? $"已从 Scripts 目录自动匹配 Mosquitto Windows 离线目录：{selected.Path}"
+                : $"已从 Scripts 目录自动匹配 Mosquitto Windows 离线包：{selected.Path}";
+            return true;
+        }
+
+        packagePath = string.Empty;
+        hint = validationHint ?? $"未在 Scripts/Mosquitto/{offlineFolder} 中找到可用本地资源。";
+        return false;
+    }
+
+    private bool TryGetCompatibleMosquittoOfflineFolder(out string offlineFolder, out string hint)
+    {
+        offlineFolder = string.Empty;
+
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            offlineFolder = "windows";
+            hint = string.Empty;
+            return true;
+        }
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 Mosquitto 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolder = Path.Combine("mosquitto-ubuntu", "22");
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolder = Path.Combine("mosquitto-ubuntu", "24");
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {_host.OsVersion} 与本地 Mosquitto 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(_host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 Mosquitto 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {_host.OsVersion} 与本地 Mosquitto 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolder = "mosquitto-centos7";
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 Mosquitto 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateMosquittoOfflineDirectory(string root, out string hint)
+    {
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            return TryValidateMosquittoWindowsOfflineDirectory(root, out hint);
+        }
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryValidateMosquittoUbuntuOfflineDirectory(root, out hint);
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryValidateMosquittoCentOsOfflineDirectory(root, out hint);
+        }
+
+        hint = "当前系统未配置 Mosquitto 本地资源目录。";
+        return false;
+    }
+
+    private bool TryValidateMosquittoOfflinePath(string path, out string hint)
+    {
+        if (Directory.Exists(path))
+        {
+            return TryValidateMosquittoOfflineDirectory(path, out hint);
+        }
+
+        if (!File.Exists(path))
+        {
+            hint = $"Scripts 对应目录中的本地资源不存在：{path}";
+            return false;
+        }
+
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            if (path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                hint = IsMosquittoWindowsZipFile(path)
+                    ? string.Empty
+                    : "Mosquitto Windows 离线包文件名应为 mosquitto-*.zip。";
+                return string.IsNullOrEmpty(hint);
+            }
+
+            var parentDirectory = Path.GetDirectoryName(path);
+            if (string.IsNullOrWhiteSpace(parentDirectory) || !Directory.Exists(parentDirectory))
+            {
+                hint = $"无法定位 Mosquitto Windows 本地资源所属目录：{path}";
+                return false;
+            }
+
+            return TryValidateMosquittoOfflineDirectory(parentDirectory, out hint);
+        }
+
+        hint = "Mosquitto Linux 本地资源仅支持目录型离线包，请选择包含主包的离线目录。";
+        return false;
+    }
+
+    private bool TryValidateMosquittoUbuntuOfflineDirectory(string root, out string hint)
+    {
+        return TryValidateMosquittoLinuxOfflineDirectory(
+            root,
+            GetMosquittoUbuntuDebFiles(root),
+            $"{GetMosquittoOfflinePlatformDisplayName()} 离线资源目录缺少主包：mosquitto-{GetExpectedMosquittoOfflineVersion()}*.deb 或 mosquitto_{GetExpectedMosquittoOfflineVersion()}*.deb。请补齐后再点击刷新检测。",
+            out hint);
+    }
+
+    private bool TryValidateMosquittoCentOsOfflineDirectory(string root, out string hint)
+    {
+        return TryValidateMosquittoLinuxOfflineDirectory(
+            root,
+            GetMosquittoCentOsRpmFiles(root),
+            $"{GetMosquittoOfflinePlatformDisplayName()} 离线资源目录缺少主包：mosquitto-{GetExpectedMosquittoOfflineVersion()}*.rpm。请补齐后再点击刷新检测。",
+            out hint);
+    }
+
+    private bool TryValidateMosquittoWindowsOfflineDirectory(string root, out string hint)
+    {
+        var windowsPackagePath = GetMosquittoWindowsZipFiles(root)
+            .OrderByDescending(path => IsVersionMatch(path, _application.Version))
+            .ThenByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        if (!string.IsNullOrEmpty(windowsPackagePath))
+        {
+            hint = string.Empty;
+            return true;
+        }
+
+        var requiredFiles = new[]
+        {
+            Path.Combine(root, "mosquitto.exe"),
+            Path.Combine(root, "mosquitto_passwd.exe"),
+            Path.Combine(root, "mosquitto.conf")
+        };
+
+        var missingFiles = requiredFiles
+            .Where(path => !File.Exists(path))
+            .Select(path => Path.GetRelativePath(root, path))
+            .ToList();
+
+        if (missingFiles.Count > 0)
+        {
+            hint = $"Mosquitto Windows 离线资源目录缺少文件：{string.Join(", ", missingFiles)}。请补齐 zip 包或完整解压目录后再点击刷新检测。";
+            return false;
+        }
+
+        hint = string.Empty;
+        return true;
+    }
+
+    private static IEnumerable<string> GetMosquittoWindowsExtractedDirectories(string root)
+    {
+        return new[] { root }
+            .Concat(Directory.GetDirectories(root, "*", SearchOption.TopDirectoryOnly))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> GetMosquittoUbuntuDebFiles(string root)
+    {
+        return Directory.GetFiles(root, "*.deb", SearchOption.TopDirectoryOnly)
+            .Where(path =>
+            {
+                var fileName = Path.GetFileName(path);
+                return fileName.StartsWith("mosquitto_", StringComparison.OrdinalIgnoreCase)
+                    || fileName.StartsWith("mosquitto-", StringComparison.OrdinalIgnoreCase);
+            });
+    }
+
+    private static IEnumerable<string> GetMosquittoCentOsRpmFiles(string root)
+    {
+        return Directory.GetFiles(root, "*.rpm", SearchOption.TopDirectoryOnly)
+            .Where(path =>
+            {
+                var fileName = Path.GetFileName(path);
+                return fileName.StartsWith("mosquitto-", StringComparison.OrdinalIgnoreCase);
+            });
+    }
+
+    private static IEnumerable<string> GetMosquittoWindowsZipFiles(string root)
+    {
+        return Directory.GetFiles(root, "*.zip", SearchOption.TopDirectoryOnly)
+            .Where(IsMosquittoWindowsZipFile);
+    }
+
+    private static bool IsMosquittoWindowsZipFile(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        return fileName.StartsWith("mosquitto-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool TryValidateMosquittoLinuxOfflineDirectory(IEnumerable<string> packageFiles, string missingPackageHint, out string hint)
+    {
+        return TryValidateMosquittoLinuxOfflineDirectory(string.Empty, packageFiles, missingPackageHint, out hint);
+    }
+
+    private bool TryValidateMosquittoLinuxOfflineDirectory(string root, IEnumerable<string> packageFiles, string missingPackageHint, out string hint)
+    {
+        var packages = packageFiles.ToList();
+        if (packages.Count == 0)
+        {
+            hint = missingPackageHint;
+            return false;
+        }
+
+        var preferredPackages = GetPreferredMosquittoPackageFiles(root, packages).ToList();
+        if (preferredPackages.Count > 0)
+        {
+            hint = string.Empty;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(GetNormalizedHostCpuArchitecture()))
+        {
+            var availableArchitectures = packages
+                .Select(TryGetMosquittoPackageArchitecture)
+                .Where(arch => !string.IsNullOrWhiteSpace(arch))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(arch => arch, StringComparer.Ordinal)
+                .ToList();
+
+            if (availableArchitectures.Count > 1)
+            {
+                hint = $"{GetMosquittoOfflinePlatformDisplayName()} 离线目录中检测到多种 CPU 架构：{string.Join("、", availableArchitectures)}。请先重新测试连接获取 CPU 架构后再刷新检测。";
+                return false;
+            }
+        }
+
+        hint = missingPackageHint;
+        return false;
+    }
+
+    private IEnumerable<string> GetPreferredMosquittoPackageFiles(string root)
+    {
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return GetPreferredMosquittoPackageFiles(root, GetMosquittoUbuntuDebFiles(root));
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return GetPreferredMosquittoPackageFiles(root, GetMosquittoCentOsRpmFiles(root));
+        }
+
+        return Enumerable.Empty<string>();
+    }
+
+    private IEnumerable<string> GetPreferredMosquittoPackageFiles(string root, IEnumerable<string> packageFiles)
+    {
+        var packages = packageFiles.ToList();
+        var expectedVersion = GetExpectedMosquittoOfflineVersion();
+        var normalizedArchitecture = GetNormalizedHostCpuArchitecture();
+
+        if (!string.IsNullOrWhiteSpace(normalizedArchitecture))
+        {
+            var matchedArchitecturePackages = packages
+                .Where(path => string.Equals(TryGetMosquittoPackageArchitecture(path), normalizedArchitecture, StringComparison.Ordinal))
+                .ToList();
+
+            if (matchedArchitecturePackages.Count > 0)
+            {
+                return matchedArchitecturePackages
+                    .Where(path => IsVersionMatch(path, expectedVersion))
+                    .DefaultIfEmpty()
+                    .Where(path => !string.IsNullOrEmpty(path))
+                    .Concat(matchedArchitecturePackages.Where(path => !IsVersionMatch(path, expectedVersion)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+            }
+
+            return Enumerable.Empty<string>();
+        }
+
+        var singleArchitecturePackages = packages
+            .GroupBy(TryGetMosquittoPackageArchitecture, StringComparer.Ordinal)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .ToList();
+
+        if (singleArchitecturePackages.Count == 1)
+        {
+            var groupedPackages = singleArchitecturePackages[0].ToList();
+            return groupedPackages
+                .Where(path => IsVersionMatch(path, expectedVersion))
+                .DefaultIfEmpty()
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Concat(groupedPackages.Where(path => !IsVersionMatch(path, expectedVersion)))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (singleArchitecturePackages.Count == 0)
+        {
+            return packages
+                .Where(path => IsVersionMatch(path, expectedVersion))
+                .DefaultIfEmpty()
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Concat(packages.Where(path => !IsVersionMatch(path, expectedVersion)))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return Enumerable.Empty<string>();
+    }
+
+    private string GetNormalizedHostCpuArchitecture()
+    {
+        return NormalizeMosquittoArchitecture(_host.CpuArchitecture);
+    }
+
+    private static string NormalizeMosquittoArchitecture(string? architecture)
+    {
+        if (string.IsNullOrWhiteSpace(architecture))
+        {
+            return string.Empty;
+        }
+
+        return architecture.Trim().ToLowerInvariant() switch
+        {
+            "x86_64" => "amd64",
+            "x64" => "amd64",
+            "amd64" => "amd64",
+            "aarch64" => "arm64",
+            "arm64" => "arm64",
+            _ => string.Empty
+        };
+    }
+
+    private static string TryGetMosquittoPackageArchitecture(string path)
+    {
+        var fileName = Path.GetFileName(path).ToLowerInvariant();
+
+        if (fileName.Contains("_amd64") || fileName.Contains("-amd64") || fileName.Contains("x86_64") || fileName.Contains("-x64") || fileName.Contains("_x64"))
+        {
+            return "amd64";
+        }
+
+        if (fileName.Contains("_arm64") || fileName.Contains("-arm64") || fileName.Contains("aarch64"))
+        {
+            return "arm64";
+        }
+
+        return string.Empty;
+    }
+
+    private string GetExpectedMosquittoOfflineVersion()
+    {
+        if (!string.IsNullOrWhiteSpace(SelectedVersion))
+        {
+            return SelectedVersion;
+        }
+
+        var preferredVersion = GetDefaultMosquittoVersionForCurrentHost();
+        if (!string.IsNullOrWhiteSpace(preferredVersion))
+        {
+            return preferredVersion;
+        }
+
+        return string.IsNullOrWhiteSpace(_application.Version) ? "2.0.21" : _application.Version;
+    }
+
+    private string GetMosquittoOfflinePlatformDisplayName()
+    {
+        if (_host.OsType == OperatingSystemType.Windows)
+        {
+            return "Mosquitto Windows";
+        }
+
+        if (_host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var ubuntuMajor)
+                ? $"Mosquitto Ubuntu {ubuntuMajor}"
+                : "Mosquitto Ubuntu";
+        }
+
+        if (_host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryGetMajorVersion(_host.OsVersion, out var centOsMajor)
+                ? $"Mosquitto CentOS {centOsMajor}"
+                : "Mosquitto CentOS";
+        }
+
+        return "Mosquitto";
     }
 
     private bool TryResolveRabbitMqLocalPackage(out string packagePath, out string hint)
@@ -586,8 +2227,36 @@ public partial class InstallConfigViewModel : BaseViewModel
                     continue;
                 }
 
-                packagePath = selectedPath;
-                hint = $"已从 Scripts 目录自动匹配 RabbitMQ 本地资源：{selectedPath}";
+                if (_host.OsType == OperatingSystemType.Ubuntu)
+                {
+                    var dependencyDirectories = new[]
+                    {
+                        Path.Combine(root, "deps"),
+                        root
+                    };
+
+                    var dependencyFileNames = dependencyDirectories
+                        .Where(Directory.Exists)
+                        .SelectMany(dir => Directory.GetFiles(dir, "*.deb", SearchOption.TopDirectoryOnly))
+                        .Select(Path.GetFileName)
+                        .Where(name => !string.IsNullOrEmpty(name))
+                        .ToList();
+
+                    var requiredDebPrefixes = new[] { "erlang-base", "logrotate" };
+                    var missingDependencies = requiredDebPrefixes
+                        .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+
+                    if (missingDependencies.Count > 0)
+                    {
+                        packagePath = string.Empty;
+                        hint = $"RabbitMQ Ubuntu 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
+                        return false;
+                    }
+                }
+
+                packagePath = root;
+                hint = $"已从 Scripts 目录自动匹配 RabbitMQ 本地资源目录：{root}";
                 return true;
             }
             catch
@@ -715,6 +2384,70 @@ public partial class InstallConfigViewModel : BaseViewModel
         return false;
     }
 
+    private bool TryResolveJdkLocalPackage(out string packagePath, out string hint)
+    {
+        var offlineFolder = _host.OsType switch
+        {
+            OperatingSystemType.Windows => "windows",
+            OperatingSystemType.Ubuntu => "ubuntu",
+            OperatingSystemType.CentOS => "centos",
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrWhiteSpace(offlineFolder))
+        {
+            packagePath = string.Empty;
+            hint = "当前系统未配置 JDK 本地资源目录。";
+            return false;
+        }
+
+        string[] packagePatterns = _host.OsType switch
+        {
+            OperatingSystemType.Windows => new[] { "*windows*.zip", "*windows*.msi", "*windows*.exe" },
+            OperatingSystemType.Ubuntu => new[] { "*linux*.tar.gz", "*linux*.tar.xz", "*.tgz" },
+            OperatingSystemType.CentOS => new[] { "*linux*.tar.gz", "*linux*.tar.xz", "*.tgz" },
+            _ => Array.Empty<string>()
+        };
+
+        foreach (var root in GetJdkScriptRoots(offlineFolder))
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                        var expectedVersion = !string.IsNullOrWhiteSpace(SelectedVersion)
+                    ? SelectedVersion
+                    : _application.Version;
+
+                var selectedPath = packagePatterns
+                    .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.TopDirectoryOnly))
+                    .OrderByDescending(path => IsVersionMatch(path, expectedVersion))
+                    .ThenByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+
+                if (string.IsNullOrEmpty(selectedPath))
+                {
+                    continue;
+                }
+
+                packagePath = selectedPath;
+                hint = $"已从 Scripts 目录自动匹配 JDK 本地资源：{selectedPath}";
+                return true;
+            }
+            catch
+            {
+                // 忽略当前路径异常，继续尝试其他路径
+            }
+        }
+
+        packagePath = string.Empty;
+        hint = $"未在 Scripts/{ResolveJdkScriptFolderName()}/{offlineFolder} 中找到可用本地资源。";
+        return false;
+    }
+
     private IEnumerable<string> GetApplicationScriptRoots()
     {
         var appFolders = new[] { _application.Name, _application.Id }
@@ -734,6 +2467,79 @@ public partial class InstallConfigViewModel : BaseViewModel
         return baseRoots
             .SelectMany(root => appFolders.Select(folder => Path.Combine(root, folder)))
             .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string? TryFindPreferredGenericPackageFile(string root, string[] packageExtensions)
+    {
+        foreach (var preferredDirectory in GetPreferredApplicationPackageDirectories(root))
+        {
+            if (!Directory.Exists(preferredDirectory))
+            {
+                continue;
+            }
+
+            var preferredPackage = Directory.GetFiles(preferredDirectory, "*", SearchOption.TopDirectoryOnly)
+                .Where(path => packageExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(path => IsVersionMatch(path, _application.Version))
+                .ThenByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+
+            if (!string.IsNullOrEmpty(preferredPackage))
+            {
+                return preferredPackage;
+            }
+        }
+
+        return Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+            .Where(path => packageExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(path => IsVersionMatch(path, _application.Version))
+            .ThenByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private IEnumerable<string> GetPreferredApplicationPackageDirectories(string root)
+    {
+        var osDirectoryKeywords = GetCurrentOsDirectoryKeywords();
+        if (osDirectoryKeywords.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        return Directory.GetDirectories(root, "*", SearchOption.TopDirectoryOnly)
+            .Where(directory => osDirectoryKeywords.Any(keyword =>
+                Path.GetFileName(directory).Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string[] GetCurrentOsDirectoryKeywords()
+    {
+        return _host.OsType switch
+        {
+            OperatingSystemType.CentOS => new[] { "centos", "centos7", "el7" },
+            OperatingSystemType.Ubuntu => new[] { "ubuntu", "debian" },
+            _ => Array.Empty<string>()
+        };
+    }
+
+    private IEnumerable<string> GetMosquittoScriptRoots(string offlineFolder)
+    {
+        if (ScriptRootOverridesFactory is not null)
+        {
+            return ScriptRootOverridesFactory()
+                .Select(root => Path.Combine(root, "Mosquitto", offlineFolder))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var mosquittoRoots = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "Mosquitto", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", "Mosquitto", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", "Mosquitto", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "Mosquitto", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", "Mosquitto", offlineFolder)
+        };
+
+        return mosquittoRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     private IEnumerable<string> GetRabbitMqScriptRoots(string offlineFolder)
@@ -778,6 +2584,16 @@ public partial class InstallConfigViewModel : BaseViewModel
         return nginxRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
+    private static IEnumerable<string> GetMySqlOfflinePackageDirectories(string root)
+    {
+        // 兼容旧版平铺目录，以及新增的 mysql 子目录结构。
+        return new[]
+        {
+            Path.Combine(root, "mysql"),
+            root
+        }.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
     private IEnumerable<string> GetMySqlScriptRoots(string offlineFolder)
     {
         var mySqlRoots = new[]
@@ -790,6 +2606,34 @@ public partial class InstallConfigViewModel : BaseViewModel
         };
 
         return mySqlRoots.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private IEnumerable<string> GetElasticsearchScriptRoots(string offlineFolder)
+    {
+        var elasticsearchRoots = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "Elasticsearch", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", "Elasticsearch", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", "Elasticsearch", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "Elasticsearch", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", "Elasticsearch", offlineFolder)
+        };
+
+        return elasticsearchRoots.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> GetMariaDbScriptRoots(string offlineFolder)
+    {
+        var mariaDbRoots = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "MariaDB", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", "MariaDB", offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", "MariaDB", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "MariaDB", offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", "MariaDB", offlineFolder)
+        };
+
+        return mariaDbRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     private IEnumerable<string> GetConsulScriptRoots(string offlineFolder)
@@ -820,6 +2664,46 @@ public partial class InstallConfigViewModel : BaseViewModel
         return traefikRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
+    private IEnumerable<string> GetJdkScriptRoots(string offlineFolder)
+    {
+        var appFolder = ResolveJdkScriptFolderName();
+        var jdkRoots = new[]
+        {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", appFolder, offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", appFolder, offlineFolder),
+            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", appFolder, offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", appFolder, offlineFolder),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", appFolder, offlineFolder)
+        };
+
+        return jdkRoots.Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string ResolveJdkScriptFolderName()
+    {
+        var selectedVersion = !string.IsNullOrWhiteSpace(SelectedVersion)
+            ? SelectedVersion
+            : _application.Version;
+
+        if (selectedVersion.StartsWith("17", StringComparison.OrdinalIgnoreCase))
+        {
+            return "JDK17";
+        }
+
+        if (selectedVersion.StartsWith("11", StringComparison.OrdinalIgnoreCase))
+        {
+            return "JDK11";
+        }
+
+        if (selectedVersion.StartsWith("8", StringComparison.OrdinalIgnoreCase)
+            || selectedVersion.StartsWith("1.8", StringComparison.OrdinalIgnoreCase))
+        {
+            return "JDK8";
+        }
+
+        return (_application.Id ?? _application.Name ?? "JDK").ToUpperInvariant();
+    }
+
     private string[] GetPackageExtensions()
     {
         return _host.OsType == OperatingSystemType.Windows
@@ -827,7 +2711,7 @@ public partial class InstallConfigViewModel : BaseViewModel
             : new[] { ".tar.gz", ".tar.xz", ".tgz", ".zip", ".rpm", ".deb" };
     }
 
-    private bool IsVersionMatch(string path, string version)
+    private static bool IsVersionMatch(string path, string version)
     {
         if (string.IsNullOrWhiteSpace(version))
         {
@@ -860,11 +2744,16 @@ public partial class InstallConfigViewModel : BaseViewModel
         // 添加版本信息
         if (IsLocalPackage)
         {
-            result["version"] = LocalPackageVersion;
+            result["version"] = IsJdk ? NormalizeJdkVersion(LocalPackageVersion) : LocalPackageVersion;
         }
         else
         {
             result["version"] = SelectedVersion;
+        }
+
+        if (IsJdk && !string.IsNullOrWhiteSpace(RemoteUploadPath))
+        {
+            result["REMOTE_UPLOAD_PATH"] = RemoteUploadPath.Trim();
         }
 
         return result;
@@ -875,11 +2764,12 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     public RelayCommand ConfirmCommand { get; private set; }
 
-    public InstallConfigViewModel(ApplicationInfo application, RemoteHost host, ILogger logger)
+    public InstallConfigViewModel(ApplicationInfo application, RemoteHost host, ILogger logger, bool isJdkUploadMode = false)
     {
         _application = application;
         _host = host;
         _logger = logger;
+        _isJdkUploadMode = isJdkUploadMode;
 
         DialogTitle = $"安装 {application.Name} {application.Version}";
         ApplicationName = application.Name;
@@ -888,11 +2778,16 @@ public partial class InstallConfigViewModel : BaseViewModel
 
         // 先初始化版本和参数，再创建命令
         InitializeVersions();
+        if (IsJdkUploadMode)
+        {
+            SelectedVersion = string.Empty;
+        }
         InitializeParameters();
         InitializeLocalResourceDefaults();
 
         // 初始化 ConfirmCommand（在 InitializeVersions 和 InitializeParameters 之后）
         ConfirmCommand = new RelayCommand(Confirm, CanConfirmGetter);
+        NotifyCanExecuteChanged();
 
         // 监听 IsBusy 变化（因为 IsBusy 在基类中定义）
         PropertyChanged += (s, e) =>
@@ -909,8 +2804,7 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     private bool CanConfirmGetter()
     {
-        bool canExecute = !IsBusy && ValidateParameters();
-        return canExecute;
+        return CanConfirmCore();
     }
 
     /// <summary>
@@ -923,8 +2817,13 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     private void NotifyCanExecuteChanged()
     {
-        // 通过 IRelayCommand 接口调用，避免重复创建实例
-        (ConfirmCommand as IRelayCommand)?.NotifyCanExecuteChanged();
+        if (CanConfirmCore())
+        {
+            ClearError();
+        }
+
+        OnPropertyChanged(nameof(CanConfirm));
+        ConfirmCommand?.RaiseCanExecuteChanged();
     }
 
     private void Confirm()
@@ -934,12 +2833,20 @@ public partial class InstallConfigViewModel : BaseViewModel
             return;
         }
 
+        if (IsMariaDb && PackageSource != "local")
+        {
+            SetError("MariaDB 仅支持本地资源安装，请使用 Scripts/MariaDB 下的离线目录。");
+            return;
+        }
+
         // 设置版本信息到 ApplicationInfo
         if (IsLocalPackage)
         {
             _application.LocalPackagePath = LocalPackagePath;
             _application.UseLocalPackage = true;
-            _application.SelectedVersion = LocalPackageVersion;
+            _application.SelectedVersion = IsJdk
+                ? NormalizeJdkVersion(LocalPackageVersion)
+                : LocalPackageVersion;
             _logger?.Info($"使用本地安装包：{LocalPackagePath}");
         }
         else
@@ -975,6 +2882,21 @@ public partial class InstallConfigViewModel : BaseViewModel
     private bool IsMySql => _application.Id?.ToLower() == "mysql" || _application.Name?.ToLower() == "mysql";
 
     /// <summary>
+    /// 判断是否是 Elasticsearch 应用
+    /// </summary>
+    private bool IsElasticsearch => _application.Id?.ToLower() == "elasticsearch" || _application.Name?.ToLower() == "elasticsearch";
+
+    /// <summary>
+    /// 判断是否是 MariaDB 应用
+    /// </summary>
+    private bool IsMariaDb => _application.Id?.ToLower() == "mariadb" || _application.Name?.ToLower() == "mariadb";
+
+    /// <summary>
+    /// 判断是否是 Mosquitto 应用
+    /// </summary>
+    private bool IsMosquitto => _application.Id?.ToLower() == "mosquitto" || _application.Name?.ToLower().Contains("mosquitto") == true;
+
+    /// <summary>
     /// 判断是否是 Consul 应用
     /// </summary>
     private bool IsConsul => _application.Id?.ToLower() == "consul" || _application.Name?.ToLower() == "consul";
@@ -985,45 +2907,135 @@ public partial class InstallConfigViewModel : BaseViewModel
     private bool IsTraefik => _application.Id?.ToLower() == "traefik" || _application.Name?.ToLower() == "traefik";
 
     /// <summary>
+    /// 判断是否是 JDK 应用
+    /// </summary>
+    private bool IsJdk => (_application.Id?.ToLower().StartsWith("jdk") == true) || (_application.Name?.ToLower().StartsWith("jdk") == true);
+
+    /// <summary>
     /// 验证参数
     /// </summary>
-    private bool ValidateParameters()
+    private bool TryValidateParameters(out string? errorMessage)
     {
-        bool hasError = false;
-        string? errorMessage = null;
+        errorMessage = null;
+
+        if (IsMariaDb && PackageSource != "local")
+        {
+            errorMessage = "MariaDB 仅支持本地资源安装，请使用 Scripts/MariaDB 下的离线目录。";
+            return false;
+        }
+
+        if (IsMosquitto && PackageSource != "local")
+        {
+            errorMessage = "Mosquitto 仅支持本地资源安装，请使用 Scripts/Mosquitto 下的离线目录。";
+            return false;
+        }
 
         if (PackageSource == "local")
         {
-            if (string.IsNullOrWhiteSpace(LocalPackagePath))
+            if (IsJdkUploadMode)
             {
-                SetError(LocalResourceHint);
-                return false;
-            }
+                if (string.IsNullOrWhiteSpace(LocalPackagePath))
+                {
+                    errorMessage = "请选择本地 JDK 文件夹。";
+                    return false;
+                }
 
-            if (!File.Exists(LocalPackagePath) && !Directory.Exists(LocalPackagePath))
+                if (!Directory.Exists(LocalPackagePath))
+                {
+                    errorMessage = $"本地 JDK 文件夹不存在：{LocalPackagePath}";
+                    return false;
+                }
+
+                if (!HasJdkDirectoryStructure(LocalPackagePath))
+                {
+                    errorMessage = "所选目录不是有效的 JDK 根目录，请选择包含 release 或 bin/java 的完整 JDK 文件夹。";
+                    return false;
+                }
+
+                var detectedJdkVersion = NormalizeJdkVersion(LocalPackageVersion);
+                if (string.IsNullOrWhiteSpace(detectedJdkVersion))
+                {
+                    errorMessage = "无法识别所选 JDK 文件夹的版本，请选择包含 JDK 8 / 11 / 17 的正确目录。";
+                    return false;
+                }
+            }
+            else
             {
-                SetError($"Scripts 对应目录中的本地资源不存在：{LocalPackagePath}");
-                return false;
+                if (IsElasticsearch && !TryGetCompatibleElasticsearchOfflineFolder(out _, out var elasticsearchCompatibilityHint))
+                {
+                    errorMessage = elasticsearchCompatibilityHint;
+                    return false;
+                }
+
+                if (IsNginx && !TryGetCompatibleNginxOfflineFolder(out _, out var nginxCompatibilityHint))
+                {
+                    errorMessage = nginxCompatibilityHint;
+                    return false;
+                }
+
+                if (IsMosquitto && !TryGetCompatibleMosquittoOfflineFolder(out _, out var mosquittoCompatibilityHint))
+                {
+                    errorMessage = mosquittoCompatibilityHint;
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(LocalPackagePath))
+                {
+                    if (IsMySql && !TryGetCompatibleMySqlOfflineFolder(out _, out var compatibilityHint))
+                    {
+                        errorMessage = compatibilityHint;
+                        return false;
+                    }
+
+                    if (IsMariaDb && !TryGetCompatibleMariaDbOfflineFolder(out _, out var mariaDbCompatibilityHint))
+                    {
+                        errorMessage = mariaDbCompatibilityHint;
+                        return false;
+                    }
+
+                    errorMessage = LocalResourceHint;
+                    return false;
+                }
+
+                if (!File.Exists(LocalPackagePath) && !Directory.Exists(LocalPackagePath))
+                {
+                    errorMessage = $"Scripts 对应目录中的本地资源不存在：{LocalPackagePath}";
+                    return false;
+                }
+
+                if (IsElasticsearch && !TryValidateElasticsearchOfflinePath(LocalPackagePath, out var elasticsearchDirectoryHint))
+                {
+                    errorMessage = elasticsearchDirectoryHint;
+                    return false;
+                }
+
+                if (IsNginx && !TryValidateNginxOfflinePath(LocalPackagePath, out var nginxDirectoryHint))
+                {
+                    errorMessage = nginxDirectoryHint;
+                    return false;
+                }
+
+                if (IsMosquitto && !TryValidateMosquittoOfflinePath(LocalPackagePath, out var mosquittoDirectoryHint))
+                {
+                    errorMessage = mosquittoDirectoryHint;
+                    return false;
+                }
             }
         }
 
         foreach (var paramVm in ParameterViewModels)
         {
-            // 检查是否必填
             if (paramVm.Parameter.Required && string.IsNullOrWhiteSpace(paramVm.Value))
             {
                 errorMessage = $"{paramVm.Parameter.Name} 是必填项";
-                hasError = true;
-                break;
+                return false;
             }
 
-            // 对于 Redis 的密码字段，即使 Required=true 也跳过验证（Redis 默认不需要密码）
             if (IsRedis && paramVm.Key?.ToLower() == "password" && string.IsNullOrWhiteSpace(paramVm.Value))
             {
                 continue;
             }
 
-            // 端口范围验证
             if (ParameterType.Port == paramVm.Parameter.Type)
             {
                 if (!string.IsNullOrWhiteSpace(paramVm.Value) && int.TryParse(paramVm.Value, out var port))
@@ -1033,22 +3045,44 @@ public partial class InstallConfigViewModel : BaseViewModel
                         if (port < paramVm.Parameter.MinValue || port > paramVm.Parameter.MaxValue)
                         {
                             errorMessage = $"{paramVm.Parameter.Name} 范围：{paramVm.Parameter.MinValue}-{paramVm.Parameter.MaxValue}";
-                            hasError = true;
-                            break;
+                            return false;
                         }
                     }
                 }
             }
         }
 
-        if (hasError)
+        if (IsMosquitto && !TryValidateMosquittoCredentialPair(out errorMessage))
         {
-            SetError(errorMessage);
             return false;
         }
 
-        ClearError();
+        if (!TryValidateRemoteUploadPath(out errorMessage))
+        {
+            return false;
+        }
+
         return true;
+    }
+
+    private bool ValidateParameters()
+    {
+        var valid = TryValidateParameters(out var errorMessage);
+        if (valid)
+        {
+            ClearError();
+        }
+        else
+        {
+            SetError(errorMessage ?? string.Empty);
+        }
+
+        return valid;
+    }
+
+    private bool CanConfirmCore()
+    {
+        return !IsBusy && TryValidateParameters(out _);
     }
 
     /// <summary>
@@ -1059,6 +3093,13 @@ public partial class InstallConfigViewModel : BaseViewModel
     {
         try
         {
+            if (IsJdkUploadMode)
+            {
+                LocalResourceHint = "JDK 上传入口请直接选择本地 JDK 文件夹。";
+                NotifyCanExecuteChanged();
+                return;
+            }
+
             InitializeLocalResourceDefaults();
             NotifyCanExecuteChanged();
         }
@@ -1066,6 +3107,70 @@ public partial class InstallConfigViewModel : BaseViewModel
         {
             _logger?.Error($"刷新本地资源检测失败：{ex.Message}");
             MessageBox.Show($"刷新本地资源检测失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    [RelayCommand]
+    private void BrowseMySqlLocalPackageFolder()
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "选择 MySQL 本地资源目录",
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FolderName))
+            {
+                return;
+            }
+
+            LocalPackagePath = dialog.FolderName;
+            LocalResourceHint = $"已选择 MySQL 本地资源目录：{dialog.FolderName}";
+            NotifyCanExecuteChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"选择 MySQL 本地资源目录失败：{ex.Message}");
+            MessageBox.Show($"选择 MySQL 本地资源目录失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    [RelayCommand]
+    private void BrowseJdkLocalPackageFolder()
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = $"选择 {ApplicationName} 本地目录",
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FolderName))
+            {
+                return;
+            }
+
+            LocalPackagePath = dialog.FolderName;
+            var normalizedVersion = NormalizeJdkVersion(LocalPackageVersion);
+            if (!string.IsNullOrEmpty(normalizedVersion))
+            {
+                SelectedVersion = normalizedVersion;
+                LocalResourceHint = $"已选择 JDK 本地目录：{dialog.FolderName}，识别版本为 JDK {normalizedVersion}";
+            }
+            else
+            {
+                SelectedVersion = string.Empty;
+                LocalResourceHint = $"已选择 JDK 本地目录：{dialog.FolderName}，但未能识别版本，请选择包含 JDK 8 / 11 / 17 的正确目录。";
+            }
+            NotifyCanExecuteChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"选择 JDK 本地目录失败：{ex.Message}");
+            MessageBox.Show($"选择 JDK 本地目录失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

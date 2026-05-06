@@ -14,25 +14,108 @@ public class DatabaseService : IDisposable
     private readonly string _connectionString;
     private bool _disposed;
 
-    public DatabaseService()
+    public DatabaseService(string? databasePath = null, string? legacyDatabasePath = null)
     {
-        var dataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data.db");
-        _connectionString = $"Data Source={dataPath};Version=3;Pooling=true;MinPoolSize=3;MaxPoolSize=20;";
+        var resolvedDatabasePath = ResolveDatabasePath(databasePath, legacyDatabasePath);
+        _connectionString = BuildConnectionString(resolvedDatabasePath);
+        EnsureDatabaseDirectoryExists(resolvedDatabasePath);
+        InitializeDatabase();
+    }
 
-        // 确保数据库目录存在
-        var directory = Path.GetDirectoryName(dataPath);
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+    private static string ResolveDatabasePath(string? databasePath, string? legacyDatabasePath)
+    {
+        var resolvedDatabasePath = string.IsNullOrWhiteSpace(databasePath)
+            ? GetDefaultDatabasePath()
+            : databasePath;
+
+        var resolvedLegacyDatabasePath = string.IsNullOrWhiteSpace(legacyDatabasePath)
+            ? (string.IsNullOrWhiteSpace(databasePath) ? GetLegacyDatabasePath() : null)
+            : legacyDatabasePath;
+
+        EnsureDatabaseDirectoryExists(resolvedDatabasePath);
+
+        if (File.Exists(resolvedDatabasePath))
         {
-            Directory.CreateDirectory(directory);
+            return resolvedDatabasePath;
+        }
+
+        if (string.IsNullOrWhiteSpace(resolvedLegacyDatabasePath) ||
+            string.Equals(resolvedDatabasePath, resolvedLegacyDatabasePath, StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(resolvedLegacyDatabasePath))
+        {
+            return resolvedDatabasePath;
         }
 
         try
         {
-            InitializeDatabase();
+            CopyDatabaseBundle(resolvedLegacyDatabasePath, resolvedDatabasePath);
+            return resolvedDatabasePath;
         }
-        catch (Exception ex)
+        catch
         {
+            return resolvedLegacyDatabasePath;
+        }
+    }
+
+    private static string GetDefaultDatabasePath()
+    {
+        var appDataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "RemoteInstaller");
+        return Path.Combine(appDataDirectory, "data.db");
+    }
+
+    private static string GetLegacyDatabasePath() => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data.db");
+
+    private static string BuildConnectionString(string databasePath) =>
+        $"Data Source={databasePath};Version=3;Pooling=true;MinPoolSize=3;MaxPoolSize=20;";
+
+    private static void EnsureDatabaseDirectoryExists(string databasePath)
+    {
+        var directory = Path.GetDirectoryName(databasePath);
+        if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+    }
+
+    private static void CopyDatabaseBundle(string sourceDatabasePath, string targetDatabasePath)
+    {
+        try
+        {
+            CopyDatabaseFile(sourceDatabasePath, targetDatabasePath);
+            CopyDatabaseFile(sourceDatabasePath + "-wal", targetDatabasePath + "-wal");
+            CopyDatabaseFile(sourceDatabasePath + "-shm", targetDatabasePath + "-shm");
+        }
+        catch
+        {
+            DeleteDatabaseBundle(targetDatabasePath);
             throw;
+        }
+    }
+
+    private static void CopyDatabaseFile(string sourcePath, string targetPath)
+    {
+        if (!File.Exists(sourcePath))
+        {
+            return;
+        }
+
+        File.Copy(sourcePath, targetPath, overwrite: false);
+    }
+
+    private static void DeleteDatabaseBundle(string databasePath)
+    {
+        DeleteFileIfExists(databasePath);
+        DeleteFileIfExists(databasePath + "-wal");
+        DeleteFileIfExists(databasePath + "-shm");
+    }
+
+    private static void DeleteFileIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
         }
     }
 
@@ -56,6 +139,8 @@ public class DatabaseService : IDisposable
                 key_path TEXT,
                 encrypted_key_passphrase TEXT,
                 os_type INTEGER NOT NULL,
+                os_version TEXT,
+                cpu_architecture TEXT,
                 group_name TEXT,
                 status INTEGER NOT NULL,
                 status_message TEXT,
@@ -158,6 +243,7 @@ public class DatabaseService : IDisposable
         cmd.CommandText = createCustomAppsTable;
         cmd.ExecuteNonQuery();
 
+        EnsureHostColumns(connection);
         EnsureCustomAppsColumns(connection);
         SeedBuiltInCustomApps(connection);
         CleanupDeprecatedBuiltInCustomApps(connection);
@@ -176,11 +262,11 @@ public class DatabaseService : IDisposable
             var sql = @"
                 INSERT OR REPLACE INTO hosts
                 (id, name, ip_address, port, username, encrypted_password, auth_type,
-                 key_path, encrypted_key_passphrase, os_type, group_name, status,
+                 key_path, encrypted_key_passphrase, os_type, os_version, cpu_architecture, group_name, status,
                  status_message, last_connected, created_at, updated_at)
                 VALUES
                 (@id, @name, @ip_address, @port, @username, @encrypted_password, @auth_type,
-                 @key_path, @encrypted_key_passphrase, @os_type, @group_name, @status,
+                 @key_path, @encrypted_key_passphrase, @os_type, @os_version, @cpu_architecture, @group_name, @status,
                  @status_message, @last_connected, @created_at, @updated_at)";
 
             using var cmd = connection.CreateCommand();
@@ -202,6 +288,8 @@ public class DatabaseService : IDisposable
             cmd.Parameters.AddWithValue("@key_path", host.KeyPath ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@encrypted_key_passphrase", host.EncryptedKeyPassphrase ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@os_type", (int)host.OsType);
+            cmd.Parameters.AddWithValue("@os_version", string.IsNullOrWhiteSpace(host.OsVersion) ? (object)DBNull.Value : host.OsVersion);
+            cmd.Parameters.AddWithValue("@cpu_architecture", string.IsNullOrWhiteSpace(host.CpuArchitecture) ? (object)DBNull.Value : host.CpuArchitecture);
             cmd.Parameters.AddWithValue("@group_name", host.GroupName ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@status", (int)host.Status);
             cmd.Parameters.AddWithValue("@status_message", host.StatusMessage ?? (object)DBNull.Value);
@@ -333,6 +421,36 @@ public class DatabaseService : IDisposable
 
     private static string DateTimeToDbString(DateTime value) => value.ToString("yyyy-MM-dd HH:mm:ss");
 
+    private void EnsureHostColumns(SQLiteConnection connection)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(hosts)";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                columns.Add(reader["name"]?.ToString() ?? string.Empty);
+            }
+        }
+
+        EnsureHostColumn(connection, columns, "os_version", "TEXT");
+        EnsureHostColumn(connection, columns, "cpu_architecture", "TEXT");
+    }
+
+    private static void EnsureHostColumn(SQLiteConnection connection, HashSet<string> columns, string columnName, string columnType)
+    {
+        if (columns.Contains(columnName))
+        {
+            return;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"ALTER TABLE hosts ADD COLUMN {columnName} {columnType}";
+        cmd.ExecuteNonQuery();
+        columns.Add(columnName);
+    }
+
     private void EnsureCustomAppsColumns(SQLiteConnection connection)
     {
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -373,9 +491,9 @@ public class DatabaseService : IDisposable
             new()
             {
                 AppKey = "SUPPORT",
-                Name = "SUPPORT",
-                Icon = "🎧",
-                Description = "技术支持系统",
+                Name = "Support",
+                Icon = "🛠️",
+                Description = "Support 运维支持平台",
                 AppType = "SUPPORT",
                 RemoteDirectory = "/opt/zeus-support",
                 StartCommand = "cd /opt/zeus-support && bash start.sh",
@@ -388,6 +506,44 @@ public class DatabaseService : IDisposable
                 LogDirectory = "/opt/zeus-support/log",
                 IsBuiltIn = true,
                 SortOrder = 10
+            },
+            new()
+            {
+                AppKey = "XXL_JOB",
+                Name = "XXL-JOB",
+                Icon = "⏱️",
+                Description = "XXL-JOB 分布式任务调度中心",
+                AppType = "SUPPORT",
+                RemoteDirectory = "/opt/xxl-job",
+                StartCommand = "cd /opt/xxl-job && bash start.sh",
+                StopCommand = "cd /opt/xxl-job && bash stop.sh",
+                ConfigFilePath = "/opt/xxl-job/conf/application-prod.properties",
+                RemoteFrontendDirectory = "/var/www/xxl-job",
+                PidFilePath = "/opt/xxl-job/run/run.PID",
+                ConfigDirectory = "/opt/xxl-job/conf",
+                ConfigFileName = "application-prod.properties",
+                LogDirectory = "/opt/xxl-job/log",
+                IsBuiltIn = true,
+                SortOrder = 20
+            },
+            new()
+            {
+                AppKey = "NACOS",
+                Name = "Nacos",
+                Icon = "🧭",
+                Description = "Nacos 配置与注册中心",
+                AppType = "SUPPORT",
+                RemoteDirectory = "/opt/nacos",
+                StartCommand = "cd /opt/nacos && bash start.sh",
+                StopCommand = "cd /opt/nacos && bash stop.sh",
+                ConfigFilePath = "/opt/nacos/conf/application-prod.properties",
+                RemoteFrontendDirectory = "/var/www/nacos",
+                PidFilePath = "/opt/nacos/run/run.PID",
+                ConfigDirectory = "/opt/nacos/conf",
+                ConfigFileName = "application-prod.properties",
+                LogDirectory = "/opt/nacos/log",
+                IsBuiltIn = true,
+                SortOrder = 30
             }
         };
 
@@ -1370,6 +1526,8 @@ public static class DatabaseServiceExtensions
             KeyPath = reader["key_path"]?.ToString(),
             EncryptedKeyPassphrase = reader["encrypted_key_passphrase"]?.ToString(),
             OsType = (OperatingSystemType)Convert.ToInt32(reader["os_type"]),
+            OsVersion = reader["os_version"]?.ToString() ?? string.Empty,
+            CpuArchitecture = reader["cpu_architecture"]?.ToString() ?? string.Empty,
             GroupName = reader["group_name"]?.ToString(),
             Status = (HostStatus)Convert.ToInt32(reader["status"]),
             StatusMessage = reader["status_message"]?.ToString(),

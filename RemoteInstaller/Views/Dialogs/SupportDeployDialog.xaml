@@ -465,6 +465,21 @@
 
                                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                                     <Button Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding SwitchToStructuredModeCommand}"
+                                            IsEnabled="{Binding CanSwitchToStructuredMode}"
+                                            Visibility="{Binding SupportsStructuredEditing, Converter={StaticResource BoolToVisibilityConverter}}"
+                                            Padding="10,6">
+                                        <TextBlock Text="结构化模式"/>
+                                    </Button>
+                                    <Button Margin="8,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding SwitchToTextModeCommand}"
+                                            IsEnabled="{Binding CanSwitchToTextMode}"
+                                            Padding="10,6">
+                                        <TextBlock Text="文本模式"/>
+                                    </Button>
+                                    <Button Margin="8,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding LoadConfigDirectoryCommand}"
                                             Padding="10,6">
                                         <StackPanel Orientation="Horizontal">
@@ -541,13 +556,10 @@
                                     SelectedItem="{Binding SelectedConfigItem, Mode=TwoWay}">
                                     <DataGrid.Style>
                                         <Style TargetType="DataGrid">
-                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsYamlMode}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                <DataTrigger Binding="{Binding ShowKeyValueEditor}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -574,7 +586,7 @@
                                         <Style TargetType="TreeView">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsYamlMode}" Value="True">
+                                                <DataTrigger Binding="{Binding ShowYamlEditor}" Value="True">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -664,7 +676,7 @@
                                         <Style TargetType="TextBox">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
+                                                <DataTrigger Binding="{Binding ShowTextEditor}" Value="True">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -677,37 +689,21 @@
                                     Margin="0,8,0,0"
                                     FontSize="12"
                                     Foreground="{DynamicResource SecondaryTextBrush}"
-                                    Text="注释与空行按原样保留；YAML 支持树形新增/删除；XML 为原文编辑。"/>
+                                    Text="结构化模式支持键值或树形编辑；文本模式可直接编辑原始内容并保存。"/>
                             </Grid>
 
                             <WrapPanel Grid.Row="3" Margin="12,0,12,12">
                                 <Button Padding="10,6"
-                                        Command="{Binding AddConfigItemCommand}">
-                                    <Button.Style>
-                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding AddConfigItemCommand}"
+                                        Visibility="{Binding ShowStructuredActions, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="新增项"/>
                                 </Button>
                                 <Button Margin="8,0,0,0"
                                         Padding="10,6"
-                                        Command="{Binding RemoveSelectedConfigItemCommand}">
-                                    <Button.Style>
-                                        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsRawTextMode}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding RemoveSelectedConfigItemCommand}"
+                                        Visibility="{Binding ShowStructuredActions, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="删除选中项"/>
                                 </Button>
                                 <Button Margin="8,0,0,0"

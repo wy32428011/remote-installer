@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using RemoteInstaller.Models;
 using RemoteInstaller.ViewModels;
+using RemoteInstaller.ViewModels.Shared.ConfigEditing;
 
 namespace RemoteInstaller.Views.Dialogs;
 
@@ -58,7 +59,7 @@ public partial class SupportDeployDialog : Window
     {
         if (DataContext is SupportDeployViewModel vm)
         {
-            vm.SelectedYamlNode = e.NewValue as SupportDeployViewModel.YamlTreeNode;
+            vm.SelectedYamlNode = e.NewValue as YamlTreeNode;
         }
     }
 

@@ -55,6 +55,28 @@ public class ConfigurationService
                 @"C:\Program Files\MySQL\MySQL Server *\my.ini"
             }
         },
+        ["MariaDB"] = new()
+        {
+            [OperatingSystemType.Linux] = new List<string>
+            {
+                "/etc/mysql/mariadb.conf.d/50-server.cnf",
+                "/etc/my.cnf",
+                "/etc/mysql/my.cnf",
+                "/etc/my.cnf.d/server.cnf"
+            },
+            [OperatingSystemType.CentOS] = new List<string>
+            {
+                "/etc/my.cnf",
+                "/etc/my.cnf.d/server.cnf",
+                "/etc/mysql/my.cnf"
+            },
+            [OperatingSystemType.Ubuntu] = new List<string>
+            {
+                "/etc/mysql/mariadb.conf.d/50-server.cnf",
+                "/etc/mysql/my.cnf",
+                "/etc/my.cnf"
+            }
+        },
         ["Redis"] = new()
         {
             [OperatingSystemType.Linux] = new List<string>
@@ -148,25 +170,26 @@ public class ConfigurationService
                 @"C:\Program Files\RabbitMQ Server\rabbitmq_server-*\etc\rabbitmq\rabbitmq.conf"
             }
         },
-        ["Nacos"] = new()
+        ["Mosquitto"] = new()
         {
             [OperatingSystemType.Linux] = new List<string>
             {
-                "/opt/nacos/conf/application.properties",
-                "/usr/local/nacos/conf/application.properties"
+                "/etc/mosquitto/mosquitto.conf",
+                "/etc/mosquitto/conf.d/remote-installer.conf"
             },
             [OperatingSystemType.CentOS] = new List<string>
             {
-                "/opt/nacos/conf/application.properties"
+                "/etc/mosquitto/mosquitto.conf",
+                "/etc/mosquitto/conf.d/remote-installer.conf"
             },
             [OperatingSystemType.Ubuntu] = new List<string>
             {
-                "/opt/nacos/conf/application.properties"
+                "/etc/mosquitto/mosquitto.conf",
+                "/etc/mosquitto/conf.d/remote-installer.conf"
             },
             [OperatingSystemType.Windows] = new List<string>
             {
-                @"C:\nacos\conf\application.properties",
-                @"C:\Program Files\nacos\conf\application.properties"
+                @"C:\Program Files\mosquitto\mosquitto.conf"
             }
         },
         ["Consul"] = new()
@@ -192,31 +215,65 @@ public class ConfigurationService
             [OperatingSystemType.Linux] = new List<string>
             {
                 TraefikMainConfigPath,
+                "/usr/local/etc/traefik/traefik.yml",
+                "/etc/traefik.yml",
+                "/etc/traefik/traefik.toml",
                 "/usr/local/etc/traefik/traefik.toml",
                 "/etc/traefik.toml"
             },
             [OperatingSystemType.CentOS] = new List<string>
             {
                 TraefikMainConfigPath,
+                "/etc/traefik.yml",
+                "/etc/traefik/traefik.toml",
                 "/etc/traefik.toml"
             },
             [OperatingSystemType.Ubuntu] = new List<string>
             {
                 TraefikMainConfigPath,
+                "/etc/traefik.yml",
+                "/etc/traefik/traefik.toml",
                 "/etc/traefik.toml"
             }
         }
     };
 
-    private const string TraefikMainConfigPath = "/etc/traefik/traefik.toml";
-    private const string TraefikDynamicConfigPath = "/etc/traefik/dynamic.toml";
+    private const string TraefikMainConfigPath = "/etc/traefik/traefik.yml";
+    private const string TraefikDynamicConfigPath = "/etc/traefik/dynamic.yml";
+    private const string ElasticsearchMainConfigPath = "/etc/elasticsearch/elasticsearch.yml";
+    private const string ElasticsearchJvmConfigPath = "/etc/elasticsearch/jvm.options";
+    private const string ElasticsearchServiceConfigPath = "/etc/systemd/system/elasticsearch.service";
+    private const string ElasticsearchUsrLibServiceConfigPath = "/usr/lib/systemd/system/elasticsearch.service";
+    private const string ElasticsearchLibServiceConfigPath = "/lib/systemd/system/elasticsearch.service";
+    private const string ElasticsearchAlternativeMainConfigPath = "/opt/elasticsearch/config/elasticsearch.yml";
+    private const string ElasticsearchAlternativeJvmConfigPath = "/opt/elasticsearch/config/jvm.options";
+    private const string ElasticsearchShareMainConfigPath = "/usr/share/elasticsearch/config/elasticsearch.yml";
+    private const string ElasticsearchShareJvmConfigPath = "/usr/share/elasticsearch/config/jvm.options";
 
     private static readonly Dictionary<string, List<ConfigFileOption>> SwitchableConfigFiles = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Traefik"] =
         [
-            new() { DisplayName = "主配置 (traefik.toml)", RemotePath = TraefikMainConfigPath },
-            new() { DisplayName = "动态配置 (dynamic.toml)", RemotePath = TraefikDynamicConfigPath }
+            new() { DisplayName = "主配置 (traefik.yml)", RemotePath = TraefikMainConfigPath },
+            new() { DisplayName = "动态配置 (dynamic.yml)", RemotePath = TraefikDynamicConfigPath },
+            new() { DisplayName = "主配置 (/usr/local/etc, traefik.yml)", RemotePath = "/usr/local/etc/traefik/traefik.yml" },
+            new() { DisplayName = "动态配置 (/usr/local/etc, dynamic.yml)", RemotePath = "/usr/local/etc/traefik/dynamic.yml" },
+            new() { DisplayName = "主配置 (traefik.toml，旧版)", RemotePath = "/etc/traefik/traefik.toml" },
+            new() { DisplayName = "动态配置 (dynamic.toml，旧版)", RemotePath = "/etc/traefik/dynamic.toml" },
+            new() { DisplayName = "主配置 (/usr/local/etc, traefik.toml，旧版)", RemotePath = "/usr/local/etc/traefik/traefik.toml" },
+            new() { DisplayName = "动态配置 (/usr/local/etc, dynamic.toml，旧版)", RemotePath = "/usr/local/etc/traefik/dynamic.toml" }
+        ],
+        ["Elasticsearch"] =
+        [
+            new() { DisplayName = "主配置 (/etc)", RemotePath = ElasticsearchMainConfigPath },
+            new() { DisplayName = "JVM 配置 (/etc)", RemotePath = ElasticsearchJvmConfigPath },
+            new() { DisplayName = "服务配置 (/etc/systemd)", RemotePath = ElasticsearchServiceConfigPath },
+            new() { DisplayName = "服务配置 (/usr/lib/systemd)", RemotePath = ElasticsearchUsrLibServiceConfigPath },
+            new() { DisplayName = "服务配置 (/lib/systemd)", RemotePath = ElasticsearchLibServiceConfigPath },
+            new() { DisplayName = "主配置 (/opt)", RemotePath = ElasticsearchAlternativeMainConfigPath },
+            new() { DisplayName = "JVM 配置 (/opt)", RemotePath = ElasticsearchAlternativeJvmConfigPath },
+            new() { DisplayName = "主配置 (/usr/share)", RemotePath = ElasticsearchShareMainConfigPath },
+            new() { DisplayName = "JVM 配置 (/usr/share)", RemotePath = ElasticsearchShareJvmConfigPath }
         ]
     };
 
@@ -235,7 +292,8 @@ public class ConfigurationService
     /// <returns>找到的配置文件路径，未找到返回null</returns>
     public async Task<string?> GetConfigFilePathAsync(RemoteHost host, string softwareName, OperatingSystemType osType, CancellationToken cancellationToken = default)
     {
-        if (!_configPaths.TryGetValue(softwareName, out var osPaths))
+        var normalizedSoftwareName = NormalizeSoftwareName(softwareName);
+        if (!_configPaths.TryGetValue(normalizedSoftwareName, out var osPaths))
         {
             _logger?.Warning($"未找到软件 {softwareName} 的配置路径定义");
             return null;
@@ -276,7 +334,8 @@ public class ConfigurationService
 
     public async Task<List<ConfigFileOption>> GetSwitchableConfigFilesAsync(string softwareName, CancellationToken cancellationToken = default)
     {
-        if (!SwitchableConfigFiles.TryGetValue(softwareName, out var candidates))
+        var normalizedSoftwareName = NormalizeSoftwareName(softwareName);
+        if (!SwitchableConfigFiles.TryGetValue(normalizedSoftwareName, out var candidates))
         {
             return new List<ConfigFileOption>();
         }
@@ -313,6 +372,11 @@ public class ConfigurationService
     {
         _logger?.Info($"读取配置文件: {remotePath}");
         return await _sshService.ReadTextFileAsync(remotePath, cancellationToken);
+    }
+
+    public Task<bool> FileExistsAsync(string remotePath, CancellationToken cancellationToken = default)
+    {
+        return _sshService.FileExistsAsync(remotePath, cancellationToken);
     }
 
     /// <summary>
@@ -381,16 +445,14 @@ public class ConfigurationService
     {
         _logger?.Info($"重启 {softwareName} 服务以应用配置");
 
-        var serviceName = softwareName.ToLower();
-        if (serviceName == "elasticsearch") serviceName = "elasticsearch";
-        else if (serviceName == "rabbitmq") serviceName = "rabbitmq-server";
+        var serviceName = GetServiceName(softwareName);
 
-        // 尝试不同的重启命令
         var commands = new List<string>
         {
-            $"systemctl restart {serviceName}",
-            $"service {serviceName} restart",
-            $"/etc/init.d/{serviceName} restart"
+            $"$service = Get-Service -Name '{serviceName}' -ErrorAction SilentlyContinue; if ($service) {{ if ($service.Status -eq 'Running') {{ Restart-Service -Name '{serviceName}' -Force -ErrorAction Stop }} else {{ Start-Service -Name '{serviceName}' -ErrorAction Stop }}; Write-Output 'success' }}",
+            $"systemctl restart {serviceName} && echo success",
+            $"service {serviceName} restart && echo success",
+            $"/etc/init.d/{serviceName} restart && echo success"
         };
 
         foreach (var cmd in commands)
@@ -398,7 +460,7 @@ public class ConfigurationService
             try
             {
                 var result = await _sshService.ExecuteCommandAsync(cmd, cancellationToken: cancellationToken, throwOnError: false);
-                if (!result.ToLower().Contains("failed") && !result.ToLower().Contains("error"))
+                if (!string.IsNullOrWhiteSpace(result) && result.Contains("success", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger?.Success($"{softwareName} 服务重启成功");
                     return;
@@ -411,5 +473,45 @@ public class ConfigurationService
         }
 
         throw new Exception($"{softwareName} 服务重启失败，请手动重启");
+    }
+
+    private static string NormalizeSoftwareName(string softwareName)
+    {
+        if (string.IsNullOrWhiteSpace(softwareName))
+        {
+            return string.Empty;
+        }
+
+        var normalized = softwareName.Trim();
+        return normalized switch
+        {
+            _ when normalized.Contains("mysql", StringComparison.OrdinalIgnoreCase) => "MySQL",
+            _ when normalized.Contains("mariadb", StringComparison.OrdinalIgnoreCase) => "MariaDB",
+            _ when normalized.Contains("redis", StringComparison.OrdinalIgnoreCase) => "Redis",
+            _ when normalized.Contains("nginx", StringComparison.OrdinalIgnoreCase) => "Nginx",
+            _ when normalized.Contains("elasticsearch", StringComparison.OrdinalIgnoreCase) => "Elasticsearch",
+            _ when normalized.Contains("rabbitmq", StringComparison.OrdinalIgnoreCase) => "RabbitMQ",
+            _ when normalized.Contains("mosquitto", StringComparison.OrdinalIgnoreCase) => "Mosquitto",
+            _ when normalized.Contains("consul", StringComparison.OrdinalIgnoreCase) => "Consul",
+            _ when normalized.Contains("traefik", StringComparison.OrdinalIgnoreCase) => "Traefik",
+            _ => normalized
+        };
+    }
+
+    private static string GetServiceName(string softwareName)
+    {
+        return NormalizeSoftwareName(softwareName) switch
+        {
+            "MySQL" => "mysql",
+            "MariaDB" => "mariadb",
+            "Redis" => "redis",
+            "Nginx" => "nginx",
+            "Elasticsearch" => "elasticsearch",
+            "RabbitMQ" => "rabbitmq-server",
+            "Mosquitto" => "mosquitto",
+            "Consul" => "consul",
+            "Traefik" => "traefik",
+            _ => softwareName.Trim().ToLowerInvariant()
+        };
     }
 }

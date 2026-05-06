@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RemoteInstaller.Models;
 using RemoteInstaller.Services;
+using RemoteInstaller.ViewModels.Shared.ConfigEditing;
 
 namespace RemoteInstaller.ViewModels;
 
@@ -19,80 +20,12 @@ namespace RemoteInstaller.ViewModels;
 /// </summary>
 public partial class GenericAppDeployViewModel : ObservableObject
 {
-    public class ConfigKeyValueItem : ObservableObject
-    {
-        private string _key = string.Empty;
-        private string _value = string.Empty;
-
-        public bool IsEditable { get; init; }
-
-        public bool IsComment { get; init; }
-
-        public bool IsBlank { get; init; }
-
-        public string OriginalLine { get; set; } = string.Empty;
-
-        public char Separator { get; set; } = '=';
-
-        public string LeadingWhitespace { get; set; } = string.Empty;
-
-        public bool IsYamlListItem { get; set; }
-
-        public bool IsYamlContainer { get; set; }
-
-        public string Key
-        {
-            get => _key;
-            set => SetProperty(ref _key, value);
-        }
-
-        public string Value
-        {
-            get => _value;
-            set => SetProperty(ref _value, value);
-        }
-    }
-
-    public partial class YamlTreeNode : ObservableObject
-    {
-        private string _value = string.Empty;
-
-        public string DisplayKey { get; set; } = string.Empty;
-
-        public bool IsEditable { get; set; }
-
-        public int Level { get; set; }
-
-        public YamlTreeNode? Parent { get; set; }
-
-        public ConfigKeyValueItem? SourceItem { get; set; }
-
-        public ObservableCollection<YamlTreeNode> Children { get; } = new();
-
-        public string Value
-        {
-            get => _value;
-            set
-            {
-                if (!SetProperty(ref _value, value))
-                {
-                    return;
-                }
-
-                if (SourceItem != null && SourceItem.Value != value)
-                {
-                    SourceItem.Value = value;
-                }
-            }
-        }
-    }
-
     private readonly CustomApplicationService _customApplicationService;
     private readonly ConfigurationService _configurationService;
     private readonly RemoteHost _host;
     private readonly Action<string, LogLevel>? _logSink;
-    private readonly List<ConfigKeyValueItem> _allConfigLines = new();
     private CancellationTokenSource? _operationCts;
+    private bool _hasLoadedConfig;
 
     [ObservableProperty]
     private string _windowTitle;
@@ -126,26 +59,43 @@ public partial class GenericAppDeployViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveConfigCommand))]
     private string _configFileContent = string.Empty;
 
-    [ObservableProperty]
-    private ObservableCollection<ConfigKeyValueItem> _configItems = new();
+    public ConfigEditingSession EditingSession { get; } = new();
 
-    [ObservableProperty]
-    private ObservableCollection<YamlTreeNode> _yamlTreeNodes = new();
+    public ObservableCollection<ConfigKeyValueItem> ConfigItems => EditingSession.ConfigItems;
 
-    [ObservableProperty]
-    private bool _isYamlMode;
+    public ObservableCollection<YamlTreeNode> YamlTreeNodes => EditingSession.YamlTreeNodes;
 
-    [ObservableProperty]
-    private bool _isXmlMode;
+    public bool IsYamlMode => EditingSession.IsYamlMode;
 
-    public bool IsRawTextMode => IsXmlMode;
+    public bool IsXmlMode => EditingSession.IsXmlMode;
 
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedConfigItemCommand))]
-    private ConfigKeyValueItem? _selectedConfigItem;
+    public bool IsRawTextMode => EditingSession.IsRawTextMode;
 
-    [ObservableProperty]
-    private YamlTreeNode? _selectedYamlNode;
+    public bool CanSwitchToStructuredMode => EditingSession.CanEnterStructuredMode;
+
+    public bool CanSwitchToTextMode => EditingSession.CanEnterTextMode;
+
+    public bool ShowKeyValueEditor => EditingSession.ShowKeyValueEditor;
+
+    public bool ShowYamlEditor => EditingSession.ShowYamlEditor;
+
+    public bool ShowTextEditor => EditingSession.ShowTextEditor;
+
+    public bool ShowStructuredActions => EditingSession.ShowStructuredActions;
+
+    public bool SupportsStructuredEditing => EditingSession.SupportsStructuredEditing;
+
+    public ConfigKeyValueItem? SelectedConfigItem
+    {
+        get => EditingSession.SelectedItem;
+        set => EditingSession.SelectedItem = value;
+    }
+
+    public YamlTreeNode? SelectedYamlNode
+    {
+        get => EditingSession.SelectedYamlNode;
+        set => EditingSession.SelectedYamlNode = value;
+    }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveStartScriptCommand))]
@@ -213,6 +163,8 @@ public partial class GenericAppDeployViewModel : ObservableObject
         _startCommand = startCmd;
         _stopCommand = stopCmd;
 
+        EditingSession.PropertyChanged += OnEditingSessionPropertyChanged;
+
         WindowTitle = $"{appName} 部署 - {host.Name}";
         HostDisplay = $"{host.Name} ({host.IpAddress}:{host.Port})";
     }
@@ -276,24 +228,6 @@ public partial class GenericAppDeployViewModel : ObservableObject
     partial void OnStopScriptContentChanged(string value)
     {
         SaveStopScriptCommand.NotifyCanExecuteChanged();
-    }
-
-    partial void OnIsYamlModeChanged(bool value)
-    {
-        AddConfigItemCommand.NotifyCanExecuteChanged();
-        RemoveSelectedConfigItemCommand.NotifyCanExecuteChanged();
-    }
-
-    partial void OnIsXmlModeChanged(bool value)
-    {
-        OnPropertyChanged(nameof(IsRawTextMode));
-        AddConfigItemCommand.NotifyCanExecuteChanged();
-        RemoveSelectedConfigItemCommand.NotifyCanExecuteChanged();
-    }
-
-    partial void OnSelectedYamlNodeChanged(YamlTreeNode? value)
-    {
-        RemoveSelectedConfigItemCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -421,9 +355,11 @@ public partial class GenericAppDeployViewModel : ObservableObject
             {
                 AppendActivity($"正在加载配置: {ConfigFilePath}");
                 ConfigFileContent = await _customApplicationService.LoadConfigContentAsync(_host, ConfigFilePath, token);
-                LoadConfigItems(ConfigFileContent);
+                EditingSession.Load(ConfigFilePath, ConfigFileContent, EditingSession.CurrentEditMode);
+                ConfigFileContent = EditingSession.Content;
+                _hasLoadedConfig = true;
                 AppendActivity("配置加载完成。", LogLevel.Success);
-                StatusMessage = "配置文件已加载，可按键值编辑";
+                StatusMessage = "配置文件已加载，可按结构化或文本模式编辑";
             },
             "加载配置失败");
     }
@@ -435,13 +371,10 @@ public partial class GenericAppDeployViewModel : ObservableObject
             "正在保存配置文件...",
             async token =>
             {
-                if (!IsXmlMode)
-                {
-                    SyncContentFromConfigItems();
-                }
-
+                ConfigFileContent = EditingSession.GetContentForSave();
                 AppendActivity($"保存配置文件: {ConfigFilePath}");
                 await _customApplicationService.SaveConfigContentAsync(_host, ConfigFilePath, ConfigFileContent, token);
+                EditingSession.ApplyExternalContent(ConfigFileContent, markAsSaved: true);
                 AppendActivity("配置文件保存完成", LogLevel.Success);
                 StatusMessage = "配置文件已保存";
             },
@@ -451,56 +384,15 @@ public partial class GenericAppDeployViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanAddConfigItem))]
     private void AddConfigItem()
     {
-        if (IsXmlMode)
-        {
-            return;
-        }
-
-        if (IsYamlMode)
-        {
-            AddYamlItem();
-            return;
-        }
-
-        var item = new ConfigKeyValueItem
-        {
-            IsEditable = true,
-            Key = string.Empty,
-            Value = string.Empty,
-            Separator = GetDefaultSeparator()
-        };
-
-        item.PropertyChanged += OnConfigItemChanged;
-        _allConfigLines.Add(item);
-        ConfigItems.Add(item);
-        SelectedConfigItem = item;
-        SyncContentFromConfigItems();
+        EditingSession.AddItem();
+        ConfigFileContent = EditingSession.Content;
     }
 
     [RelayCommand(CanExecute = nameof(CanRemoveSelectedConfigItem))]
     private void RemoveSelectedConfigItem()
     {
-        if (IsXmlMode)
-        {
-            return;
-        }
-
-        if (IsYamlMode)
-        {
-            RemoveSelectedYamlNode();
-            return;
-        }
-
-        if (SelectedConfigItem == null)
-        {
-            return;
-        }
-
-        SelectedConfigItem.PropertyChanged -= OnConfigItemChanged;
-        _allConfigLines.Remove(SelectedConfigItem);
-        ConfigItems.Remove(SelectedConfigItem);
-        SelectedConfigItem = null;
-        SyncContentFromConfigItems();
+        EditingSession.RemoveSelectedItem();
+        ConfigFileContent = EditingSession.Content;
     }
 
     [RelayCommand(CanExecute = nameof(CanCancelOperation))]
@@ -511,7 +403,7 @@ public partial class GenericAppDeployViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Close()
+    private async Task CloseAsync()
     {
         if (IsBusy)
         {
@@ -529,7 +421,63 @@ public partial class GenericAppDeployViewModel : ObservableObject
             _operationCts?.Cancel();
         }
 
+        if (EditingSession.IsModified && !string.IsNullOrWhiteSpace(ConfigFilePath))
+        {
+            var result = MessageBox.Show(
+                "配置已修改，关闭前是否保存？",
+                "确认关闭",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                return;
+            }
+
+            if (result == MessageBoxResult.Yes)
+            {
+                await SaveConfigAsync();
+                if (EditingSession.IsModified)
+                {
+                    return;
+                }
+            }
+        }
+
         CloseAction?.Invoke();
+    }
+
+    private void OnEditingSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ConfigEditingSession.Content) && ConfigFileContent != EditingSession.Content)
+        {
+            ConfigFileContent = EditingSession.Content;
+        }
+
+        RaiseEditingStateChanged();
+    }
+
+    private void RaiseEditingStateChanged()
+    {
+        OnPropertyChanged(nameof(ConfigItems));
+        OnPropertyChanged(nameof(YamlTreeNodes));
+        OnPropertyChanged(nameof(IsYamlMode));
+        OnPropertyChanged(nameof(IsXmlMode));
+        OnPropertyChanged(nameof(IsRawTextMode));
+        OnPropertyChanged(nameof(CanSwitchToStructuredMode));
+        OnPropertyChanged(nameof(CanSwitchToTextMode));
+        OnPropertyChanged(nameof(ShowKeyValueEditor));
+        OnPropertyChanged(nameof(ShowYamlEditor));
+        OnPropertyChanged(nameof(ShowTextEditor));
+        OnPropertyChanged(nameof(ShowStructuredActions));
+        OnPropertyChanged(nameof(SupportsStructuredEditing));
+        OnPropertyChanged(nameof(SelectedConfigItem));
+        OnPropertyChanged(nameof(SelectedYamlNode));
+        AddConfigItemCommand.NotifyCanExecuteChanged();
+        RemoveSelectedConfigItemCommand.NotifyCanExecuteChanged();
+        SaveConfigCommand.NotifyCanExecuteChanged();
+        SwitchToStructuredModeCommand.NotifyCanExecuteChanged();
+        SwitchToTextModeCommand.NotifyCanExecuteChanged();
     }
 
     private bool CanUpload() =>
@@ -550,14 +498,51 @@ public partial class GenericAppDeployViewModel : ObservableObject
         !IsBusy && !string.IsNullOrWhiteSpace(ConfigFilePath);
 
     private bool CanSaveConfig() =>
-        !IsBusy && !string.IsNullOrWhiteSpace(ConfigFilePath) && !string.IsNullOrWhiteSpace(ConfigFileContent);
+        !IsBusy && !string.IsNullOrWhiteSpace(ConfigFilePath) && (_hasLoadedConfig || EditingSession.IsModified);
+
+    partial void OnConfigFileContentChanged(string value)
+    {
+        if (value == EditingSession.Content)
+        {
+            return;
+        }
+
+        EditingSession.ApplyExternalContent(value, markAsSaved: false);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanExecuteSwitchToStructuredMode))]
+    private void SwitchToStructuredMode()
+    {
+        if (EditingSession.TrySwitchToStructuredMode(out var errorMessage))
+        {
+            ConfigFileContent = EditingSession.Content;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            StatusMessage = errorMessage;
+            MessageBox.Show(errorMessage, "无法切换模式", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private bool CanExecuteSwitchToStructuredMode() => EditingSession.CanEnterStructuredMode;
+
+    [RelayCommand(CanExecute = nameof(CanExecuteSwitchToTextMode))]
+    private void SwitchToTextMode()
+    {
+        EditingSession.TrySwitchToTextMode();
+        ConfigFileContent = EditingSession.Content;
+    }
+
+    private bool CanExecuteSwitchToTextMode() => EditingSession.CanEnterTextMode;
 
     private bool CanAddConfigItem() =>
-        !IsBusy && !IsXmlMode && !string.IsNullOrWhiteSpace(ConfigFilePath);
+        !IsBusy && EditingSession.ShowStructuredActions && !string.IsNullOrWhiteSpace(ConfigFilePath);
 
     private bool CanRemoveSelectedConfigItem()
     {
-        if (IsBusy || IsXmlMode)
+        if (IsBusy || !EditingSession.ShowStructuredActions)
         {
             return false;
         }
@@ -579,431 +564,6 @@ public partial class GenericAppDeployViewModel : ObservableObject
 
     private bool CanCancelOperation() =>
         IsBusy && _operationCts != null && !_operationCts.IsCancellationRequested;
-
-    private void LoadConfigItems(string content)
-    {
-        foreach (var item in ConfigItems)
-        {
-            item.PropertyChanged -= OnConfigItemChanged;
-        }
-
-        ConfigItems.Clear();
-        YamlTreeNodes.Clear();
-        _allConfigLines.Clear();
-
-        IsYamlMode = IsYamlFile();
-        IsXmlMode = IsXmlFile();
-
-        if (IsXmlMode)
-        {
-            return;
-        }
-
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-        foreach (var line in lines)
-        {
-            var lineItem = ParseLine(line);
-            _allConfigLines.Add(lineItem);
-
-            if (!lineItem.IsEditable)
-            {
-                continue;
-            }
-
-            lineItem.PropertyChanged += OnConfigItemChanged;
-            ConfigItems.Add(lineItem);
-        }
-
-        RebuildYamlTreeNodes();
-    }
-
-    private ConfigKeyValueItem ParseLine(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return new ConfigKeyValueItem
-            {
-                IsBlank = true,
-                OriginalLine = line,
-                IsEditable = false
-            };
-        }
-
-        var trimmedStart = line.TrimStart();
-        if (trimmedStart.StartsWith("#") || trimmedStart.StartsWith(";"))
-        {
-            return new ConfigKeyValueItem
-            {
-                IsComment = true,
-                OriginalLine = line,
-                IsEditable = false
-            };
-        }
-
-        if (IsYamlFile())
-        {
-            var indentLength = line.Length - trimmedStart.Length;
-            var leadingWhitespace = indentLength > 0 ? new string(' ', indentLength) : string.Empty;
-            var content = trimmedStart;
-            var isListItem = false;
-
-            if (content.StartsWith("- "))
-            {
-                isListItem = true;
-                content = content.Substring(2).TrimStart();
-            }
-
-            if (content.EndsWith(":"))
-            {
-                var containerKey = content.Substring(0, content.Length - 1).Trim().Trim('"', '\'');
-                if (!string.IsNullOrWhiteSpace(containerKey))
-                {
-                    return new ConfigKeyValueItem
-                    {
-                        IsEditable = false,
-                        IsYamlContainer = true,
-                        Key = containerKey,
-                        Separator = ':',
-                        LeadingWhitespace = leadingWhitespace,
-                        IsYamlListItem = isListItem,
-                        OriginalLine = line
-                    };
-                }
-            }
-
-            var yamlSeparatorIndex = content.IndexOf(':');
-            if (yamlSeparatorIndex <= 0)
-            {
-                return new ConfigKeyValueItem
-                {
-                    OriginalLine = line,
-                    IsEditable = false
-                };
-            }
-
-            var key = content.Substring(0, yamlSeparatorIndex).Trim().Trim('"', '\'');
-            var value = content.Substring(yamlSeparatorIndex + 1).Trim();
-
-            return new ConfigKeyValueItem
-            {
-                IsEditable = true,
-                Key = key,
-                Value = value,
-                Separator = ':',
-                LeadingWhitespace = leadingWhitespace,
-                IsYamlListItem = isListItem,
-                OriginalLine = line
-            };
-        }
-
-        var separatorIndex = GetSeparatorIndex(line, out var separator);
-        if (separatorIndex <= 0)
-        {
-            return new ConfigKeyValueItem
-            {
-                OriginalLine = line,
-                IsEditable = false
-            };
-        }
-
-        var keyText = line.Substring(0, separatorIndex).Trim().Trim('"', '\'');
-        var valueText = line.Substring(separatorIndex + 1).Trim();
-
-        return new ConfigKeyValueItem
-        {
-            IsEditable = true,
-            Key = keyText,
-            Value = valueText,
-            Separator = separator,
-            OriginalLine = line
-        };
-    }
-
-    private static int GetSeparatorIndex(string line, out char separator)
-    {
-        separator = '=';
-
-        var eqIndex = line.IndexOf('=');
-        var colonIndex = line.IndexOf(':');
-
-        if (eqIndex < 0 && colonIndex < 0)
-        {
-            return -1;
-        }
-
-        if (eqIndex >= 0 && (colonIndex < 0 || eqIndex < colonIndex))
-        {
-            separator = '=';
-            return eqIndex;
-        }
-
-        separator = ':';
-        return colonIndex;
-    }
-
-    private bool IsYamlFile()
-    {
-        return ConfigFilePath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase) ||
-               ConfigFilePath.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private bool IsXmlFile()
-    {
-        return ConfigFilePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private char GetDefaultSeparator()
-    {
-        if (IsYamlFile())
-        {
-            return ':';
-        }
-
-        return '=';
-    }
-
-    private void OnConfigItemChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(ConfigKeyValueItem.Key) || e.PropertyName == nameof(ConfigKeyValueItem.Value))
-        {
-            SyncContentFromConfigItems();
-        }
-    }
-
-    private void SyncContentFromConfigItems()
-    {
-        if (IsXmlMode)
-        {
-            return;
-        }
-
-        var lines = new List<string>(_allConfigLines.Count);
-
-        foreach (var item in _allConfigLines)
-        {
-            if (!item.IsEditable)
-            {
-                if (item.IsYamlContainer && item.Separator == ':')
-                {
-                    var yamlPrefix = item.IsYamlListItem ? "- " : string.Empty;
-                    lines.Add($"{item.LeadingWhitespace}{yamlPrefix}{item.Key}:");
-                }
-                else
-                {
-                    lines.Add(item.OriginalLine);
-                }
-
-                continue;
-            }
-
-            var key = item.Key?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                continue;
-            }
-
-            var value = item.Value ?? string.Empty;
-            if (item.Separator == ':')
-            {
-                var yamlPrefix = item.IsYamlListItem ? "- " : string.Empty;
-                lines.Add($"{item.LeadingWhitespace}{yamlPrefix}{key}: {value}");
-            }
-            else
-            {
-                lines.Add($"{key} = {value}");
-            }
-        }
-
-        ConfigFileContent = string.Join(Environment.NewLine, lines);
-
-    }
-
-    private void AddYamlItem()
-    {
-        var parentNode = SelectedYamlNode;
-        var targetLevel = parentNode != null ? parentNode.Level + 1 : 0;
-        var newItem = new ConfigKeyValueItem
-        {
-            IsEditable = true,
-            Key = "newKey",
-            Value = string.Empty,
-            Separator = ':',
-            LeadingWhitespace = new string(' ', targetLevel * 2),
-            OriginalLine = string.Empty
-        };
-
-        newItem.PropertyChanged += OnConfigItemChanged;
-        var insertIndex = GetYamlInsertIndex(parentNode);
-        _allConfigLines.Insert(insertIndex, newItem);
-        ConfigItems.Add(newItem);
-        SelectedConfigItem = newItem;
-
-        SyncContentFromConfigItems();
-        SelectYamlNodeBySourceItem(newItem);
-    }
-
-    private int GetYamlInsertIndex(YamlTreeNode? parentNode)
-    {
-        if (parentNode?.SourceItem == null)
-        {
-            return _allConfigLines.Count;
-        }
-
-        var parentIndex = _allConfigLines.IndexOf(parentNode.SourceItem);
-        if (parentIndex < 0)
-        {
-            return _allConfigLines.Count;
-        }
-
-        var parentLevel = parentNode.Level;
-        for (var i = parentIndex + 1; i < _allConfigLines.Count; i++)
-        {
-            var lineItem = _allConfigLines[i];
-            if (lineItem.Separator != ':')
-            {
-                continue;
-            }
-
-            var lineLevel = lineItem.LeadingWhitespace.Length / 2;
-            if (lineLevel <= parentLevel)
-            {
-                return i;
-            }
-        }
-
-        return _allConfigLines.Count;
-    }
-
-    private void RemoveSelectedYamlNode()
-    {
-        if (SelectedYamlNode?.SourceItem == null)
-        {
-            return;
-        }
-
-        var startIndex = _allConfigLines.IndexOf(SelectedYamlNode.SourceItem);
-        if (startIndex < 0)
-        {
-            return;
-        }
-
-        var startLevel = SelectedYamlNode.Level;
-        var endIndex = startIndex + 1;
-        while (endIndex < _allConfigLines.Count)
-        {
-            var lineItem = _allConfigLines[endIndex];
-            if (lineItem.Separator == ':')
-            {
-                var level = lineItem.LeadingWhitespace.Length / 2;
-                if (level <= startLevel)
-                {
-                    break;
-                }
-            }
-
-            endIndex++;
-        }
-
-        for (var i = endIndex - 1; i >= startIndex; i--)
-        {
-            var lineItem = _allConfigLines[i];
-            if (lineItem.IsEditable)
-            {
-                lineItem.PropertyChanged -= OnConfigItemChanged;
-                ConfigItems.Remove(lineItem);
-            }
-
-            _allConfigLines.RemoveAt(i);
-        }
-
-        SelectedYamlNode = null;
-        SelectedConfigItem = null;
-        SyncContentFromConfigItems();
-    }
-
-    private void SelectYamlNodeBySourceItem(ConfigKeyValueItem sourceItem)
-    {
-        foreach (var root in YamlTreeNodes)
-        {
-            var found = FindYamlNodeBySourceItem(root, sourceItem);
-            if (found != null)
-            {
-                SelectedYamlNode = found;
-                return;
-            }
-        }
-    }
-
-    private static YamlTreeNode? FindYamlNodeBySourceItem(YamlTreeNode node, ConfigKeyValueItem sourceItem)
-    {
-        if (ReferenceEquals(node.SourceItem, sourceItem))
-        {
-            return node;
-        }
-
-        foreach (var child in node.Children)
-        {
-            var found = FindYamlNodeBySourceItem(child, sourceItem);
-            if (found != null)
-            {
-                return found;
-            }
-        }
-
-        return null;
-    }
-
-    private void RebuildYamlTreeNodes()
-    {
-        YamlTreeNodes.Clear();
-        if (!IsYamlMode)
-        {
-            return;
-        }
-
-        var roots = new List<(int Level, YamlTreeNode Node)>();
-        var stack = new Stack<(int Level, YamlTreeNode Node)>();
-
-        foreach (var item in _allConfigLines)
-        {
-            if (item.Separator != ':' || (!item.IsEditable && !item.IsYamlContainer))
-            {
-                continue;
-            }
-
-            var level = item.LeadingWhitespace.Length / 2;
-            var node = new YamlTreeNode
-            {
-                DisplayKey = item.IsYamlListItem ? $"- {item.Key}" : item.Key,
-                Value = item.Value ?? string.Empty,
-                IsEditable = item.IsEditable,
-                SourceItem = item,
-                Level = level
-            };
-
-            while (stack.Count > 0 && stack.Peek().Level >= level)
-            {
-                stack.Pop();
-            }
-
-            if (stack.Count == 0)
-            {
-                roots.Add((level, node));
-            }
-            else
-            {
-                node.Parent = stack.Peek().Node;
-                stack.Peek().Node.Children.Add(node);
-            }
-
-            stack.Push((level, node));
-        }
-
-        foreach (var (_, node) in roots)
-        {
-            YamlTreeNodes.Add(node);
-        }
-    }
 
     [RelayCommand]
     private async Task LoadDirectoryAsync()

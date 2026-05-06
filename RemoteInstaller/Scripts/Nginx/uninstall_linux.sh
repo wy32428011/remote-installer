@@ -145,9 +145,9 @@ if [ -f /etc/debian_version ]; then
     if [ -n "$ACTIVE_DEB_PACKAGES" ]; then
         echo "检测到 Nginx 相关 DEB 包：$ACTIVE_DEB_PACKAGES"
         if [ "$KEEP_DATA" = true ]; then
-            DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || true
+            DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || dpkg -P $ACTIVE_DEB_PACKAGES 2>/dev/null || true
         else
-            DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || true
+            DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || dpkg -P $ACTIVE_DEB_PACKAGES 2>/dev/null || true
             DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null || true
             DEBIAN_FRONTEND=noninteractive apt-get autoclean -qq 2>/dev/null || true
         fi

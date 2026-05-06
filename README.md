@@ -1,133 +1,136 @@
 # 远程安装应用 (Remote Installer)
 
-一个基于 C# + WPF 的跨平台服务器管理工具，支持在 Windows Server、CentOS、Ubuntu 上远程安装和管理中间件应用。
+一个运行在 Windows 上的 WPF 桌面工具，用于通过 SSH 连接远程主机，完成应用安装、卸载、状态检测、终端运维、脚本管理和自定义应用部署等操作。
 
-## 功能特性
+## 文档导航
 
-### 核心功能 (P0)
+- 完整使用说明（终端用户）：[`用户手册.md`](./用户手册.md)
+- 项目架构说明（开发/维护）：[`技术架构.md`](./技术架构.md)
+- 需求与设计文档：[`需求文档.md`](./需求文档.md)、[`PRD.md`](./PRD.md)、[`UI_SPEC.md`](./UI_SPEC.md)
 
-- ✅ **主机管理**
-  - 添加/编辑/删除远程主机
-  - 支持 SSH 密码和私钥认证
-  - 测试连接功能
-  - 主机在线状态检测
+> 如果你是最终使用人员，或需要查看界面操作、批量安装、终端、自定义应用、脚本管理等说明，请直接阅读 [`用户手册.md`](./用户手册.md)。
 
-- ✅ **应用市场**
-  - 展示可安装应用列表
-  - 支持 6 个应用：MySQL、Redis、Elasticsearch、RabbitMQ、Nacos、Nginx
-  - 显示应用详情和安装状态
+---
 
-- ✅ **安装配置**
-  - 动态参数配置表单
-  - 参数校验（必填、格式、范围）
-  - 支持本地安装包选择
+## 核心能力概览
 
-- ✅ **安装执行**
-  - 上传安装包到远程服务器
-  - 执行远程安装脚本
-  - 传递配置参数
-  - 实时进度监控
+当前项目的核心能力包括：
 
-- ✅ **进度监控**
-  - 进度百分比显示
-  - 安装阶段指示
-  - 实时日志输出
-  - 日志级别着色
+- 主机管理：添加、编辑、删除、分组、连接测试
+- 应用市场：安装、卸载、状态检测、配置入口
+- 安装弹窗：公共安装配置窗口支持整体纵向滚动，便于查看长说明、离线资源信息与参数列表；JDK 已收敛为统一入口，应用市场安装时在弹窗中选择版本，独立的 JDK 上传入口则直接选择本地 JDK 文件夹并自动识别版本（当前统一 JDK 入口暂不支持批量安装，请使用单机安装流程）
+- 批量操作：批量检测、批量安装、批量卸载
+- 任务与日志：任务进度、历史记录、日志查看
+- 远程运维：SSH 终端、基于 SFTP 的远程文件管理
+- 扩展能力：脚本管理、自定义应用部署
+- Traefik：默认生成 `traefik.yml` 与 `dynamic.yml`，配置编辑器会按 YAML 文件提供结构化/文本双模式编辑，编辑区支持键值、树形和原始文本内容修改，并可使用鼠标滚轮滚动
+- Mosquitto：完全离线安装、支持匿名访问或用户名密码认证、按系统与 CPU 架构匹配离线资源
 
-- ✅ **应用检测**
-  - 检测应用是否已安装
-  - 显示已安装版本号
-  - 检测服务运行状态
+> 说明：
+> 应用市场中的应用、版本和安装参数由当前程序配置驱动，实际以程序界面显示为准，不在 README 中维护固定清单。
+>
+> 当前 MQTT 相关能力已切换为 **Mosquitto**，要求使用离线资源安装；参数仅保留 `MQTT Port`、`Username`、`Password`，不再包含 WebSocket 端口；用户名与密码可同时留空以启用匿名访问，但不能只填写其中一项。
+>
+> 当前仓库内已落盘的 Mosquitto 离线资源版本为：Windows `2.0.21`、Ubuntu 22 `2.0.22`、Ubuntu 24 `2.1.2`、CentOS 7 `1.6.10`。安装弹窗会按目标系统优先选择对应版本。
 
-- ✅ **应用卸载**
-  - 执行卸载脚本
-  - 卸载确认提示
+---
 
-- ✅ **数据存储**
-  - 主机信息加密存储（AES-256）
-  - 任务历史记录
-  - SQLite 本地数据库
+## 运行与开发要求
 
-## 技术栈
+- 操作系统：Windows 10/11 或 Windows Server
+- SDK：.NET 10 SDK
+- 运行时：需要可用的 `.NET 10 Windows Desktop Runtime`
+- IDE：Visual Studio 2022（推荐）
 
-| 层级 | 技术选型 |
-|------|----------|
-| UI 框架 | WPF (.NET 8) |
-| MVVM 框架 | CommunityToolkit.MVVM |
-| UI 组件库 | MaterialDesignInXaml |
-| 远程通信 | Renci.SshNet (SSH/SFTP) |
-| 本地存储 | SQLite |
-| 加密 | AES-256 |
-| 日志 | Serilog |
-| 依赖注入 | Microsoft.Extensions.DependencyInjection |
+当前主程序项目：
 
-## 项目结构
+- `RemoteInstaller/RemoteInstaller.csproj`
 
+目标框架：
+
+- `net10.0-windows`
+
+---
+
+## 快速启动
+
+### 还原依赖
+
+```bash
+dotnet restore
 ```
-RemoteInstaller/
-├── Models/                    # 数据模型
-│   ├── Enums.cs              # 枚举定义
-│   ├── RemoteHost.cs         # 远程主机模型
-│   ├── ApplicationInfo.cs    # 应用信息模型
-│   ├── InstallTask.cs        # 安装任务模型
-│   ├── LogEntry.cs           # 日志条目模型
-│   └── ApplicationStatus.cs  # 应用状态模型
-├── ViewModels/               # ViewModel 层
-│   ├── BaseViewModel.cs      # 基础 ViewModel
-│   ├── MainViewModel.cs      # 主窗口 ViewModel
-│   ├── AddHostViewModel.cs   # 添加主机对话框 ViewModel
-│   ├── InstallConfigViewModel.cs  # 安装配置 ViewModel
-│   └── InstallProgressViewModel.cs # 进度监控 ViewModel
-├── Views/                    # View 层
-│   ├── MainWindow.xaml       # 主窗口
-│   └── MainWindow.xaml.cs
-├── Services/                 # 服务层
-│   ├── EncryptionService.cs  # 加密服务
-│   ├── DatabaseService.cs    # 数据库服务
-│   ├── SshService.cs         # SSH 连接服务
-│   ├── InstallerService.cs   # 安装服务
-│   └── LoggerService.cs      # 日志服务
-├── Converters/               # 值转换器
-│   └── Converters.cs
-├── Themes/                   # 主题资源
-│   ├── CustomColors.xaml
-│   └── CustomStyles.xaml
-├── Assets/                   # 资源文件
-├── Scripts/                  # 安装脚本
-├── App.xaml                  # 应用入口
-├── App.xaml.cs
-└── RemoteInstaller.csproj
-
-RemoteInstaller.Tests/        # 单元测试
-├── EncryptionServiceTests.cs
-├── RemoteHostTests.cs
-├── InstallTaskTests.cs
-└── ApplicationInfoTests.cs
-```
-
-## 快速开始
-
-### 前置要求
-
-- .NET 8 SDK
-- Visual Studio 2022 (推荐) 或 VS Code
-- Windows 10/11 或 Windows Server 2016+
 
 ### 构建项目
 
 ```bash
-# 还原依赖
-dotnet restore
+dotnet build RemoteInstaller.sln
+```
 
-# 构建项目
-dotnet build
+### 运行应用
 
-# 运行应用
+如果你已经把 .NET 10 SDK 安装到系统默认位置，可以直接运行：
+
+```bash
 dotnet run --project RemoteInstaller/RemoteInstaller.csproj
+```
 
-# 运行测试
+如果你使用的是用户目录安装方式（例如本机当前会话使用 `C:/Users/WY/.dotnet-10`），请先设置 `DOTNET_ROOT`，否则 `RemoteInstaller.exe` 可能因为找不到 `Microsoft.WindowsDesktop.App` 而启动后立即退出：
+
+```bash
+DOTNET_ROOT="C:/Users/WY/.dotnet-10" "C:/Users/WY/.dotnet-10/dotnet.exe" run --project RemoteInstaller/RemoteInstaller.csproj
+```
+
+如果已经完成构建，也可以直接启动生成的 exe：
+
+```bash
+DOTNET_ROOT="C:/Users/WY/.dotnet-10" "RemoteInstaller/bin/Debug/net10.0-windows/RemoteInstaller.exe"
+```
+
+### 运行测试
+
+```bash
 dotnet test
 ```
+
+### 发布与安装包生成
+
+1. 先安装 Inno Setup 6，确保本机存在 `ISCC.exe`。
+2. 在仓库根目录执行以下命令生成发布产物并打包安装程序：
+
+```powershell
+./build-installer.ps1
+```
+
+如需指定版本号或仅重新生成安装包，可使用：
+
+```powershell
+./build-installer.ps1 -Version 1.0.0
+./build-installer.ps1 -SkipPublish
+```
+
+默认行为说明：
+
+- 脚本会先执行面向 `win-x64` 的自包含发布：`dotnet publish RemoteInstaller/RemoteInstaller.csproj -c Release -r win-x64 --self-contained true`
+- 安装器输入目录默认使用脚本显式指定的 publish 输出目录，当前默认仍为 `RemoteInstaller/bin/<Configuration>/net10.0-windows/publish`，并非 `dotnet publish -r` 的默认 RID 输出结构
+- 安装包输出目录默认使用 `artifacts/installer`
+- 安装内容会保留发布目录原始结构，包含 `Assets/`、`Scripts/` 和 `Scripts/app-configuration.json`
+- 安装器默认安装到当前用户目录下的 `AppData/Local/Programs/RemoteInstaller`
+- 用户数据目录位于 `AppData/Local/RemoteInstaller`，数据库、日志和缓存不会因重新安装而被安装目录覆盖
+- 安装器界面默认使用仓库内置的简体中文语言资源，不依赖本机 Inno Setup 额外安装中文语言包
+- 安装器会显示根目录 `LICENSE` 文件中的 MIT 许可证正文
+- 如果自定义 `-InnoCompilerPath`、`-PublishDir` 或 `-OutputDir`，建议传绝对路径
+- 如需改回依赖运行时的发布方式，可显式传入 `-SelfContained:$false`
+- 使用 `-SkipPublish` 前，请先确认 `PublishDir` 中已经存在与当前参数匹配的最新发布产物
+
+已知限制：
+
+- 当前程序会将 SQLite 数据库写入 `%LocalAppData%\RemoteInstaller\data.db`。
+- 程序日志位于 `%LocalAppData%\RemoteInstaller\Logs`，缓存默认目录位于 `%LocalAppData%\RemoteInstaller\Cache`。
+- 新版本首次启动时，如果安装目录中存在旧版 `data.db`，会自动迁移到用户数据目录。
+- 重新安装或覆盖安装不会替换 `%LocalAppData%\RemoteInstaller` 下的数据库内容。
+- 当前安装包默认采用 self-contained 发布，目标机器通常无需预装 `.NET 10 Windows Desktop Runtime`。
+- 项目图标文件使用 `RemoteInstaller/Assets/Brand/remoteinstaller-icon.ico`。
+- 如需重新生成图标，可执行 `powershell.exe -ExecutionPolicy Bypass -File ".\\tools\\generate-app-icon.ps1"`。
 
 ### 使用 Visual Studio
 
@@ -135,73 +138,28 @@ dotnet test
 2. 还原 NuGet 包
 3. 按 F5 运行
 
-## 配置说明
+---
 
-### 数据库文件
+## 仓库结构
 
-应用首次启动时会在程序目录创建 `data.db` SQLite 数据库文件，用于存储：
-- 主机连接信息（密码加密存储）
-- 任务历史记录
-- 系统设置
+```text
+RemoteInstaller/        主程序（WPF 客户端）
+RemoteInstaller.Tests/  测试项目
+Scripts/                应用安装配置与脚本资源
+用户手册.md             面向最终用户的使用说明
+技术架构.md             项目架构说明
+```
 
-### 日志文件
+---
 
-日志文件保存在 `logs/` 目录下，按天轮转：
-- `app-YYYY-MM-DD.log`
+## 补充说明
 
-### 安装包仓库
+- 客户端是 Windows 桌面程序。
+- 目标主机可以是 Linux 或 Windows，但当前远程连接方式统一基于 SSH。
+- 详细的界面说明、操作步骤、FAQ、日志位置等内容已收敛到 [`用户手册.md`](./用户手册.md)。
 
-默认从本地选择安装包，后续版本支持配置远程仓库地址。
-
-## 支持的应用
-
-| 应用 | 版本 | Linux | Windows | 说明 |
-|------|------|-------|---------|------|
-| MySQL | 8.x | ✅ | ✅ | 关系型数据库 |
-| Redis | 7.x | ✅ | ✅ | 内存数据库 |
-| Elasticsearch | 8.x | ✅ | ✅ | 搜索引擎 |
-| RabbitMQ | 3.12.x | ✅ | ✅ | 消息队列 |
-| Nacos | 2.3.x | ✅ | ✅ | 服务注册中心 |
-| Nginx | 1.24.x | ✅ | ✅ | Web 服务器 |
-
-## 开发计划
-
-### P1 - 重要功能
-
-- [ ] 主机分组管理
-- [ ] 批量测试连接
-- [ ] 应用搜索/筛选
-- [ ] 从远程仓库拉取安装包
-- [ ] 任务控制（暂停/继续/取消）
-- [ ] 系统设置界面
-- [ ] 批量操作支持
-
-### P2 - 增强功能
-
-- [ ] 主题切换（亮色/暗色）
-- [ ] 断线自动重连
-- [ ] 失败自动重试
-- [ ] 日志搜索功能
-- [ ] 自定义安装脚本
-- [ ] 应用配置管理
-
-## 贡献指南
-
-1. Fork 项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+---
 
 ## 许可证
 
 MIT License
-
-## 作者
-
-Leon 🦁 - [初始创建]
-
----
-
-**版本**: 1.0.0  
-**最后更新**: 2026-03-16

@@ -45,6 +45,61 @@
             <Setter Property="Foreground" Value="{DynamicResource DarkPrimaryTextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource DarkSurfaceLightBrush}"/>
         </Style>
+
+        <HierarchicalDataTemplate x:Key="RemoteFileTreeTemplate" ItemsSource="{Binding Children}">
+            <StackPanel Margin="2,3" ToolTip="{Binding TooltipText}">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Width="16" Height="16" VerticalAlignment="Center">
+                        <materialDesign:PackIcon.Style>
+                            <Style TargetType="materialDesign:PackIcon">
+                                <Setter Property="Kind" Value="FileDocumentOutline"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                                        <Setter Property="Kind" Value="Folder"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                        <Setter Property="Kind" Value="DotsHorizontal"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DarkSecondaryTextBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsVirtualRoot}" Value="True">
+                                        <Setter Property="Kind" Value="FolderNetworkOutline"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource InfoBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </materialDesign:PackIcon.Style>
+                    </materialDesign:PackIcon>
+                    <TextBlock Text="{Binding Name}"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource DarkPrimaryTextBrush}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="FontWeight" Value="Normal"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsVirtualRoot}" Value="True">
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+                <TextBlock Text="{Binding SecondaryText}"
+                           Margin="24,2,0,0"
+                           FontSize="11"
+                           Foreground="{DynamicResource DarkSecondaryTextBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding SecondaryText, Converter={StaticResource StringToVisibilityConverter}}"/>
+            </StackPanel>
+        </HierarchicalDataTemplate>
+
+        <Style x:Key="RemoteFileTreeItemStyle" TargetType="TreeViewItem" BasedOn="{StaticResource MaterialDesignTreeViewItem}">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="18">
@@ -130,27 +185,9 @@
                         <TextBlock>
                             <Run Text="主机："/>
                             <Run Text="{Binding HostViewModel.Name}"/>
-                        </TextBlock>
-                    </Border>
-
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="地址："/>
+                            <Run Text=" ("/>
                             <Run Text="{Binding HostViewModel.IpAddress}"/>
-                        </TextBlock>
-                    </Border>
-
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="系统："/>
-                            <Run Text="{Binding OperatingSystemLabel}"/>
-                        </TextBlock>
-                    </Border>
-
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="终端："/>
-                            <Run Text="{Binding ShellLabel}"/>
+                            <Run Text=")"/>
                         </TextBlock>
                     </Border>
 
@@ -161,26 +198,21 @@
                         </TextBlock>
                     </Border>
 
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="退出码："/>
-                            <Run Text="{Binding LastExitCode}"/>
-                        </TextBlock>
-                    </Border>
-
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="命令数："/>
-                            <Run Text="{Binding ExecutedCommandCount}"/>
-                        </TextBlock>
-                    </Border>
-
-                    <Border Margin="0,0,10,10" Padding="10,6" Background="{DynamicResource DarkSurfaceElevatedBrush}" CornerRadius="8">
-                        <TextBlock>
-                            <Run Text="输出量："/>
-                            <Run Text="{Binding OutputSize}"/>
-                        </TextBlock>
-                    </Border>
+                    <TextBlock Margin="0,2,0,10"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource DarkSecondaryTextBrush}">
+                        <Run Text="系统："/>
+                        <Run Text="{Binding OperatingSystemLabel}"/>
+                        <Run Text="  ·  终端："/>
+                        <Run Text="{Binding ShellLabel}"/>
+                        <Run Text="  ·  退出码："/>
+                        <Run Text="{Binding LastExitCode}"/>
+                        <Run Text="  ·  命令数："/>
+                        <Run Text="{Binding ExecutedCommandCount}"/>
+                        <Run Text="  ·  输出量："/>
+                        <Run Text="{Binding OutputSize}"/>
+                    </TextBlock>
                 </WrapPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
@@ -250,48 +282,270 @@
                 BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="18">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+            <Grid Margin="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="6"/>
+                    <ColumnDefinition Width="300" MinWidth="260" MaxWidth="420"/>
+                </Grid.ColumnDefinitions>
 
-                <DockPanel Grid.Row="0" Margin="16,14,16,10">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                        <materialDesign:PackIcon Kind="Console" Width="16" Height="16" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="会话输出"
-                                   Margin="8,0,0,0"
-                                   FontSize="13"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
-                    </StackPanel>
-                    <TextBlock Text="{Binding ShortcutHint}"
-                               DockPanel.Dock="Right"
-                               FontSize="11"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               VerticalAlignment="Center"/>
-                </DockPanel>
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                <TextBox x:Name="OutputTextBox"
-                         Grid.Row="1"
-                         Margin="14,0,14,14"
-                         IsReadOnly="True"
-                         IsUndoEnabled="False"
-                         UndoLimit="0"
-                         ToolTip="终端视图仅保留最近输出以保证流畅，导出仍包含完整日志。"
-                         FontFamily="Cascadia Mono, Consolas"
-                         FontSize="13"
-                         Background="Transparent"
-                         Foreground="{DynamicResource PrimaryTextBrush}"
-                         BorderThickness="0"
-                         TextWrapping="NoWrap"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Auto"
-                         AcceptsReturn="True"
-                         SpellCheck.IsEnabled="False"
-                         Cursor="IBeam"
-                         SelectionBrush="#3B82F6"
-                         ContextMenu="{StaticResource TerminalContextMenu}"/>
+                    <DockPanel Grid.Row="0" Margin="16,14,16,10">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                            <materialDesign:PackIcon Kind="Console" Width="16" Height="16" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="会话输出"
+                                       Margin="8,0,0,0"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding ShortcutHint}"
+                                   DockPanel.Dock="Right"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <RichTextBox x:Name="OutputRichTextBox"
+                                 Grid.Row="1"
+                                 Margin="14,0,14,14"
+                                 IsReadOnly="True"
+                                 IsDocumentEnabled="False"
+                                 IsUndoEnabled="False"
+                                 ToolTip="终端视图仅保留最近输出以保证流畅，导出仍包含完整日志。"
+                                 FontFamily="Cascadia Mono, Consolas"
+                                 FontSize="13"
+                                 Background="Transparent"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 BorderThickness="0"
+                                 Padding="0"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 SpellCheck.IsEnabled="False"
+                                 Cursor="IBeam"
+                                 SelectionBrush="#3B82F6"
+                                 ContextMenu="{StaticResource TerminalContextMenu}"/>
+                </Grid>
+
+                <GridSplitter Grid.Column="1"
+                              Width="6"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Background="{DynamicResource DarkBorderBrush}"
+                              ShowsPreview="True"/>
+
+                <Border Grid.Column="2"
+                        Margin="0"
+                        Background="{DynamicResource DarkSurfaceBrush}"
+                        BorderBrush="{DynamicResource DarkBorderBrush}"
+                        BorderThickness="1,0,0,0"
+                        CornerRadius="0,18,18,0">
+                    <Grid Margin="14">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0">
+                            <DockPanel LastChildFill="False">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                                    <materialDesign:PackIcon Kind="FolderNetworkOutline"
+                                                             Width="16"
+                                                             Height="16"
+                                                             Foreground="{DynamicResource AccentBrush}"
+                                                             VerticalAlignment="Center"/>
+                                    <TextBlock Text="远程文件"
+                                               Margin="8,0,0,0"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource DarkPrimaryTextBrush}"/>
+                                </StackPanel>
+                                <Button DockPanel.Dock="Right"
+                                        Style="{StaticResource ToolButtonStyle}"
+                                        Command="{Binding SyncFilePaneToCurrentDirectoryCommand}"
+                                        Margin="8,0,0,0"
+                                        ToolTip="同步到当前终端目录">
+                                    <materialDesign:PackIcon Kind="CrosshairsGps" Width="16" Height="16"/>
+                                </Button>
+                                <Button DockPanel.Dock="Right"
+                                        Style="{StaticResource ToolButtonStyle}"
+                                        Command="{Binding FilePane.RefreshCommand}"
+                                        ToolTip="刷新当前目录">
+                                    <materialDesign:PackIcon Kind="Refresh" Width="16" Height="16"/>
+                                </Button>
+                            </DockPanel>
+
+                            <Grid Margin="0,12,0,0" ToolTip="{Binding FilePane.CurrentRemotePath}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding FilePane.PathInput, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{StaticResource DarkTextBoxStyle}"
+                                         MinHeight="34"
+                                         Margin="0"
+                                         FontSize="11"
+                                         materialDesign:HintAssist.Hint="远程目录路径"/>
+
+                                <Button Grid.Column="1"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding FilePane.GoToPathCommand}"
+                                        Padding="10,6"
+                                        Margin="8,0,0,0"
+                                        ToolTip="打开路径栏中的远程目录">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="FolderOpen" Width="14" Height="14"/>
+                                        <TextBlock Text="打开" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button Grid.Column="2"
+                                        Style="{StaticResource ToolButtonStyle}"
+                                        Command="{Binding FilePane.OpenSelectedDirectoryCommand}"
+                                        Padding="10,6"
+                                        Margin="8,0,0,0"
+                                        ToolTip="进入当前选中的目录">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="ChevronRight" Width="14" Height="14"/>
+                                        <TextBlock Text="进入" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <TextBlock Text="{Binding FilePane.StatusMessage}"
+                                       Margin="0,8,0,0"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource DarkSecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <Grid Grid.Row="1" Margin="0,12,0,12">
+                            <Grid Visibility="{Binding FilePane.IsSftpAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                                    <Button Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding FilePane.UploadCommand}"
+                                            IsEnabled="{Binding FilePane.CanUploadToCurrentDirectory}"
+                                            Padding="12,6"
+                                            Margin="0,0,8,8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="CloudUpload" Width="14" Height="14"/>
+                                            <TextBlock Text="上传" Margin="4,0,0,0"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ToolButtonStyle}"
+                                            Command="{Binding FilePane.CreateDirectoryCommand}"
+                                            IsEnabled="{Binding FilePane.CanCreateDirectoryInCurrentPath}"
+                                            Padding="10,6"
+                                            Margin="0,0,8,8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="FolderPlus" Width="14" Height="14"/>
+                                            <TextBlock Text="新建目录" Margin="4,0,0,0"/>
+                                        </StackPanel>
+                                    </Button>
+                                </WrapPanel>
+
+                                <Border Grid.Row="1"
+                                        Background="{DynamicResource DarkSurfaceElevatedBrush}"
+                                        CornerRadius="12"
+                                        Padding="6">
+                                    <TreeView x:Name="FileTreeView"
+                                              ItemsSource="{Binding FilePane.DirectoryItems}"
+                                              ItemTemplate="{StaticResource RemoteFileTreeTemplate}"
+                                              SelectedItemChanged="FileTreeView_SelectedItemChanged"
+                                              MouseDoubleClick="FileTreeView_MouseDoubleClick"
+                                              Background="Transparent"
+                                              BorderThickness="0"
+                                              Margin="0">
+                                        <TreeView.ItemContainerStyle>
+                                            <Style TargetType="TreeViewItem" BasedOn="{StaticResource RemoteFileTreeItemStyle}"/>
+                                        </TreeView.ItemContainerStyle>
+                                    </TreeView>
+                                </Border>
+                            </Grid>
+
+                            <Border Padding="14"
+                                    Background="{DynamicResource DarkSurfaceElevatedBrush}"
+                                    CornerRadius="12">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding FilePane.IsSftpAvailable}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel VerticalAlignment="Center">
+                                    <materialDesign:PackIcon Kind="FolderOffOutline"
+                                                             Width="28"
+                                                             Height="28"
+                                                             Foreground="{DynamicResource DarkSecondaryTextBrush}"
+                                                             HorizontalAlignment="Center"/>
+                                    <TextBlock Text="当前主机未提供可用的 SFTP 文件能力，终端仍可正常使用。"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               Foreground="{DynamicResource DarkSecondaryTextBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <StackPanel Grid.Row="2">
+                            <TextBlock Text="{Binding FilePane.OperationMessage}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       TextWrapping="Wrap"
+                                       Visibility="{Binding FilePane.OperationMessage, Converter={StaticResource StringToVisibilityConverter}}"/>
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding FilePane.DownloadCommand}"
+                                        IsEnabled="{Binding FilePane.CanDownloadSelected}"
+                                        Padding="12,6"
+                                        Margin="0,0,8,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="Download" Width="14" Height="14"/>
+                                        <TextBlock Text="下载" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource ToolButtonStyle}"
+                                        Command="{Binding FilePane.RenameCommand}"
+                                        IsEnabled="{Binding FilePane.CanRenameSelected}"
+                                        Padding="10,6"
+                                        Margin="0,0,8,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="RenameBox" Width="14" Height="14"/>
+                                        <TextBlock Text="重命名" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource DangerButtonStyle}"
+                                        Command="{Binding FilePane.DeleteCommand}"
+                                        IsEnabled="{Binding FilePane.CanDeleteSelected}"
+                                        Padding="12,6"
+                                        Margin="0,0,8,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="DeleteOutline" Width="14" Height="14"/>
+                                        <TextBlock Text="删除" Margin="4,0,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
             </Grid>
         </Border>
 

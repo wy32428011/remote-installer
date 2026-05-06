@@ -50,7 +50,13 @@ public partial class RemoteHost : ObservableObject
     
     [ObservableProperty]
     private OperatingSystemType _osType = OperatingSystemType.CentOS;
-    
+
+    [ObservableProperty]
+    private string _osVersion = string.Empty;
+
+    [ObservableProperty]
+    private string _cpuArchitecture = string.Empty;
+
     [ObservableProperty]
     private string _groupName;
     

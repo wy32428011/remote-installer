@@ -3,221 +3,355 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-    xmlns:local="clr-namespace:RemoteInstaller"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="安装进度"
-    Width="700" Height="500"
+    Title="任务进度"
+    Width="820"
+    Height="560"
+    MinWidth="620"
+    MinHeight="460"
     WindowStartupLocation="CenterOwner"
-    ResizeMode="CanMinimize">
+    ResizeMode="CanResize"
+    Background="{DynamicResource BackgroundBrush}">
 
-    <Grid Margin="20">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 标题 -->
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="{Binding Title}" 
-                       FontSize="18" FontWeight="SemiBold"
-                       Foreground="{DynamicResource MaterialDesignBody}"/>
-            <Button Grid.Column="1"
-                    Style="{StaticResource MaterialDesignToolButton}"
-                    ToolTipService.ToolTip="最小化"
-                    Margin="16,0,0,0"
-                    Command="{Binding MinimizeCommand}">
-                <materialDesign:PackIcon Kind="ArrowDown"/>
-            </Button>
-        </Grid>
-
-        <!-- 步骤进度 -->
-        <Grid Grid.Row="1" Margin="0,20,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <!-- 步骤 1: 配置参数 -->
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <materialDesign:PackIcon Kind="CheckCircle"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SuccessBrush}"
-                                             Visibility="{Binding IsStep1Complete, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <materialDesign:PackIcon Kind="CircleOutline"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SecondaryTextBrush}"
-                                             Visibility="{Binding IsStep1Complete, Converter={StaticResource InverseBoolConverter}}"/>
-                    <TextBlock Text="配置参数" 
-                               FontSize="11" Margin="4,0,0,0"
-                               Foreground="{Binding IsStep1Complete, Converter={StaticResource StepStatusToColorConverter}}"/>
-                </StackPanel>
-                <materialDesign:PackIcon Kind="ChevronRight" Width="12" Height="12" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                
-                <!-- 步骤 2: 上传文件 -->
-                <StackPanel Orientation="Horizontal" Margin="12,0,12,0">
-                    <materialDesign:PackIcon Kind="CheckCircle"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SuccessBrush}"
-                                             Visibility="{Binding IsStep2Complete, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <materialDesign:PackIcon Kind="CircleOutline"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SecondaryTextBrush}"
-                                             Visibility="{Binding IsStep2Complete, Converter={StaticResource InverseBoolConverter}}"/>
-                    <TextBlock Text="上传文件" 
-                               FontSize="11" Margin="4,0,0,0"
-                               Foreground="{Binding IsStep2Complete, Converter={StaticResource StepStatusToColorConverter}}"/>
-                </StackPanel>
-                <materialDesign:PackIcon Kind="ChevronRight" Width="12" Height="12" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                
-                <!-- 步骤 3: 执行安装 -->
-                <StackPanel Orientation="Horizontal" Margin="12,0,12,0">
-                    <materialDesign:PackIcon Kind="CheckCircle"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SuccessBrush}"
-                                             Visibility="{Binding IsStep3Complete, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <materialDesign:PackIcon Kind="Loading"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource AccentBrush}"
-                                             Visibility="{Binding IsStep3Running, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <materialDesign:PackIcon Kind="CircleOutline"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SecondaryTextBrush}"
-                                             Visibility="{Binding IsStep3Running, Converter={StaticResource InverseBoolConverter}}"/>
-                    <TextBlock Text="执行安装" 
-                               FontSize="11" FontWeight="{Binding IsStep3Running, Converter={StaticResource StepStatusToWeightConverter}}"
-                               Margin="4,0,0,0"
-                               Foreground="{Binding IsStep3Complete, Converter={StaticResource StepStatusToColorConverter}}"/>
-                </StackPanel>
-                <materialDesign:PackIcon Kind="ChevronRight" Width="12" Height="12" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                
-                <!-- 步骤 4: 完成 -->
-                <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
-                    <materialDesign:PackIcon Kind="CheckCircle"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SuccessBrush}"
-                                             Visibility="{Binding IsStep4Complete, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <materialDesign:PackIcon Kind="CircleOutline"
-                                             Width="16" Height="16"
-                                             Foreground="{DynamicResource SecondaryTextBrush}"
-                                             Visibility="{Binding IsStep4Complete, Converter={StaticResource InverseBoolConverter}}"/>
-                    <TextBlock Text="完成" 
-                               FontSize="11" Margin="4,0,0,0"
-                               Foreground="{Binding IsStep4Complete, Converter={StaticResource StepStatusToColorConverter}}"/>
-                </StackPanel>
-            </StackPanel>
-            <!-- 当前阶段名称 -->
-            <TextBlock Grid.Column="1"
-                       Text="{Binding CurrentStage}"
-                       FontSize="13" FontWeight="Medium"
-                       Foreground="{DynamicResource AccentBrush}"/>
-        </Grid>
-
-        <!-- 进度条 -->
-        <Grid Grid.Row="2" Margin="0,20,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <ProgressBar Grid.Column="0"
-                         Value="{Binding Progress}"
-                         Minimum="0" Maximum="100"
-                         Height="8"
-                         Background="{DynamicResource SurfaceElevatedBrush}"
-                         Foreground="{DynamicResource AccentBrush}"/>
-            <TextBlock Grid.Column="1"
-                       Text="{Binding Progress, StringFormat={}{0:0}%}"
-                       VerticalAlignment="Center"
-                       Margin="12,0,0,0"
-                       FontSize="12"
-                       Foreground="{DynamicResource MaterialDesignBody}"/>
-        </Grid>
-
-        <!-- 操作按钮 -->
-        <Grid Grid.Row="3" Margin="0,16,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Button Content="⏸️ 暂停"
-                    Style="{StaticResource MaterialDesignFlatButton}"
-                    Command="{Binding PauseCommand}"
-                    IsEnabled="{Binding IsRunning}"
-                    Visibility="{Binding IsPaused, Converter={StaticResource InverseBoolConverter}}"/>
-            <Button Grid.Column="1"
-                    Content="▶️ 继续"
-                    Style="{StaticResource MaterialDesignFlatButton}"
-                    Command="{Binding ResumeCommand}"
-                    IsEnabled="{Binding IsPaused}"
-                    Visibility="{Binding IsPaused, Converter={StaticResource BoolToVisibilityConverter}}"/>
-            <Button Grid.Column="2"
-                    Content="❌ 取消"
-                    Style="{StaticResource MaterialDesignFlatButton}"
-                    Background="{DynamicResource ErrorBrush}"
-                    Foreground="White"
-                    Command="{Binding CancelCommand}"
-                    IsEnabled="{Binding IsRunning}"
-                    Margin="8,0,0,0"/>
-        </Grid>
-
-        <!-- 日志输出 - 按级别着色 -->
-        <Border Grid.Row="4"
+        <Border Grid.Row="0"
                 Background="{DynamicResource SurfaceBrush}"
-                CornerRadius="8" Padding="16"
-                Margin="0,16,0,0">
-            <ScrollViewer x:Name="LogScrollViewer"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding LogEntries}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding DisplayText}"
-                                       FontFamily="Consolas"
-                                       FontSize="11"
-                                       TextWrapping="Wrap">
-                                <TextBlock.Foreground>
-                                    <SolidColorBrush Color="{Binding Level, Converter={StaticResource LogLevelToColorConverter}}"/>
-                                </TextBlock.Foreground>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="12,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="{Binding Title}"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBlock Text="通过任务摘要、当前阶段和日志明细，快速了解执行进展。"
+                               Margin="0,3,0,0"
+                               FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
+                    <WrapPanel Margin="0,8,0,0">
+                        <Border Background="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"
+                                CornerRadius="10"
+                                Padding="8,3"
+                                Margin="0,0,8,8">
+                            <TextBlock Text="{Binding StatusText}"
+                                       Foreground="White"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"/>
+                        </Border>
+                        <Border Background="{DynamicResource SurfaceLightBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="8,3"
+                                Margin="0,0,8,8">
+                            <TextBlock Text="{Binding LastActivityText}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="10"
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                        <Border Background="{DynamicResource SurfaceLightBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="8,3"
+                                Margin="0,0,8,8">
+                            <TextBlock Text="{Binding TaskIdentifier, StringFormat=任务ID：{0}}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="10"/>
+                        </Border>
+                    </WrapPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Top">
+                    <Button Style="{StaticResource MaterialDesignToolButton}"
+                            ToolTipService.ToolTip="最小化"
+                            Margin="0,0,8,0"
+                            Command="{Binding MinimizeCommand}">
+                        <materialDesign:PackIcon Kind="WindowMinimize"/>
+                    </Button>
+                    <Button Style="{StaticResource MaterialDesignToolButton}"
+                            ToolTipService.ToolTip="关闭"
+                            Command="{Binding CloseDialogCommand}">
+                        <materialDesign:PackIcon Kind="Close"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- 日志操作 -->
-        <Grid Grid.Row="5" Margin="0,12,0,0">
+        <Grid x:Name="SummaryLayoutGrid" Grid.Row="1" Margin="0,12,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="SummaryPrimaryRowDefinition" Height="*"/>
+                <RowDefinition x:Name="SummarySecondaryRowDefinition" Height="0"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition x:Name="SummaryPrimaryColumnDefinition" Width="1.2*"/>
+                <ColumnDefinition x:Name="SummarySecondaryColumnDefinition" Width="0.8*"/>
             </Grid.ColumnDefinitions>
-            <Button Content="🗑️ 清空日志"
-                    Style="{StaticResource MaterialDesignToolButton}"
-                    ToolTip="清空日志"
-                    Command="{Binding ClearLogCommand}"/>
-            <Button Grid.Column="1"
-                    Content="💾 保存日志"
-                    Style="{StaticResource MaterialDesignToolButton}"
-                    ToolTip="保存日志到文件"
-                    Command="{Binding SaveLogCommand}"
-                    Margin="8,0,0,0"/>
-            <CheckBox Grid.Column="3"
-                      Content="自动滚动"
-                      IsChecked="{Binding AutoScroll}"
-                      VerticalAlignment="Center"
-                      FontSize="11"/>
+
+            <Border x:Name="OverallProgressPanel"
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="12,10"
+                    Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="{Binding ApplicationName}"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding HostName, StringFormat=目标主机：{0}}"
+                                       Margin="0,3,0,0"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <Border Grid.Column="1"
+                                Background="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"
+                                CornerRadius="12"
+                                Padding="8,3"
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Top">
+                            <TextBlock Text="{Binding StatusText}"
+                                       Foreground="White"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"/>
+                        </Border>
+                    </Grid>
+
+                    <Grid Grid.Row="1" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="{Binding CurrentStageTitle}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding CurrentStageDescription}"
+                                       Margin="0,4,0,0"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding ProgressText}"
+                                   Margin="12,0,0,0"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   VerticalAlignment="Top"/>
+                    </Grid>
+
+                    <StackPanel Grid.Row="2" Margin="0,14,0,0">
+                        <ProgressBar Value="{Binding Progress}"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Height="8"
+                                     Background="{DynamicResource SurfaceLightBrush}"
+                                     Foreground="{DynamicResource AccentBrush}"/>
+                        <TextBlock Text="{Binding CurrentStage, StringFormat=当前阶段：{0}}"
+                                   Margin="0,6,0,0"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border x:Name="StageProgressPanel"
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="10,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="阶段进展"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="0,10,0,0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding StageItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8"
+                                            Padding="8,7"
+                                            Background="{DynamicResource SurfaceLightBrush}"
+                                            CornerRadius="10"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Description}"
+                                                           Margin="0,4,0,0"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+
+                                            <Border Grid.Column="1"
+                                                    Background="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"
+                                                    CornerRadius="10"
+                                                    Padding="8,3"
+                                                    Margin="12,0,0,0"
+                                                    VerticalAlignment="Top">
+                                                <TextBlock Text="{Binding StatusText}"
+                                                           Foreground="White"
+                                                           FontSize="10"
+                                                           FontWeight="SemiBold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
+
+        <Border Grid.Row="2"
+                Margin="0,10,0,0"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="8,7">
+            <WrapPanel>
+                <Button Content="暂停"
+                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Command="{Binding PauseCommand}"
+                        IsEnabled="{Binding IsRunning}"
+                        Margin="0,0,6,6"
+                        Padding="10,5"/>
+                <Button Content="继续"
+                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Command="{Binding ResumeCommand}"
+                        IsEnabled="{Binding IsPaused}"
+                        Margin="0,0,6,6"
+                        Padding="10,5"/>
+                <Button Content="清空日志"
+                        Style="{StaticResource MaterialDesignFlatButton}"
+                        Command="{Binding ClearLogCommand}"
+                        Margin="0,0,6,6"
+                        Padding="10,5"/>
+                <Button Content="保存日志"
+                        Style="{StaticResource MaterialDesignFlatButton}"
+                        Command="{Binding SaveLogCommand}"
+                        Margin="0,0,6,6"
+                        Padding="10,5"/>
+                <CheckBox Content="自动滚动"
+                          IsChecked="{Binding AutoScroll}"
+                          VerticalAlignment="Center"
+                          Margin="0,0,12,6"/>
+                <Button Content="关闭"
+                        Style="{StaticResource MaterialDesignRaisedButton}"
+                        Command="{Binding CloseDialogCommand}"
+                        Margin="0,0,0,8"/>
+            </WrapPanel>
+        </Border>
+
+        <Border Grid.Row="3"
+                Margin="0,10,0,0"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="8,7">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="执行日志"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                <ScrollViewer x:Name="LogScrollViewer"
+                              Grid.Row="1"
+                              Margin="0,10,0,0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding LogEntries}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayText}"
+                                           FontFamily="Consolas"
+                                           FontSize="11"
+                                           Margin="0,0,0,3"
+                                           TextWrapping="Wrap">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding Level, Converter={StaticResource LogLevelToColorConverter}}"/>
+                                    </TextBlock.Foreground>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

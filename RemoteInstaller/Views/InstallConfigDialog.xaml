@@ -3,302 +3,436 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="{Binding DialogTitle}"
-        Width="1000" Height="750"
-        MinWidth="900" MinHeight="650"
+        Width="920"
+        Height="660"
+        MinWidth="640"
+        MinHeight="500"
         WindowStartupLocation="CenterOwner"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
         Background="{DynamicResource MaterialDesignPaper}">
-    
-    <Grid Margin="20">
+
+    <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        
-        <!-- 标题信息 -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,15">
-            <TextBlock Text="{Binding ApplicationName}" 
-                       FontSize="20" 
-                       FontWeight="Bold"
-                       Foreground="{DynamicResource PrimaryForegroundColor}"/>
-            <TextBlock Text="{Binding ApplicationVersion}" 
-                       FontSize="12" 
-                       Foreground="{DynamicResource SecondaryTextBrush}"
-                       Margin="0,2,0,0"/>
-            <TextBlock Text="{Binding TargetHost}" 
-                       FontSize="11" 
-                       Foreground="{DynamicResource SecondaryTextBrush}"
-                       Margin="0,5,0,0"/>
-        </StackPanel>
 
-        <!-- 版本选择区域 -->
-        <Border Grid.Row="1" Margin="0,0,0,15" Padding="15"
-                Background="{DynamicResource MaterialDesign50}"
-                CornerRadius="4"
-                BorderBrush="{DynamicResource PrimaryHueLightBrush}"
-                BorderThickness="1">
-            <StackPanel>
-                <TextBlock Text="版本选择" 
-                           FontWeight="SemiBold"
-                           VerticalAlignment="center"
-                           Margin="0,0,0,10"/>
-                
-                <!-- 在线安装时显示版本选择 ComboBox -->
-                <StackPanel Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}">
-                    <ComboBox ItemsSource="{Binding AvailableVersions}"
-                              SelectedItem="{Binding SelectedVersion}"
-                              Style="{StaticResource DarkComboBoxStyle}"
-                              materialDesign:HintAssist.Hint="请选择安装版本"
-                              materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
-                              materialDesign:HintAssist.HintOpacity="0.9"
-                              IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"/>
-                </StackPanel>
-
-                <!-- 本地包时显示版本信息（只读） -->
-                <StackPanel Visibility="{Binding IsLocalPackage, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" 
-                                   Text="安装包版本：" 
-                                   VerticalAlignment="center"
-                                   Margin="0,0,10,0"/>
-                        <TextBlock Grid.Column="1" 
-                                   Text="{Binding LocalPackageVersion}" 
-                                   VerticalAlignment="center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    </Grid>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- 本地安装包设置 -->
-        <Border Grid.Row="2" Margin="0,0,0,15" Padding="15"
-                Background="{DynamicResource MaterialDesign50}"
-                CornerRadius="4"
-                BorderBrush="{DynamicResource PrimaryHueLightBrush}"
-                BorderThickness="1">
-            <StackPanel>
-                <!-- 安装源选择 -->
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="安装资源来源："
-                               FontWeight="SemiBold"
-                               VerticalAlignment="center"
-                               Margin="0,0,10,0"/>
-                    <RadioButton Content="本地资源"
-                                 GroupName="PackageSource"
-                                 IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=local}"
-                                 Margin="0,0,10,0"/>
-                    <RadioButton Content="在线安装"
-                                 GroupName="PackageSource"
-                                 IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=online}"/>
-                </StackPanel>
-
-                <!-- 本地包路径选择 -->
-                <Grid Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBox Grid.Column="0"
-                             Text="{Binding LocalPackagePath, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource DarkTextBoxStyle}"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             materialDesign:HintAssist.Hint="从 Scripts 对应目录自动检测本地资源"
-                             materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
-                             materialDesign:HintAssist.HintOpacity="0.9"
-                             IsReadOnly="True"
-                             IsReadOnlyCaretVisible="False"/>
-
-                    <Button Grid.Column="1"
-                            Content="刷新检测"
-                            Style="{StaticResource MaterialDesignOutlinedButton}"
-                            Command="{Binding BrowsePackagePathCommand}"
-                            Margin="5,0,0,0"/>
-                </Grid>
-
-                <!-- 提示信息 -->
-                <TextBlock Text="推荐优先使用本地资源安装，请将安装包放入 Scripts 对应应用目录后再刷新检测"
-                           FontSize="12"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,8,0,0"
-                           TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding LocalResourceHint}"
-                           FontSize="12"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,4,0,0"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-        </Border>
-
-        <!-- 安装摘要 -->
-        <Border Grid.Row="3" Margin="0,0,0,15" Padding="15"
-                Background="{DynamicResource MaterialDesign50}"
-                CornerRadius="4"
-                BorderBrush="{DynamicResource PrimaryHueLightBrush}"
-                BorderThickness="1">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+        <ScrollViewer x:Name="ContentScrollViewer"
+                      Grid.Row="0"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid Width="{Binding ElementName=ContentScrollViewer, Path=ViewportWidth}"
+                  HorizontalAlignment="Stretch">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="目标主机：" FontWeight="SemiBold" Margin="0,0,8,0"/>
-                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TargetHost}" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,16,0"/>
+                <!-- 标题信息 -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding ApplicationName}"
+                               FontSize="17"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource PrimaryForegroundColor}"/>
+                    <TextBlock Text="{Binding ApplicationVersion}"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,2,0,0"/>
+                    <TextBlock Text="{Binding TargetHost}"
+                               FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,4,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
 
-                <TextBlock Grid.Row="0" Grid.Column="2" Text="安装来源：" FontWeight="SemiBold" Margin="0,0,8,0"/>
-                <TextBlock Grid.Row="0" Grid.Column="3" Text="本地资源"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
-                <TextBlock Grid.Row="0" Grid.Column="3" Text="在线安装"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}"/>
+                <!-- 版本选择区域 -->
+                <Border Grid.Row="1"
+                        Margin="0,0,0,8"
+                        Padding="10"
+                        Background="{DynamicResource MaterialDesign50}"
+                        CornerRadius="4"
+                        BorderBrush="{DynamicResource PrimaryHueLightBrush}"
+                        BorderThickness="1"
+                        Visibility="{Binding ShowVersionSelectionSection, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="版本选择"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,8"/>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="安装版本：" FontWeight="SemiBold" Margin="0,10,8,0"/>
-                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedVersion}" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,10,16,0"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}"/>
-                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LocalPackageVersion}" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,10,16,0"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
+                        <StackPanel Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}">
+                            <ComboBox ItemsSource="{Binding AvailableVersions}"
+                                      SelectedItem="{Binding SelectedVersion}"
+                                      Style="{StaticResource DarkComboBoxStyle}"
+                                      materialDesign:HintAssist.Hint="请选择安装版本"
+                                      materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
+                                      materialDesign:HintAssist.HintOpacity="0.9"
+                                      IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"/>
+                        </StackPanel>
 
-                <TextBlock Grid.Row="1" Grid.Column="2" Text="本地包路径：" FontWeight="SemiBold" Margin="0,10,8,0"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
-                <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding LocalPackagePath}" Margin="0,10,0,0"
-                           Foreground="{DynamicResource SecondaryTextBrush}"
-                           TextWrapping="Wrap"
-                           Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
-            </Grid>
-        </Border>
+                        <StackPanel Visibility="{Binding IsLocalPackage, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="安装包版本"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding LocalPackageVersion}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
-        <!-- 安装参数区域 -->
-        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <TextBlock Text="安装参数" 
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,10"/>
-                
-                <!-- 参数列表 -->
-                <ItemsControl ItemsSource="{Binding ParameterViewModels}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Margin="0,0,0,15" Padding="10"
-                                    Background="{DynamicResource MaterialDesign50}"
-                                    CornerRadius="4">
-                                <Grid>
+                <!-- 本地安装包设置 -->
+                <Border Grid.Row="2"
+                        Margin="0,0,0,8"
+                        Padding="10"
+                        Background="{DynamicResource MaterialDesign50}"
+                        CornerRadius="4"
+                        BorderBrush="{DynamicResource PrimaryHueLightBrush}"
+                        BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="安装资源来源"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,6"
+                                   Visibility="{Binding ShowPackageSourceSection, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <WrapPanel Margin="0,0,0,8"
+                                   Visibility="{Binding ShowPackageSourceSection, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <RadioButton Content="本地资源"
+                                         GroupName="PackageSource"
+                                         IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=local}"
+                                         Margin="0,0,12,8"/>
+                            <RadioButton Content="在线安装"
+                                         GroupName="PackageSource"
+                                         IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=online}"
+                                         Visibility="{Binding ShowOnlineInstallOption, Converter={StaticResource BoolToVisibilityConverter}}"
+                                         Margin="0,0,0,8"/>
+                        </WrapPanel>
+
+                        <!-- 本地包路径选择 -->
+                        <Grid Visibility="{Binding ShowGenericLocalPackageControls, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBox Grid.Row="0"
+                                     Text="{Binding LocalPackagePath, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource DarkTextBoxStyle}"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     materialDesign:HintAssist.Hint="{Binding LocalPackageInputHint}"
+                                     materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
+                                     materialDesign:HintAssist.HintOpacity="0.9"
+                                     IsReadOnly="True"
+                                     IsReadOnlyCaretVisible="False"/>
+                            <WrapPanel Grid.Row="1" Margin="0,5,0,0">
+                                <Button Content="选择文件夹"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        Command="{Binding BrowseMySqlLocalPackageFolderCommand}"
+                                        Margin="0,0,6,6"
+                                        Padding="10,5"
+                                        Visibility="{Binding IsMySqlApplication, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <Button Content="刷新检测"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        Command="{Binding BrowsePackagePathCommand}"
+                                        Margin="0,0,0,6"
+                                        Padding="10,5"
+                                        Visibility="{Binding ShowRefreshDetectionButton, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </WrapPanel>
+                        </Grid>
+
+                        <Border Margin="0,8,0,0"
+                                Padding="8"
+                                Background="{DynamicResource MaterialDesignPaper}"
+                                BorderBrush="{DynamicResource PrimaryHueMidBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="{Binding ShowJdkSection, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="JDK 本地目录上传"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryForegroundColor}"/>
+                                <TextBlock Margin="0,5,0,8"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="JDK 支持两种方式：在线安装，或使用本地目录/离线资源安装。点击“刷新检测”可继续使用 Scripts 目录下的离线资源。"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsJdkUploadMode}" Value="True">
+                                                    <Setter Property="Text" Value="JDK 上传入口会直接使用本地 JDK 文件夹安装。请选择完整的 JDK 目录，系统会自动识别 JDK 8 / 11 / 17 版本。"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <StackPanel Margin="0,0,0,8">
+                                    <TextBlock Text="当前安装方式"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Text="本地资源"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
+                                    <TextBlock Text="在线安装"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}"/>
+                                </StackPanel>
+
+                                <Grid Visibility="{Binding ShowJdkLocalControls, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    
-                                    <!-- 参数标题 -->
-                                    <StackPanel Grid.Row="0" Orientation="Horizontal">
-                                        <TextBlock Text="{Binding Name}" 
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="center"/>
-                                        <TextBlock Text="*" 
-                                                   Foreground="Red"
-                                                   Margin="2,0,0,0"
-                                                   Visibility="{Binding Required, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        <TextBlock Text="{Binding Hint}"
-                                                   FontSize="12"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   Margin="5,0,0,0"/>
-                                    </StackPanel>
-                                    
-                                    <!-- 参数描述 -->
-                                    <TextBlock Grid.Row="1"
-                                               Text="{Binding Description}"
-                                               FontSize="12"
-                                               Foreground="{DynamicResource PrimaryTextBrush}"
-                                               Margin="0,3,0,5"
-                                               Visibility="{Binding Description, Converter={StaticResource StringToVisibilityConverter}}"/>
-                                    
-                                    <!-- 输入控件 -->
-                                    <Grid Grid.Row="2">
-                                        <!-- 文本输入 -->
-                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                 Style="{StaticResource DarkTextBoxStyle}"
-                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                 Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Text}"/>
-
-                                        <!-- 密码输入 -->
-                                        <PasswordBox materialDesign:HintAssist.Hint="请输入密码"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"
-                                                     materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
-                                                     materialDesign:HintAssist.HintOpacity="0.9"
-                                                     materialDesign:PasswordBoxAssist.Password="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                     Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Password}"/>
-
-                                        <!-- 数字输入 -->
-                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                 Style="{StaticResource DarkTextBoxStyle}"
-                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                 Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Number}"/>
-
-                                        <!-- 端口输入 -->
-                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                 Style="{StaticResource DarkTextBoxStyle}"
-                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                 Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Port}"/>
-
-                                        <!-- 路径输入 -->
-                                        <Grid Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Path}">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Grid.Column="0"
-                                                     Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                     Style="{StaticResource DarkTextBoxStyle}"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                            <Button Grid.Column="1"
-                                                    Content="选择"
-                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                    Command="{Binding BrowsePathCommand}"
-                                                    Margin="5,0,0,0"/>
-                                        </Grid>
-
-                                        <!-- 布尔值复选框 -->
-                                        <StackPanel Orientation="Horizontal"
-                                                    VerticalAlignment="Center"
-                                                    Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Boolean}">
-                                            <CheckBox IsChecked="{Binding BoolValue, UpdateSourceTrigger=PropertyChanged}"
-                                                      Content="启用"/>
-                                        </StackPanel>
-                                    </Grid>
+                                    <TextBox Grid.Row="0"
+                                             Text="{Binding LocalPackagePath, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource DarkTextBoxStyle}"
+                                             Foreground="{DynamicResource PrimaryTextBrush}"
+                                             materialDesign:HintAssist.Hint="{Binding LocalPackageInputHint}"
+                                             IsReadOnly="True"
+                                             IsReadOnlyCaretVisible="False"/>
+                                    <WrapPanel Grid.Row="1" Margin="0,5,0,0">
+                                        <Button Content="选择 JDK 文件夹"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                Command="{Binding BrowseJdkLocalPackageFolderCommand}"
+                                                Margin="0,0,6,6"
+                                                Padding="10,5"
+                                                Visibility="{Binding ShowJdkFolderPicker, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        <Button Content="刷新检测"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                Command="{Binding BrowsePackagePathCommand}"
+                                                Margin="0,0,0,6"
+                                                Padding="10,5"
+                                                Visibility="{Binding ShowJdkRefreshButton, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </WrapPanel>
                                 </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
+
+                                <StackPanel Margin="0,8,0,0"
+                                            Visibility="{Binding ShowJdkLocalControls, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="远端上传目录"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding RemoteUploadPath, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource DarkTextBoxStyle}"
+                                             Foreground="{DynamicResource PrimaryTextBrush}"
+                                             materialDesign:HintAssist.Hint="例如 /tmp/jdk-upload 或 C:\Windows\Temp\jdk-upload，留空则使用默认临时目录"/>
+                                </StackPanel>
+
+                                <TextBlock Text="JDK 的“安装目录”是最终生效目录；“远端上传目录”仅用于上传本地目录到服务器时的落点，留空则回退默认远端工作目录。"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding ShowJdkLocalControls, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="推荐优先使用本地资源安装，请将安装包放入 Scripts 对应应用目录后再刷新检测。"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,5,0,0"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding ShowRefreshDetectionHint, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding LocalPackageIntroText}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,5,0,0"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding ShowLocalPackageIntroText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding LocalOnlyInstallHintText}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,3,0,0"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding SupportsOnlineInstall, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Inverse}"/>
+                        <TextBlock Text="{Binding LocalResourceHint}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,3,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 安装摘要 -->
+                <Border Grid.Row="3"
+                        Margin="0,0,0,8"
+                        Padding="10"
+                        Background="{DynamicResource MaterialDesign50}"
+                        CornerRadius="4"
+                        BorderBrush="{DynamicResource PrimaryHueLightBrush}"
+                        BorderThickness="1">
+                    <StackPanel>
+                        <StackPanel Margin="0,0,0,8">
+                            <TextBlock Text="目标主机"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding TargetHost}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,8">
+                            <TextBlock Text="安装来源"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="本地资源"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
+                            <TextBlock Text="在线安装"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}"/>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,8">
+                            <TextBlock Text="安装版本"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding SelectedVersion}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}"/>
+                            <TextBlock Text="{Binding LocalPackageVersion}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}"/>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=local}">
+                            <TextBlock Text="本地包路径"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding LocalPackagePath}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 安装参数区域 -->
+                <StackPanel Grid.Row="4">
+                    <TextBlock Text="安装参数"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                    <ItemsControl ItemsSource="{Binding ParameterViewModels}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,6"
+                                        Padding="7"
+                                        Background="{DynamicResource MaterialDesign50}"
+                                        CornerRadius="4">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <WrapPanel Grid.Row="0">
+                                            <TextBlock Text="{Binding Name}"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="*"
+                                                       Foreground="Red"
+                                                       Margin="2,0,0,0"
+                                                       Visibility="{Binding Required, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            <TextBlock Text="{Binding Hint}"
+                                                       FontSize="11"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       Margin="5,0,0,0"
+                                                       TextWrapping="Wrap"/>
+                                        </WrapPanel>
+
+                                        <TextBlock Grid.Row="1"
+                                                   Text="{Binding Description}"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                   Margin="0,2,0,3"
+                                                   TextWrapping="Wrap"
+                                                   Visibility="{Binding Description, Converter={StaticResource StringToVisibilityConverter}}"/>
+
+                                        <Grid Grid.Row="2">
+                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource DarkTextBoxStyle}"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Text}"/>
+
+                                            <PasswordBox materialDesign:HintAssist.Hint="请输入密码"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         materialDesign:HintAssist.Foreground="{DynamicResource SecondaryTextBrush}"
+                                                         materialDesign:HintAssist.HintOpacity="0.9"
+                                                         materialDesign:PasswordBoxAssist.Password="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                         Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Password}"/>
+
+                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource DarkTextBoxStyle}"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Number}"/>
+
+                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource DarkTextBoxStyle}"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Port}"/>
+
+                                            <Grid Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Path}">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBox Grid.Row="0"
+                                                         Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                         Style="{StaticResource DarkTextBoxStyle}"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                <WrapPanel Grid.Row="1" Margin="0,5,0,0">
+                                                    <Button Content="选择"
+                                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                            Command="{Binding BrowsePathCommand}"
+                                                            Padding="10,5"/>
+                                                </WrapPanel>
+                                            </Grid>
+
+                                            <StackPanel Orientation="Horizontal"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{Binding Type, Converter={StaticResource EnumToVisibilityConverter}, ConverterParameter=Boolean}">
+                                                <CheckBox IsChecked="{Binding BoolValue, UpdateSourceTrigger=PropertyChanged}"
+                                                          Content="启用"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Grid>
         </ScrollViewer>
-        
+
         <!-- 按钮区域 -->
-        <UniformGrid Grid.Row="5" Rows="1" Columns="2" Margin="0,15,0,0">
-            <Button Content="取消" 
-                    Style="{StaticResource MaterialDesignFlatButton}"
-                    Command="{Binding CancelCommand}"
-                    HorizontalAlignment="Stretch"/>
-            <Button Content="确认" 
-                    Style="{StaticResource MaterialDesignRaisedButton}"
-                    Command="{Binding ConfirmCommand}"
-                    IsDefault="True"
-                    HorizontalAlignment="Stretch"/>
-        </UniformGrid>
+        <Border Grid.Row="1"
+                Margin="0,8,0,0"
+                Padding="0,8,0,0"
+                Background="{DynamicResource MaterialDesignPaper}">
+            <StackPanel HorizontalAlignment="Right">
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Foreground="{DynamicResource ErrorBrush}"
+                           Margin="0,0,0,6"
+                           TextAlignment="Right"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <WrapPanel HorizontalAlignment="Right">
+                    <Button Content="取消"
+                            Style="{StaticResource MaterialDesignFlatButton}"
+                            Command="{Binding CancelCommand}"
+                            Margin="0,0,8,6"
+                            Padding="12,6"/>
+                    <Button Content="确认"
+                            Style="{StaticResource MaterialDesignRaisedButton}"
+                            Command="{Binding ConfirmCommand}"
+                            IsDefault="True"
+                            Margin="0,0,0,6"
+                            Padding="12,6"/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>

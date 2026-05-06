@@ -30,6 +30,9 @@ namespace RemoteInstaller.ViewModels
         private readonly ILogger _logger;
         private readonly AppConfigurationService? _appConfigurationService;
         private readonly ConfigurationService _configurationService;
+        private readonly HostStatusRefreshCoordinator _hostStatusRefreshCoordinator;
+        private int _postLoadInitialized;
+        private string _refreshStatusText = "正在刷新应用状态...";
 
         // 批量安装并发控制
         private SemaphoreSlim? _batchInstallSemaphore;
@@ -84,6 +87,9 @@ namespace RemoteInstaller.ViewModels
         private TaskViewModel? _selectedTask;
 
         [ObservableProperty]
+        private string _selectedTaskFilter = "全部";
+
+        [ObservableProperty]
         private ObservableCollection<LogViewModel> _logs = new();
 
         [ObservableProperty]
@@ -111,7 +117,7 @@ namespace RemoteInstaller.ViewModels
         private ObservableCollection<string> _groupFilters = new() { "全部", "生产", "测试", "开发" };
 
         [ObservableProperty]
-        private ObservableCollection<string> _appCategoryFilters = new() { "全部", "数据库", "中间件", "Web 服务", "自定义应用", "其他" };
+        private ObservableCollection<string> _appCategoryFilters = new() { "全部", "基础环境", "数据库", "中间件", "Web 服务", "其他" };
 
         [ObservableProperty]
         private string _selectedAppCategory = "全部";
@@ -124,6 +130,9 @@ namespace RemoteInstaller.ViewModels
 
         [ObservableProperty]
         private int _taskCount;
+
+        [ObservableProperty]
+        private bool _isTaskPanelCollapsed;
 
         [ObservableProperty]
         private string _repositoryUrl = "未配置";
@@ -225,14 +234,62 @@ namespace RemoteInstaller.ViewModels
         /// <summary>
         /// 服务器信息文本显示
         /// </summary>
-        public string ServerInfoText => SelectedHost != null 
+        public string ServerInfoText => SelectedHost != null
+            ? $"{SelectedHost.Name} · {SelectedHost.IpAddress}"
+            : "请选择一台服务器以继续操作";
+
+        /// <summary>
+        /// 服务器完整信息提示
+        /// </summary>
+        public string ServerInfoTooltipText => SelectedHost != null
             ? $"🖥️ {SelectedHost.Name} | {SelectedHost.IpAddress}:{SelectedHost.Port} | {SelectedHost.OsIcon} {SelectedHost.OsType}"
             : "请选择一台服务器以继续操作";
+
+        public string RefreshStatusText => _refreshStatusText;
 
         /// <summary>
         /// 过滤后的服务器列表
         /// </summary>
         public System.Collections.ObjectModel.ObservableCollection<HostViewModel> FilteredHosts { get; } = new();
+
+        /// <summary>
+        /// 任务筛选项
+        /// </summary>
+        public ObservableCollection<string> TaskFilters { get; } = new() { "全部", "进行中", "失败", "已完成", "已取消" };
+
+        /// <summary>
+        /// 过滤后的任务列表
+        /// </summary>
+        public ObservableCollection<TaskViewModel> FilteredTasks { get; } = new();
+
+        /// <summary>
+        /// 当前任务空状态提示文案
+        /// </summary>
+        public string TaskEmptyStateText => Tasks.Count == 0
+            ? "当前还没有任务记录"
+            : SelectedTaskFilter == "全部"
+                ? "当前没有可显示的任务"
+                : $"当前筛选“{SelectedTaskFilter}”下没有匹配任务";
+
+        /// <summary>
+        /// 是否有可显示任务
+        /// </summary>
+        public bool HasFilteredTasks => FilteredTasks.Count > 0;
+
+        /// <summary>
+        /// 是否显示任务空状态
+        /// </summary>
+        public bool ShowTaskEmptyState => !HasFilteredTasks;
+
+        /// <summary>
+        /// 任务面板是否展开
+        /// </summary>
+        public bool IsTaskPanelExpanded => !IsTaskPanelCollapsed;
+
+        /// <summary>
+        /// 任务面板切换提示
+        /// </summary>
+        public string TaskPanelToggleTooltip => IsTaskPanelCollapsed ? "展开任务列表" : "收起任务列表";
 
         #endregion
 
@@ -250,13 +307,18 @@ namespace RemoteInstaller.ViewModels
             {
                 ApplyAppFilter();
             }
+            else if (e.PropertyName == nameof(SelectedTaskFilter))
+            {
+                ApplyTaskFilter();
+            }
             else if (e.PropertyName == nameof(SelectedHost))
             {
                 IsServerSelected = SelectedHost != null;
+                OnPropertyChanged(nameof(ServerInfoText));
+                OnPropertyChanged(nameof(ServerInfoTooltipText));
                 if (SelectedHost != null)
                 {
-                    // 切换主机时自动刷新应用状态
-                    _ = CheckAllAppsStatusAsync(SelectedHost);
+                    _ = RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.HostSelection);
                 }
             }
             else if (e.PropertyName == nameof(SelectedHosts))
@@ -304,6 +366,12 @@ namespace RemoteInstaller.ViewModels
             NotifyBatchActionStateChanged();
         }
 
+        partial void OnIsTaskPanelCollapsedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsTaskPanelExpanded));
+            OnPropertyChanged(nameof(TaskPanelToggleTooltip));
+        }
+
         private void NotifyBatchActionStateChanged()
         {
             OnPropertyChanged(nameof(HasSelectedApplication));
@@ -318,9 +386,9 @@ namespace RemoteInstaller.ViewModels
         partial void OnSelectedAppTabIndexChanged(int value)
         {
             // Tab 0 = 应用市场 (全部), Tab 1 = 自定义应用, Tab 2 = 脚本管理
-            if (value == 1)
+            if (value == 0)
             {
-                SelectedAppCategory = "自定义应用";
+                SelectedAppCategory = "全部";
             }
             else if (value == 2)
             {
@@ -388,7 +456,7 @@ namespace RemoteInstaller.ViewModels
             if (targetHost != null)
             {
                 AddLog($"测试连接 {targetHost.Name}...", LogLevel.Info);
-                await CheckAllAppsStatusAsync(targetHost);
+                await RequestHostStatusRefreshAsync(targetHost, HostStatusRefreshReason.ManualRefresh, forceRefresh: true);
             }
             else
             {
@@ -625,7 +693,8 @@ namespace RemoteInstaller.ViewModels
                 return;
             }
 
-            _ = CheckAllAppsStatusAsync(SelectedHost);
+            InvalidateHostStatusCache(SelectedHost);
+            _ = RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.CustomAppChanged, forceRefresh: true);
         }
 
         /// <summary>
@@ -783,7 +852,12 @@ namespace RemoteInstaller.ViewModels
             try
             {
                 var token = _batchCheckCts.Token;
-                var tasks = SelectedHosts.Select(host => CheckAllAppsStatusAsync(host, token)).ToList();
+                var tasks = SelectedHosts.Select(host =>
+                    RequestHostStatusRefreshAsync(
+                        host,
+                        HostStatusRefreshReason.BatchRefresh,
+                        forceRefresh: true,
+                        cancellationToken: token)).ToList();
                 await Task.WhenAll(tasks);
                 AddLog($"批量检测完成", LogLevel.Success);
             }
@@ -832,7 +906,9 @@ namespace RemoteInstaller.ViewModels
                 return;
             }
 
-            var selectedApps = Applications.Where(app => app.IsSelected).ToList();
+            var selectedApps = Applications
+                .Where(app => app.IsSelected && !IsUnifiedJdkApplicationId(app.Id))
+                .ToList();
             if (selectedApps.Count == 0)
             {
                 MessageBox.Show("请先选择一个或多个应用进行安装", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -898,7 +974,8 @@ namespace RemoteInstaller.ViewModels
 
                 if (SelectedHost != null && SelectedHosts.Contains(SelectedHost))
                 {
-                    await CheckAllAppsStatusAsync(SelectedHost);
+                    InvalidateHostStatusCache(SelectedHost);
+                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostInstall, forceRefresh: true);
                 }
             }
             catch (OperationCanceledException)
@@ -1017,7 +1094,8 @@ namespace RemoteInstaller.ViewModels
 
                 if (SelectedHost != null && SelectedHosts.Contains(SelectedHost))
                 {
-                    await CheckAllAppsStatusAsync(SelectedHost);
+                    InvalidateHostStatusCache(SelectedHost);
+                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostUninstall, forceRefresh: true);
                 }
             }
             catch (OperationCanceledException)
@@ -1073,7 +1151,7 @@ namespace RemoteInstaller.ViewModels
         {
             if (SelectedHost != null)
             {
-                await CheckAllAppsStatusAsync(SelectedHost);
+                await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.ManualRefresh, forceRefresh: true);
             }
             else
             {
@@ -1190,7 +1268,9 @@ namespace RemoteInstaller.ViewModels
                     try
                     {
                         var logQueryService = new LogQueryService(_databaseService);
-                        var dbLogs = logQueryService.GetTaskLogs(task.AppName + "_" + task.HostName);
+                        var dbLogs = string.IsNullOrWhiteSpace(task.TaskId)
+                            ? new List<LogEntry>()
+                            : logQueryService.GetTaskLogs(task.TaskId);
                         if (dbLogs != null && dbLogs.Count > 0)
                         {
                             foreach (var log in dbLogs.OrderBy(l => l.Timestamp))
@@ -1231,6 +1311,132 @@ namespace RemoteInstaller.ViewModels
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
+        }
+
+        [RelayCommand]
+        private void ToggleTaskPanel()
+        {
+            IsTaskPanelCollapsed = !IsTaskPanelCollapsed;
+        }
+
+        [RelayCommand]
+        public void ShowTaskProgressDialog(TaskViewModel? task)
+        {
+            if (task == null)
+            {
+                MessageBox.Show("请先选择一个任务", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                EnsureTaskLogsLoaded(task);
+
+                var dialog = new Views.Dialogs.InstallProgressDialog();
+                var viewModel = new InstallProgressViewModel(this, dialog);
+                viewModel.BindTask(task);
+                dialog.DataContext = viewModel;
+
+                if (Application.Current.MainWindow != null && !ReferenceEquals(Application.Current.MainWindow, dialog))
+                {
+                    dialog.Owner = Application.Current.MainWindow;
+                }
+
+                dialog.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                AddLog($"打开任务详情失败：{ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private void EnsureTaskLogsLoaded(TaskViewModel task)
+        {
+            if (task.LogEntries.Count > 0 || string.IsNullOrWhiteSpace(task.TaskId))
+            {
+                return;
+            }
+
+            var logQueryService = new LogQueryService(_databaseService);
+            var dbLogs = logQueryService.GetTaskLogs(task.TaskId);
+            foreach (var log in dbLogs.OrderBy(l => l.Timestamp))
+            {
+                task.AddLog(log);
+            }
+        }
+
+        private void UpdateTaskProgressState(TaskViewModel taskViewModel, InstallTask task)
+        {
+            taskViewModel.Progress = task.Progress;
+            taskViewModel.CurrentStage = task.StageDisplayText;
+            taskViewModel.StatusMessage = task.Status == Models.TaskStatus.Failed && !string.IsNullOrWhiteSpace(task.ErrorMessage)
+                ? task.ErrorMessage
+                : $"当前阶段：{task.StageDisplayText}";
+            taskViewModel.IsCompleted = task.Status == Models.TaskStatus.Completed;
+            taskViewModel.IsFailed = task.Status == Models.TaskStatus.Failed;
+            taskViewModel.IsCanceled = task.Status == Models.TaskStatus.Cancelled;
+            taskViewModel.MarkActivity();
+            ReorderTasks();
+        }
+
+        private IProgress<LogEntry> CreateTaskLogReporter(TaskViewModel taskViewModel)
+        {
+            return new Progress<LogEntry>(entry =>
+            {
+                taskViewModel.AddLog(entry);
+                taskViewModel.MarkActivity();
+                ReorderTasks();
+            });
+        }
+
+        private void AddTask(TaskViewModel taskViewModel, bool insertAtTop = false)
+        {
+            taskViewModel.MarkActivity();
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (insertAtTop)
+                {
+                    Tasks.Insert(0, taskViewModel);
+                }
+                else
+                {
+                    Tasks.Add(taskViewModel);
+                }
+
+                ReorderTasks();
+            });
+        }
+
+        private void ReorderTasks()
+        {
+            if (Tasks.Count <= 1)
+            {
+                ApplyTaskFilter();
+                return;
+            }
+
+            var orderedTasks = Tasks
+                .OrderByDescending(t => t.DisplayPriority)
+                .ThenByDescending(t => t.LastActivityAt)
+                .ToList();
+
+            var selectedTask = SelectedTask;
+            for (var i = 0; i < orderedTasks.Count; i++)
+            {
+                var currentIndex = Tasks.IndexOf(orderedTasks[i]);
+                if (currentIndex >= 0 && currentIndex != i)
+                {
+                    Tasks.Move(currentIndex, i);
+                }
+            }
+
+            if (selectedTask != null)
+            {
+                SelectedTask = selectedTask;
+            }
+
+            ApplyTaskFilter();
         }
 
         #endregion
@@ -1289,14 +1495,26 @@ namespace RemoteInstaller.ViewModels
 
             var filtered = Applications.AsEnumerable();
 
+            if (!string.IsNullOrWhiteSpace(SelectedAppCategory) && SelectedAppCategory != "全部")
+            {
+                filtered = filtered.Where(a => string.Equals(a.Category, SelectedAppCategory, StringComparison.OrdinalIgnoreCase));
+            }
+
             if (!string.IsNullOrWhiteSpace(AppSearchText))
             {
                 var searchText = AppSearchText.ToLower();
                 filtered = filtered.Where(a =>
                     a.Name.ToLower().Contains(searchText) ||
                     a.Description.ToLower().Contains(searchText) ||
-                    a.Version.ToLower().Contains(searchText));
+                    a.Version.ToLower().Contains(searchText) ||
+                    a.Versions.Any(version => version.ToLower().Contains(searchText)));
             }
+
+            filtered = filtered
+                .Where(a => !string.Equals(a.Category, "自定义应用", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(a => string.Equals(a.Category, "基础环境", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(a => a.Id.StartsWith("jdk", StringComparison.OrdinalIgnoreCase))
+                .ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase);
 
             foreach (var app in filtered)
             {
@@ -1318,6 +1536,39 @@ namespace RemoteInstaller.ViewModels
             }
         }
 
+        /// <summary>
+        /// 应用任务过滤
+        /// </summary>
+        private void ApplyTaskFilter()
+        {
+            FilteredTasks.Clear();
+
+            var filtered = Tasks.AsEnumerable();
+            filtered = SelectedTaskFilter switch
+            {
+                "进行中" => filtered.Where(t => t.Progress > 0 && !t.IsCompleted && !t.IsFailed && !t.IsCanceled),
+                "失败" => filtered.Where(t => t.IsFailed),
+                "已完成" => filtered.Where(t => t.IsCompleted),
+                "已取消" => filtered.Where(t => t.IsCanceled),
+                _ => filtered
+            };
+
+            foreach (var task in filtered)
+            {
+                FilteredTasks.Add(task);
+            }
+
+            if (SelectedTask != null && !FilteredTasks.Contains(SelectedTask))
+            {
+                SelectedTask = null;
+            }
+
+            OnPropertyChanged(nameof(FilteredTasks));
+            OnPropertyChanged(nameof(TaskEmptyStateText));
+            OnPropertyChanged(nameof(HasFilteredTasks));
+            OnPropertyChanged(nameof(ShowTaskEmptyState));
+        }
+
         #endregion
 
         #region 方法
@@ -1325,12 +1576,13 @@ namespace RemoteInstaller.ViewModels
         /// <summary>
         /// 构造函数
         /// </summary>
-        public MainViewModel(SshService sshService, DatabaseService databaseService, ILogger logger, ConfigurationService configurationService, AppConfigurationService? appConfigurationService = null)
+        public MainViewModel(SshService sshService, DatabaseService databaseService, ILogger logger, ConfigurationService configurationService, HostStatusRefreshCoordinator hostStatusRefreshCoordinator, AppConfigurationService? appConfigurationService = null)
         {
             _sshService = sshService;
             _databaseService = databaseService;
             _logger = logger;
             _configurationService = configurationService;
+            _hostStatusRefreshCoordinator = hostStatusRefreshCoordinator;
             _appConfigurationService = appConfigurationService;
 
             // 初始化过滤防抖 Timer
@@ -1349,7 +1601,14 @@ namespace RemoteInstaller.ViewModels
                 });
             };
 
-            Tasks.CollectionChanged += (s, e) => TaskCount = Tasks.Count;
+            Tasks.CollectionChanged += (s, e) =>
+            {
+                TaskCount = Tasks.Count;
+                ApplyTaskFilter();
+                OnPropertyChanged(nameof(TaskEmptyStateText));
+                OnPropertyChanged(nameof(HasFilteredTasks));
+                OnPropertyChanged(nameof(ShowTaskEmptyState));
+            };
             SelectedHosts.CollectionChanged += SelectedHosts_CollectionChanged;
 
             LoadSettings();
@@ -1357,8 +1616,19 @@ namespace RemoteInstaller.ViewModels
             InitializeSampleData();
             ApplyServerFilter();
             ApplyAppFilter();
+            ApplyTaskFilter();
+        }
 
+        public async Task InitializeAfterWindowLoadedAsync()
+        {
+            if (Interlocked.Exchange(ref _postLoadInitialized, 1) == 1)
+            {
+                return;
+            }
+
+            await Task.Yield();
             LoadCustomApps();
+            AddLog("已完成首屏后的后台初始化", LogLevel.Info);
         }
 
         public void UpdateSelectedHostsFromView(IEnumerable<HostViewModel> selectedHosts)
@@ -1602,7 +1872,9 @@ namespace RemoteInstaller.ViewModels
                         IpAddress = host.IpAddress,
                         Port = host.Port.ToString(),
                         Username = host.Username,
-                        OsType = host.OsType == OperatingSystemType.Ubuntu ? "Linux" : "Windows",
+                        OsType = GetHostOsTypeDisplay(host.OsType),
+                        OsVersion = host.OsVersion,
+                        GroupName = host.GroupName ?? string.Empty,
                         IsOnline = host.Status == HostStatus.Online
                     });
                 }
@@ -1626,15 +1898,30 @@ namespace RemoteInstaller.ViewModels
         {
             try
             {
-                var host = new RemoteHost
+                var existingHost = !string.IsNullOrWhiteSpace(hostViewModel.Id)
+                    ? _databaseService.GetHostById(hostViewModel.Id)
+                    : null;
+
+                var now = DateTime.Now;
+                var host = existingHost ?? new RemoteHost
                 {
-                    Name = hostViewModel.Name,
-                    IpAddress = hostViewModel.IpAddress,
-                    Port = int.TryParse(hostViewModel.Port, out var port) ? port : 22,
-                    Username = hostViewModel.Username,
-                    OsType = hostViewModel.OsType.Contains("Linux") ? OperatingSystemType.Ubuntu : OperatingSystemType.Windows,
-                    Status = hostViewModel.IsOnline ? HostStatus.Online : HostStatus.Offline
+                    Id = string.IsNullOrWhiteSpace(hostViewModel.Id) ? Guid.NewGuid().ToString("N") : hostViewModel.Id,
+                    CreatedAt = now
                 };
+
+                host.Name = hostViewModel.Name;
+                host.IpAddress = hostViewModel.IpAddress;
+                host.Port = int.TryParse(hostViewModel.Port, out var port) ? port : 22;
+                host.Username = hostViewModel.Username;
+                host.Status = hostViewModel.IsOnline ? HostStatus.Online : HostStatus.Offline;
+                host.UpdatedAt = now;
+
+                if (existingHost == null)
+                {
+                    host.OsType = ParseHostOsType(hostViewModel.OsType);
+                    host.OsVersion = hostViewModel.OsVersion;
+                    host.GroupName = string.IsNullOrWhiteSpace(hostViewModel.GroupName) ? null : hostViewModel.GroupName;
+                }
 
                 _databaseService.SaveHost(host);
                 LoadHosts();
@@ -1673,138 +1960,220 @@ namespace RemoteInstaller.ViewModels
         }
 
         /// <summary>
-        /// 检测所有应用状态 - 优化版
+        /// 检测所有应用状态 - 兼容包装
         /// </summary>
-        private async Task CheckAllAppsStatusAsync(HostViewModel hostViewModel, CancellationToken cancellationToken = default)
+        private Task CheckAllAppsStatusAsync(HostViewModel hostViewModel, CancellationToken cancellationToken = default)
         {
-            CancellationTokenSource? cts = null;
+            return RequestHostStatusRefreshAsync(
+                hostViewModel,
+                HostStatusRefreshReason.ManualRefresh,
+                forceRefresh: true,
+                cancellationToken: cancellationToken);
+        }
+
+        private async Task<HostStatusSnapshot> FetchHostStatusSnapshotAsync(HostViewModel hostViewModel, CancellationToken cancellationToken = default)
+        {
+            var host = GetHostFromViewModel(hostViewModel);
+            if (host == null)
+            {
+                throw new InvalidOperationException("无法获取主机信息");
+            }
+
+            var installerService = new InstallerService(_sshService, _logger);
+            await _sshService.ConnectAsync(host, cancellationToken);
+
+            var appResults = new Dictionary<string, BuiltInAppStatusSnapshot>(StringComparer.OrdinalIgnoreCase);
+            var customResults = new Dictionary<string, CustomAppStatusSnapshot>(StringComparer.OrdinalIgnoreCase);
+            var semaphore = new SemaphoreSlim(3);
+
             try
             {
-                var host = GetHostFromViewModel(hostViewModel);
-                if (host == null) return;
-
-                // 如果传入了外部 token，创建链接的 token source
-                cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                IsRefreshingAppStatus = true;
-                AddLog($"正在检测 {host.Name} 上的应用状态...", LogLevel.Info);
-
-                var installerService = new InstallerService(_sshService, _logger);
-
-                // 先尝试连接，更新在线状态
-                try
+                var appTasks = Applications.Select(async appCard =>
                 {
-                    await _sshService.ConnectAsync(host, cts.Token);
-                    hostViewModel.IsOnline = true;
-                }
-                catch (Exception ex)
-                {
-                    hostViewModel.IsOnline = false;
-                    AddLog($"{host.Name} 连接失败: {ex.Message}", LogLevel.Error);
-                    return;
-                }
-
-                // 获取要检测的应用列表
-                var appsToCheck = Applications.ToList();
-                var customAppsToCheck = CustomApps.ToList();
-                var results = new Dictionary<string, (bool IsInstalled, bool IsRunning, string Version)>();
-                var customResults = new Dictionary<string, (bool IsInstalled, bool IsRunning, string StatusText)>();
-                var token = cts.Token;
-
-                // 并行检测应用状态（限制并发数为3）
-                var semaphore = new SemaphoreSlim(3);
-                var tasks = appsToCheck.Select(async appCard =>
-                {
-                    await semaphore.WaitAsync(token);
+                    await semaphore.WaitAsync(cancellationToken);
                     try
                     {
-                        var appInfo = GetApplicationInfo(appCard.Id);
-                        if (appInfo == null) return;
-
-                        var status = await installerService.CheckStatusAsync(host, appInfo, token);
-                        lock (results)
+                        var status = await GetApplicationStatusAsync(host, appCard, installerService, cancellationToken);
+                        lock (appResults)
                         {
-                            results[appCard.Id] = (status.IsInstalled, status.IsRunning, status.InstalledVersion ?? "未知");
+                            appResults[appCard.Id] = new BuiltInAppStatusSnapshot
+                            {
+                                IsInstalled = status.IsInstalled,
+                                IsRunning = status.IsRunning,
+                                InstalledVersion = status.InstalledVersion ?? "未知"
+                            };
                         }
                     }
                     catch
                     {
-                        // 检测失败时记录为未安装
-                        lock (results)
+                        lock (appResults)
                         {
-                            results[appCard.Id] = (false, false, "未知");
+                            appResults[appCard.Id] = new BuiltInAppStatusSnapshot
+                            {
+                                IsInstalled = false,
+                                IsRunning = false,
+                                InstalledVersion = "未知"
+                            };
                         }
                     }
                     finally
                     {
                         semaphore.Release();
-                    }
-                }).ToList();
-
-                var customTasks = customAppsToCheck.Select(async customApp =>
-                {
-                    await semaphore.WaitAsync(token);
-                    try
-                    {
-                        var customStatus = await CheckSingleCustomAppStatusAsync(host, customApp, token);
-                        lock (customResults)
-                        {
-                            customResults[customApp.Id] = customStatus;
-                        }
-                    }
-                    catch
-                    {
-                        lock (customResults)
-                        {
-                            customResults[customApp.Id] = (false, false, "检测失败");
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }).ToList();
-
-                await Task.WhenAll(tasks.Concat(customTasks));
-
-                // 批量更新 UI（所有结果一次性更新，避免频繁 Dispatcher 调用）
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                {
-                    hostViewModel.IsOnline = true;
-                    foreach (var appCard in appsToCheck)
-                    {
-                        if (results.TryGetValue(appCard.Id, out var result))
-                        {
-                            appCard.IsInstalled = result.IsInstalled;
-                            appCard.IsRunning = result.IsRunning;
-                            appCard.InstalledVersion = result.Version;
-                        }
-                    }
-
-                    foreach (var customApp in customAppsToCheck)
-                    {
-                        if (customResults.TryGetValue(customApp.Id, out var customResult))
-                        {
-                            customApp.IsInstalled = customResult.IsInstalled;
-                            customApp.IsRunning = customResult.IsRunning;
-                            customApp.StatusText = customResult.StatusText;
-                        }
                     }
                 });
 
-                AddLog($"{host.Name} 应用状态检测完成", LogLevel.Success);
+                var customTasks = CustomApps.Select(async customApp =>
+                {
+                    await semaphore.WaitAsync(cancellationToken);
+                    try
+                    {
+                        var customStatus = await CheckSingleCustomAppStatusAsync(host, customApp, cancellationToken);
+                        lock (customResults)
+                        {
+                            customResults[customApp.Id] = new CustomAppStatusSnapshot
+                            {
+                                IsInstalled = customStatus.IsInstalled,
+                                IsRunning = customStatus.IsRunning,
+                                StatusText = customStatus.StatusText
+                            };
+                        }
+                    }
+                    catch
+                    {
+                        lock (customResults)
+                        {
+                            customResults[customApp.Id] = new CustomAppStatusSnapshot
+                            {
+                                IsInstalled = false,
+                                IsRunning = false,
+                                StatusText = "检测失败"
+                            };
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                await Task.WhenAll(appTasks.Concat(customTasks));
+            }
+            finally
+            {
+                semaphore.Dispose();
+            }
+
+            return new HostStatusSnapshot
+            {
+                HostId = hostViewModel.Id,
+                CapturedAt = DateTime.UtcNow,
+                Applications = appResults,
+                CustomApplications = customResults
+            };
+        }
+
+        private void ApplyHostStatusSnapshot(HostViewModel hostViewModel, HostStatusSnapshot snapshot)
+        {
+            hostViewModel.IsOnline = true;
+
+            foreach (var appCard in Applications)
+            {
+                if (!snapshot.Applications.TryGetValue(appCard.Id, out var item))
+                {
+                    continue;
+                }
+
+                if (appCard.IsInstalled != item.IsInstalled)
+                {
+                    appCard.IsInstalled = item.IsInstalled;
+                }
+
+                if (appCard.IsRunning != item.IsRunning)
+                {
+                    appCard.IsRunning = item.IsRunning;
+                }
+
+                if (!string.Equals(appCard.InstalledVersion, item.InstalledVersion, StringComparison.Ordinal))
+                {
+                    appCard.InstalledVersion = item.InstalledVersion;
+                }
+            }
+
+            foreach (var customApp in CustomApps)
+            {
+                if (!snapshot.CustomApplications.TryGetValue(customApp.Id, out var item))
+                {
+                    continue;
+                }
+
+                if (customApp.IsInstalled != item.IsInstalled)
+                {
+                    customApp.IsInstalled = item.IsInstalled;
+                }
+
+                if (customApp.IsRunning != item.IsRunning)
+                {
+                    customApp.IsRunning = item.IsRunning;
+                }
+
+                if (!string.Equals(customApp.StatusText, item.StatusText, StringComparison.Ordinal))
+                {
+                    customApp.StatusText = item.StatusText;
+                }
+            }
+        }
+
+        private async Task RequestHostStatusRefreshAsync(
+            HostViewModel hostViewModel,
+            HostStatusRefreshReason reason,
+            bool forceRefresh = false,
+            CancellationToken cancellationToken = default)
+        {
+            var hostId = hostViewModel.Id;
+            var usedCache = false;
+
+            if (reason == HostStatusRefreshReason.HostSelection)
+            {
+                await _hostStatusRefreshCoordinator.DelayForSelectionAsync(hostId, cancellationToken);
+            }
+
+            if (!forceRefresh && _hostStatusRefreshCoordinator.TryGetFreshSnapshot(hostId, out var cached) && cached != null)
+            {
+                ApplyHostStatusSnapshot(hostViewModel, cached);
+                usedCache = true;
+                _refreshStatusText = "显示缓存结果，后台刷新中...";
+            }
+            else
+            {
+                _refreshStatusText = "正在刷新应用状态...";
+            }
+
+            IsRefreshingAppStatus = true;
+            OnPropertyChanged(nameof(RefreshStatusText));
+
+            try
+            {
+                var snapshot = await _hostStatusRefreshCoordinator.GetOrCreateInflightAsync(
+                    hostId,
+                    () => FetchHostStatusSnapshotAsync(hostViewModel, cancellationToken));
+
+                ApplyHostStatusSnapshot(hostViewModel, snapshot);
+                AddLog($"{hostViewModel.Name} 应用状态检测完成", LogLevel.Success);
             }
             catch (OperationCanceledException)
             {
-                AddLog("检测已取消", LogLevel.Warning);
+                AddLog($"{hostViewModel.Name} 的状态刷新已取消", LogLevel.Warning);
             }
             catch (Exception ex)
             {
-                AddLog($"检测失败：{ex.Message}", LogLevel.Error);
+                hostViewModel.IsOnline = false;
+                AddLog($"{hostViewModel.Name} 检测失败：{ex.Message}", LogLevel.Error);
             }
             finally
             {
                 IsRefreshingAppStatus = false;
-                cts?.Dispose();
+                _refreshStatusText = usedCache ? "显示缓存结果，后台刷新中..." : "正在刷新应用状态...";
+                OnPropertyChanged(nameof(RefreshStatusText));
             }
         }
 
@@ -1835,6 +2204,16 @@ namespace RemoteInstaller.ViewModels
             {
                 return (false, false, "检测失败");
             }
+        }
+
+        private void InvalidateHostStatusCache(HostViewModel? hostViewModel)
+        {
+            if (hostViewModel == null || string.IsNullOrWhiteSpace(hostViewModel.Id))
+            {
+                return;
+            }
+
+            _hostStatusRefreshCoordinator.Invalidate(hostViewModel.Id);
         }
 
         private async Task<bool> DirectoryExistsAsync(RemoteHost host, string remoteDirectory, CancellationToken cancellationToken)
@@ -1887,37 +2266,79 @@ namespace RemoteInstaller.ViewModels
                     return BatchTaskResult.Failed;
                 }
 
+                if (IsUnifiedJdkApplicationId(appInfo.Id))
+                {
+                    AddLog($"批量安装暂不支持统一 JDK 入口，请使用单机安装并在弹窗中选择版本", LogLevel.Warning);
+                    return BatchTaskResult.Failed;
+                }
+
                 // 创建任务项
                 var taskViewModel = new TaskViewModel
                 {
+                    TaskId = Guid.NewGuid().ToString("N"),
                     ApplicationName = app.Name,
                     HostName = host.Name,
                     Progress = 0,
-                    CurrentStage = "等待中"
+                    CurrentStage = "等待中",
+                    StatusMessage = "任务已创建，等待开始执行"
                 };
 
-                Application.Current.Dispatcher.Invoke(() => Tasks.Add(taskViewModel));
+                AddTask(taskViewModel);
 
                 var progress = new Progress<InstallTask>(t =>
                 {
-                    taskViewModel.Progress = t.Progress;
-                    taskViewModel.CurrentStage = t.StageDisplayText;
+                    UpdateTaskProgressState(taskViewModel, t);
                 });
 
+                var logProgress = CreateTaskLogReporter(taskViewModel);
+
                 var installerService = new InstallerService(_sshService, _logger);
-                // 批量安装默认使用基础配置
-                var parameters = new Dictionary<string, string>
+                var parameters = BuildBatchInstallParameters(appInfo);
+                var executionAppInfo = ResolveApplicationInfoForExecution(appInfo, appInfo.Version) ?? appInfo;
+                var localPackagePath = string.Empty;
+
+                if (string.Equals(executionAppInfo.Id, "mariadb", StringComparison.OrdinalIgnoreCase))
                 {
-                    ["version"] = appInfo.Version
-                };
+                    if (!TryResolveMariaDbBatchLocalPackage(executionAppInfo, host, out localPackagePath, out var mariaDbHint))
+                    {
+                        taskViewModel.IsFailed = true;
+                        taskViewModel.CurrentStage = "执行失败";
+                        taskViewModel.StatusMessage = mariaDbHint;
+                        taskViewModel.AddLog(new LogEntry
+                        {
+                            Message = mariaDbHint,
+                            Level = LogLevel.Error,
+                            Timestamp = DateTime.Now
+                        });
+                        taskViewModel.MarkActivity();
+                        ReorderTasks();
+                        AddLog($"批量任务失败：{app.Name} -> {host.Name} - {mariaDbHint}", LogLevel.Error);
+                        return BatchTaskResult.Failed;
+                    }
+
+                    executionAppInfo.LocalPackagePath = localPackagePath;
+                    executionAppInfo.UseLocalPackage = true;
+                    AddLog($"批量任务已匹配 MariaDB 本地资源：{localPackagePath}", LogLevel.Info);
+                }
 
                 AddLog($"正在开始批量任务：{app.Name} -> {host.Name}", LogLevel.Info);
                 var result = await installerService.InstallAsync(
                     host,
-                    appInfo,
+                    executionAppInfo,
                     parameters,
+                    localPackagePath,
                     progressReporter: progress,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    logReporter: logProgress);
+
+                taskViewModel.TaskId = result.Id;
+                taskViewModel.IsCompleted = result.Status == Models.TaskStatus.Completed;
+                taskViewModel.IsFailed = result.Status == Models.TaskStatus.Failed;
+                taskViewModel.IsCanceled = result.Status == Models.TaskStatus.Cancelled;
+                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                {
+                    taskViewModel.StatusMessage = result.ErrorMessage;
+                }
 
                 if (result.Status == Models.TaskStatus.Completed)
                 {
@@ -1949,6 +2370,38 @@ namespace RemoteInstaller.ViewModels
         /// <summary>
         /// 从指定主机卸载应用
         /// </summary>
+        private Dictionary<string, string> BuildBatchInstallParameters(ApplicationInfo appInfo)
+        {
+            var parameters = new Dictionary<string, string>
+            {
+                ["version"] = appInfo.Version
+            };
+
+            foreach (var parameter in appInfo.Parameters ?? new List<InstallParameter>())
+            {
+                if (string.IsNullOrWhiteSpace(parameter.Key) || parameters.ContainsKey(parameter.Key))
+                {
+                    continue;
+                }
+
+                if (parameter.Type == ParameterType.Boolean)
+                {
+                    parameters[parameter.Key] = string.IsNullOrWhiteSpace(parameter.DefaultValue) ? "false" : parameter.DefaultValue.ToLowerInvariant();
+                }
+                else
+                {
+                    parameters[parameter.Key] = parameter.DefaultValue ?? string.Empty;
+                }
+            }
+
+            return parameters;
+        }
+
+        private bool TryResolveMariaDbBatchLocalPackage(ApplicationInfo appInfo, RemoteHost host, out string localPackagePath, out string hint)
+        {
+            return InstallConfigViewModel.TryResolveMariaDbLocalPackage(appInfo.Version, host, out localPackagePath, out hint);
+        }
+
         private async Task<BatchTaskResult> UninstallApplicationFromHost(ApplicationCardViewModel app, HostViewModel hostViewModel, CancellationToken cancellationToken = default)
         {
             try
@@ -1960,10 +2413,10 @@ namespace RemoteInstaller.ViewModels
                 }
 
                 var installerService = new InstallerService(_sshService, _logger);
-                var appInfo = GetApplicationInfo(app.Id);
+                var appInfo = await ResolveApplicationInfoForUninstallAsync(app, host, installerService, cancellationToken);
                 if (appInfo == null)
                 {
-                    AddLog($"无法找到应用信息：{app.Name}", LogLevel.Error);
+                    AddLog($"无法确定 {app.Name} 的已安装版本，请先刷新状态后重试", LogLevel.Error);
                     return BatchTaskResult.Failed;
                 }
 
@@ -1971,20 +2424,31 @@ namespace RemoteInstaller.ViewModels
 
                 var taskViewModel = new TaskViewModel
                 {
+                    TaskId = Guid.NewGuid().ToString("N"),
                     ApplicationName = app.Name,
                     HostName = host.Name,
                     Progress = 0,
-                    CurrentStage = "卸载中"
+                    CurrentStage = "卸载中",
+                    StatusMessage = "正在准备卸载任务"
                 };
-                Application.Current.Dispatcher.Invoke(() => Tasks.Add(taskViewModel));
+                AddTask(taskViewModel);
 
                 var progress = new Progress<InstallTask>(t =>
                 {
-                    taskViewModel.Progress = t.Progress;
-                    taskViewModel.CurrentStage = t.StageDisplayText;
+                    UpdateTaskProgressState(taskViewModel, t);
                 });
 
-                var result = await installerService.UninstallAsync(host, appInfo, false, progress, cancellationToken);
+                var logProgress = CreateTaskLogReporter(taskViewModel);
+
+                var result = await installerService.UninstallAsync(host, appInfo, false, progress, cancellationToken, logProgress);
+                taskViewModel.TaskId = result.Id;
+                taskViewModel.IsCompleted = result.Status == Models.TaskStatus.Completed;
+                taskViewModel.IsFailed = result.Status == Models.TaskStatus.Failed;
+                taskViewModel.IsCanceled = result.Status == Models.TaskStatus.Cancelled;
+                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                {
+                    taskViewModel.StatusMessage = result.ErrorMessage;
+                }
                 if (result.Status == Models.TaskStatus.Completed)
                 {
                     AddLog($"成功从 {host.Name} 卸载 {app.Name}", LogLevel.Success);
@@ -2014,6 +2478,20 @@ namespace RemoteInstaller.ViewModels
 
         // 安装方法补丁 - 替换原有的 InstallApplication 和辅助方法
 
+        [RelayCommand]
+        private async Task OpenJdkUpload()
+        {
+            var appInfo = GetApplicationInfo("jdk");
+            if (appInfo == null)
+            {
+                AddLog("无法找到应用信息：JDK", LogLevel.Error);
+                MessageBox.Show("无法加载 JDK 的安装信息", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            await RunInstallWorkflowAsync(appInfo, isJdkUploadMode: true);
+        }
+
         /// <summary>
         /// 安装应用 (使用配置对话框)
         /// </summary>
@@ -2022,101 +2500,37 @@ namespace RemoteInstaller.ViewModels
         {
             SelectApplication(app);
 
-            if (SelectedHost == null)
+            var appInfo = GetApplicationInfo(app.Id);
+            if (appInfo == null)
             {
-                MessageBox.Show("请先选择要安装的目标服务器", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AddLog($"无法找到应用信息：{app.Name}", LogLevel.Error);
+                return;
+            }
+
+            await RunInstallWorkflowAsync(appInfo, app);
+        }
+
+        private async Task RunInstallWorkflowAsync(ApplicationInfo appInfo, ApplicationCardViewModel? appCard = null, bool isJdkUploadMode = false)
+        {
+            if (!TryGetSelectedInstallHost(out var selectedHostViewModel, out var remoteHost))
+            {
                 return;
             }
 
             try
             {
-                // 1. 获取基础信息
-                var host = GetHostFromViewModel(SelectedHost);
-                if (host == null)
+                if (!TryShowInstallConfigDialog(appInfo, remoteHost, out var parameters, out var localPackagePath, out var version, isJdkUploadMode))
                 {
-                    AddLog($"无法找到服务器：{SelectedHost.Name}", LogLevel.Error);
                     return;
                 }
 
-                var appInfo = GetApplicationInfo(app.Id);
-                if (appInfo == null)
-                {
-                    AddLog($"无法找到应用信息：{app.Name}", LogLevel.Error);
-                    return;
-                }
+                var executionAppInfo = ResolveApplicationInfoForExecution(appInfo, version) ?? appInfo;
+                executionAppInfo.Version = version;
+                executionAppInfo.SelectedVersion = version;
+                executionAppInfo.LocalPackagePath = localPackagePath;
+                executionAppInfo.UseLocalPackage = !string.IsNullOrEmpty(localPackagePath);
 
-                // 2. 显示安装配置对话框
-                AddLog($"正在为 {app.Name} 准备安装配置...", LogLevel.Info);
-                var dialog = new InstallConfigDialog();
-                var configViewModel = new InstallConfigViewModel(appInfo, host, _logger);
-                dialog.DataContext = configViewModel;
-                dialog.Owner = Application.Current.MainWindow;
-
-                if (dialog.ShowDialog() != true)
-                {
-                    AddLog("用户取消了安装配置", LogLevel.Warning);
-                    return;
-                }
-
-                // 3. 提取配置
-                var parameters = configViewModel.GetParameters();
-                var localPackagePath = configViewModel.PackageSource == "local"
-                    ? configViewModel.LocalPackagePath
-                    : string.Empty;
-                var version = configViewModel.SelectedVersion ?? appInfo.Version;
-
-                // 同步版本到应用信息
-                appInfo.Version = version;
-                appInfo.LocalPackagePath = localPackagePath;
-                appInfo.UseLocalPackage = configViewModel.PackageSource == "local" && !string.IsNullOrEmpty(localPackagePath);
-
-                // 4. 执行安装
-                AddLog($"开始安装 {app.Name} v{version} 到 {SelectedHost.Name}...", LogLevel.Info);
-                
-                // 创建任务列表项
-                var taskViewModel = new TaskViewModel
-                {
-                    ApplicationName = app.Name,
-                    HostName = SelectedHost.Name,
-                    Progress = 0,
-                    CurrentStage = "准备中"
-                };
-                Application.Current.Dispatcher.Invoke(() => Tasks.Add(taskViewModel));
-                SelectedTask = taskViewModel;
-
-                var installerService = new InstallerService(_sshService, _logger);
-                var cts = new CancellationTokenSource();
-
-                // 创建进度报告器
-                var progress = new Progress<InstallTask>(t =>
-                {
-                    taskViewModel.Progress = t.Progress;
-                    taskViewModel.CurrentStage = t.StageDisplayText;
-                });
-
-                // 执行安装任务
-                var taskResult = await installerService.InstallAsync(
-                    host,
-                    appInfo,
-                    parameters,
-                    localPackagePath,
-                    progress,
-                    cts.Token);
-
-                // 5. 更新应用状态
-                if (taskResult.Status == Models.TaskStatus.Completed)
-                {
-                    app.IsInstalled = true;
-                    app.IsRunning = true;
-                    app.InstalledVersion = version;
-                    AddLog($"✅ 安装成功：{app.Name} v{version}", LogLevel.Success);
-                    MessageBox.Show($"安装成功！{app.Name} 已安装到 {SelectedHost.Name}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else if (taskResult.Status == Models.TaskStatus.Failed)
-                {
-                    AddLog($"❌ 安装失败：{taskResult.ErrorMessage}", LogLevel.Error);
-                    MessageBox.Show($"安装失败：{taskResult.ErrorMessage}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                await ExecuteInstallAsync(selectedHostViewModel, remoteHost, executionAppInfo, parameters, localPackagePath, version, appCard);
             }
             catch (OperationCanceledException)
             {
@@ -2128,6 +2542,141 @@ namespace RemoteInstaller.ViewModels
                 AddLog($"❌ 安装过程发生异常：{ex.Message}", LogLevel.Error);
                 MessageBox.Show($"安装失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private bool TryGetSelectedInstallHost(out HostViewModel selectedHostViewModel, out RemoteHost remoteHost)
+        {
+            selectedHostViewModel = null!;
+            remoteHost = null!;
+
+            if (SelectedHost == null)
+            {
+                MessageBox.Show("请先选择要安装的目标服务器", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            var host = GetHostFromViewModel(SelectedHost);
+            if (host == null)
+            {
+                AddLog($"无法找到服务器：{SelectedHost.Name}", LogLevel.Error);
+                MessageBox.Show("无法获取服务器信息", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+
+            selectedHostViewModel = SelectedHost;
+            remoteHost = host;
+            return true;
+        }
+
+        private bool TryShowInstallConfigDialog(ApplicationInfo appInfo, RemoteHost host, out Dictionary<string, string> parameters, out string localPackagePath, out string version, bool isJdkUploadMode = false)
+        {
+            parameters = new Dictionary<string, string>();
+            localPackagePath = string.Empty;
+            version = appInfo.Version;
+
+            AddLog($"正在为 {appInfo.Name} 准备安装配置...", LogLevel.Info);
+            var dialog = new InstallConfigDialog();
+            var configViewModel = new InstallConfigViewModel(appInfo, host, _logger, isJdkUploadMode);
+            dialog.DataContext = configViewModel;
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true)
+            {
+                AddLog("用户取消了安装配置", LogLevel.Warning);
+                return false;
+            }
+
+            parameters = configViewModel.GetParameters();
+            localPackagePath = configViewModel.PackageSource == "local"
+                ? configViewModel.LocalPackagePath
+                : string.Empty;
+            version = configViewModel.SelectedVersion ?? appInfo.Version;
+
+            appInfo.Version = version;
+            appInfo.LocalPackagePath = localPackagePath;
+            appInfo.UseLocalPackage = configViewModel.PackageSource == "local" && !string.IsNullOrEmpty(localPackagePath);
+            return true;
+        }
+
+        private async Task ExecuteInstallAsync(
+            HostViewModel selectedHostViewModel,
+            RemoteHost host,
+            ApplicationInfo appInfo,
+            Dictionary<string, string> parameters,
+            string localPackagePath,
+            string version,
+            ApplicationCardViewModel? appCard = null)
+        {
+            AddLog($"开始安装 {appInfo.Name} v{version} 到 {selectedHostViewModel.Name}...", LogLevel.Info);
+
+            var taskViewModel = new TaskViewModel
+            {
+                TaskId = Guid.NewGuid().ToString("N"),
+                ApplicationName = appInfo.Name,
+                HostName = selectedHostViewModel.Name,
+                Progress = 0,
+                CurrentStage = "准备中",
+                StatusMessage = "正在准备安装参数"
+            };
+            AddTask(taskViewModel);
+            SelectedTask = taskViewModel;
+
+            var installerService = new InstallerService(_sshService, _logger);
+            var cts = new CancellationTokenSource();
+            var progress = new Progress<InstallTask>(t =>
+            {
+                UpdateTaskProgressState(taskViewModel, t);
+            });
+            var logProgress = CreateTaskLogReporter(taskViewModel);
+
+            var taskResult = await installerService.InstallAsync(
+                host,
+                appInfo,
+                parameters,
+                localPackagePath,
+                progress,
+                cts.Token,
+                logProgress);
+
+            taskViewModel.TaskId = taskResult.Id;
+            taskViewModel.IsCompleted = taskResult.Status == Models.TaskStatus.Completed;
+            taskViewModel.IsFailed = taskResult.Status == Models.TaskStatus.Failed;
+            taskViewModel.IsCanceled = taskResult.Status == Models.TaskStatus.Cancelled;
+            if (!string.IsNullOrWhiteSpace(taskResult.ErrorMessage))
+            {
+                taskViewModel.StatusMessage = taskResult.ErrorMessage;
+            }
+
+            if (taskResult.Status == Models.TaskStatus.Completed)
+            {
+                UpdateInstalledApplicationState(appInfo.Id, version, appCard);
+                AddLog($"✅ 安装成功：{appInfo.Name} v{version}", LogLevel.Success);
+                await RequestHostStatusRefreshAsync(selectedHostViewModel, HostStatusRefreshReason.PostInstall, forceRefresh: true);
+                MessageBox.Show($"安装成功！{appInfo.Name} 已安装到 {selectedHostViewModel.Name}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else if (taskResult.Status == Models.TaskStatus.Failed)
+            {
+                AddLog($"❌ 安装失败：{taskResult.ErrorMessage}", LogLevel.Error);
+                MessageBox.Show($"安装失败：{taskResult.ErrorMessage}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateInstalledApplicationState(string appId, string version, ApplicationCardViewModel? appCard = null)
+        {
+            var targetCard = appCard ?? Applications.FirstOrDefault(a => string.Equals(a.Id, appId, StringComparison.OrdinalIgnoreCase));
+            if (targetCard == null && IsJdkVersionApplicationId(appId))
+            {
+                targetCard = Applications.FirstOrDefault(a => IsUnifiedJdkApplicationId(a.Id));
+            }
+
+            if (targetCard == null)
+            {
+                return;
+            }
+
+            targetCard.IsInstalled = true;
+            targetCard.IsRunning = true;
+            targetCard.InstalledVersion = version;
         }
 
         /// <summary>
@@ -2143,15 +2692,13 @@ namespace RemoteInstaller.ViewModels
             try
             {
                 var host = GetHostFromViewModel(SelectedHost);
-                var appInfo = GetApplicationInfo(appCard.Id);
-                
-                if (host == null || appInfo == null) return;
-                
+                if (host == null) return;
+
                 AddLog($"正在检测 {appCard.Name} 状态...", LogLevel.Info);
-                
+
                 var installerService = new InstallerService(_sshService, _logger);
-                var status = await installerService.CheckStatusAsync(host, appInfo);
-                
+                var status = await GetApplicationStatusAsync(host, appCard, installerService);
+
                 appCard.IsInstalled = status.IsInstalled;
                 appCard.IsRunning = status.IsRunning;
                 appCard.InstalledVersion = status.InstalledVersion;
@@ -2191,14 +2738,7 @@ namespace RemoteInstaller.ViewModels
                 await _sshService.ConnectAsync(remoteHost);
 
                 // 3. 从HostViewModel.OsType字符串转换为枚举类型
-                var osType = SelectedHost.OsType switch
-                {
-                    "Linux" => OperatingSystemType.Linux,
-                    "CentOS" => OperatingSystemType.CentOS,
-                    "Ubuntu" => OperatingSystemType.Ubuntu,
-                    "Windows" => OperatingSystemType.Windows,
-                    _ => OperatingSystemType.Linux // 默认为Linux
-                };
+                var osType = ParseHostOsType(SelectedHost.OsType);
 
                 // 4. 查找配置文件路径
                 var configPath = await _configurationService.GetConfigFilePathAsync(
@@ -2216,7 +2756,9 @@ namespace RemoteInstaller.ViewModels
 
                 // 5. 读取配置文件内容
                 var configContent = await _configurationService.ReadConfigAsync(configPath);
-                var switchableFiles = string.Equals(app.Name, "Traefik", StringComparison.OrdinalIgnoreCase)
+                var supportsSwitchableConfigFiles = string.Equals(app.Name, "Traefik", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(app.Name, "Elasticsearch", StringComparison.OrdinalIgnoreCase);
+                var switchableFiles = supportsSwitchableConfigFiles
                     ? await _configurationService.GetSwitchableConfigFilesAsync(app.Name)
                     : null;
 
@@ -2270,13 +2812,6 @@ namespace RemoteInstaller.ViewModels
 
             try
             {
-                var appInfo = GetApplicationInfo(app.Id);
-                if (appInfo == null)
-                {
-                    AddLog($"无法加载 {app.Name} 的元数据", LogLevel.Error);
-                    return;
-                }
-                
                 var host = GetHostFromViewModel(SelectedHost);
                 if (host == null)
                 {
@@ -2284,44 +2819,59 @@ namespace RemoteInstaller.ViewModels
                     return;
                 }
 
+                var installerService = new InstallerService(_sshService, _logger);
+                var appInfo = await ResolveApplicationInfoForUninstallAsync(app, host, installerService);
+                if (appInfo == null)
+                {
+                    AddLog($"无法确定 {app.Name} 的已安装版本，请先刷新状态后重试", LogLevel.Error);
+                    MessageBox.Show($"无法确定 {app.Name} 的已安装版本，请先刷新状态后重试", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
                 // 创建并添加任务视图模型
                 var taskViewModel = new TaskViewModel
                 {
+                    TaskId = Guid.NewGuid().ToString("N"),
                     HostName = host.Name,
                     ApplicationName = appInfo.Name,
                     Progress = 0,
-                    CurrentStage = "初始化..."
+                    CurrentStage = "初始化...",
+                    StatusMessage = "正在准备卸载流程"
                 };
                 
-                System.Windows.Application.Current.Dispatcher.Invoke(() => 
-                {
-                    Tasks.Insert(0, taskViewModel);
-                    OnPropertyChanged(nameof(TaskCount));
-                    SelectedTask = taskViewModel;
-                });
+                AddTask(taskViewModel, insertAtTop: true);
+                SelectedTask = taskViewModel;
 
                 // 创建进度报告器
-                var progress = new Progress<InstallTask>(t => 
+                var progress = new Progress<InstallTask>(t =>
                 {
-                    System.Windows.Application.Current.Dispatcher.Invoke(() => 
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
-                        taskViewModel.Progress = t.Progress;
-                        taskViewModel.CurrentStage = t.StageDisplayText;
-                        if (t.Status == RemoteInstaller.Models.TaskStatus.Failed)
+                        UpdateTaskProgressState(taskViewModel, t);
+                        if (t.Status == RemoteInstaller.Models.TaskStatus.Failed && !string.IsNullOrWhiteSpace(t.ErrorMessage))
                         {
-                            taskViewModel.CurrentStage = $"❌ {t.ErrorMessage}";
+                            taskViewModel.CurrentStage = "执行失败";
+                            taskViewModel.StatusMessage = t.ErrorMessage;
                         }
                     });
                 });
 
-                var installerService = new InstallerService(_sshService, _logger);
-                var task = await installerService.UninstallAsync(host, appInfo, keepData, progress);
+                var logProgress = CreateTaskLogReporter(taskViewModel);
+
+                var task = await installerService.UninstallAsync(host, appInfo, keepData, progress, default, logProgress);
+                taskViewModel.TaskId = task.Id;
+                taskViewModel.IsCompleted = task.Status == RemoteInstaller.Models.TaskStatus.Completed;
+                taskViewModel.IsFailed = task.Status == RemoteInstaller.Models.TaskStatus.Failed;
+                taskViewModel.IsCanceled = task.Status == RemoteInstaller.Models.TaskStatus.Cancelled;
+                if (!string.IsNullOrWhiteSpace(task.ErrorMessage))
+                {
+                    taskViewModel.StatusMessage = task.ErrorMessage;
+                }
 
                 if (task.Status == RemoteInstaller.Models.TaskStatus.Completed)
                 {
                     AddLog($"{app.Name} 卸载成功", LogLevel.Success);
-                    // 刷新状态
-                    await CheckAllAppsStatusAsync(SelectedHost);
+                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostUninstall, forceRefresh: true);
                 }
                 else
                 {
@@ -2430,7 +2980,7 @@ namespace RemoteInstaller.ViewModels
             };
 
             ((Grid)window.Content).Children.Add(new TextBlock { Text = "请选择要安装的版本号：", FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) });
-            
+
             var label = new TextBlock { Text = "版本号:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
             Grid.SetRow(label, 1);
             ((Grid)window.Content).Children.Add(label);
@@ -2441,7 +2991,7 @@ namespace RemoteInstaller.ViewModels
 
             var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 15, 0, 0) };
             Grid.SetRow(btnPanel, 2);
-            
+
             var okBtn = new Button { Content = "确定", Width = 80, Height = 30, Margin = new Thickness(0, 0, 10, 0) };
             okBtn.Click += (s, e) => { window.DialogResult = true; window.Close(); };
             btnPanel.Children.Add(okBtn);
@@ -2449,11 +2999,88 @@ namespace RemoteInstaller.ViewModels
             var cancelBtn = new Button { Content = "取消", Width = 80, Height = 30, Style = (Style)Application.Current.FindResource("MaterialDesignFlatButton") };
             cancelBtn.Click += (s, e) => { window.DialogResult = null; window.Close(); };
             btnPanel.Children.Add(cancelBtn);
-            
+
             ((Grid)window.Content).Children.Add(btnPanel);
 
             var result = window.ShowDialog();
             return result == true ? versionBox.Text : null;
+        }
+
+        private string? ShowJdkVersionSelectionDialog()
+        {
+            var window = new Window
+            {
+                Title = "选择 JDK 版本",
+                Width = 420,
+                Height = 240,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize,
+                Content = new Grid
+                {
+                    Margin = new Thickness(20),
+                    RowDefinitions =
+                    {
+                        new RowDefinition { Height = GridLength.Auto },
+                        new RowDefinition { Height = GridLength.Auto },
+                        new RowDefinition { Height = GridLength.Auto },
+                        new RowDefinition { Height = GridLength.Auto },
+                        new RowDefinition { Height = GridLength.Auto }
+                    }
+                }
+            };
+
+            var title = new TextBlock
+            {
+                Text = "请选择要上传安装的 JDK 版本：",
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            Grid.SetRow(title, 0);
+            ((Grid)window.Content).Children.Add(title);
+
+            string? selectedAppId = null;
+            void AddVersionButton(string appId, string titleText, int row)
+            {
+                var button = new Button
+                {
+                    Content = titleText,
+                    Height = 40,
+                    FontSize = 13,
+                    Margin = new Thickness(0, 0, 0, 10)
+                };
+                button.Click += (_, _) =>
+                {
+                    selectedAppId = appId;
+                    window.DialogResult = true;
+                    window.Close();
+                };
+                Grid.SetRow(button, row);
+                ((Grid)window.Content).Children.Add(button);
+            }
+
+            AddVersionButton("jdk8", "JDK 8", 1);
+            AddVersionButton("jdk11", "JDK 11", 2);
+            AddVersionButton("jdk17", "JDK 17", 3);
+
+            var cancelButton = new Button
+            {
+                Content = "取消",
+                Height = 30,
+                Width = 80,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Style = (Style?)Application.Current.FindResource("MaterialDesignFlatButton")
+            };
+            cancelButton.Click += (_, _) =>
+            {
+                window.DialogResult = null;
+                window.Close();
+            };
+            Grid.SetRow(cancelButton, 4);
+            ((Grid)window.Content).Children.Add(cancelButton);
+
+            var result = window.ShowDialog();
+            return result == true ? selectedAppId : null;
         }
 
         private string? ShowPackageFileDialog(string appName)
@@ -2582,20 +3209,182 @@ namespace RemoteInstaller.ViewModels
             if (string.IsNullOrEmpty(viewModel.Id))
             {
                 // 如果没有 Id，回退到根据名称和 IP 查找
-                return _databaseService.GetAllHosts().FirstOrDefault(h => 
-                    h.Name == viewModel.Name && 
+                return _databaseService.GetAllHosts().FirstOrDefault(h =>
+                    h.Name == viewModel.Name &&
                     h.IpAddress == viewModel.IpAddress);
             }
 
             return _databaseService.GetAllHosts().FirstOrDefault(h => h.Id == viewModel.Id);
         }
 
-        /// <summary>
-        /// 获取应用信息（从配置文件加载）
-        /// </summary>
-        private ApplicationInfo? GetApplicationInfo(string appId)
+        private static string GetHostOsTypeDisplay(OperatingSystemType osType)
         {
-            // 优先从 AppConfigurationService 加载
+            return osType switch
+            {
+                OperatingSystemType.CentOS => "CentOS",
+                OperatingSystemType.Ubuntu => "Ubuntu",
+                OperatingSystemType.Windows => "Windows",
+                OperatingSystemType.Linux => "Linux",
+                _ => "Unknown"
+            };
+        }
+
+        private static OperatingSystemType ParseHostOsType(string? osType)
+        {
+            return osType switch
+            {
+                "CentOS" => OperatingSystemType.CentOS,
+                "Ubuntu" => OperatingSystemType.Ubuntu,
+                "Windows" => OperatingSystemType.Windows,
+                "Linux" => OperatingSystemType.Linux,
+                _ => OperatingSystemType.Linux
+            };
+        }
+
+        private static bool IsUnifiedJdkApplicationId(string? appId)
+        {
+            return string.Equals(appId, "jdk", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsJdkVersionApplicationId(string? appId)
+        {
+            return string.Equals(appId, "jdk8", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(appId, "jdk11", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(appId, "jdk17", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ResolveJdkVersionApplicationId(string? version)
+        {
+            if (string.IsNullOrWhiteSpace(version)
+                || string.Equals(version, "未知", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(version, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var normalizedVersion = version.Trim();
+            if (normalizedVersion.StartsWith("17", StringComparison.OrdinalIgnoreCase))
+            {
+                return "jdk17";
+            }
+
+            if (normalizedVersion.StartsWith("11", StringComparison.OrdinalIgnoreCase))
+            {
+                return "jdk11";
+            }
+
+            if (normalizedVersion.StartsWith("8", StringComparison.OrdinalIgnoreCase)
+                || normalizedVersion.StartsWith("1.8", StringComparison.OrdinalIgnoreCase))
+            {
+                return "jdk8";
+            }
+
+            return null;
+        }
+
+        private List<ApplicationInfo> GetAvailableJdkApplicationInfos()
+        {
+            var jdkApplicationIds = new[] { "jdk17", "jdk11", "jdk8" };
+
+            if (_appConfigurationService != null)
+            {
+                var configuredInfos = jdkApplicationIds
+                    .Select(appId => _appConfigurationService.GetApplicationById(appId))
+                    .Where(appConfig => appConfig != null)
+                    .Select(appConfig => ConvertToApplicationInfo(appConfig!))
+                    .ToList();
+
+                if (configuredInfos.Count > 0)
+                {
+                    return configuredInfos;
+                }
+            }
+
+            return jdkApplicationIds
+                .Select(GetHardcodedApplicationInfo)
+                .Where(appInfo => appInfo != null)
+                .Select(appInfo => appInfo!)
+                .ToList();
+        }
+
+        private static List<InstallParameter> CloneInstallParameters(IEnumerable<InstallParameter>? parameters)
+        {
+            return parameters?.Select(parameter => new InstallParameter
+            {
+                Key = parameter.Key,
+                Name = parameter.Name,
+                Description = parameter.Description,
+                Type = parameter.Type,
+                Required = parameter.Required,
+                DefaultValue = parameter.DefaultValue,
+                RegexPattern = parameter.RegexPattern,
+                MinValue = parameter.MinValue,
+                MaxValue = parameter.MaxValue,
+                Options = parameter.Options?.ToList() ?? new List<string>()
+            }).ToList() ?? new List<InstallParameter>();
+        }
+
+        private ApplicationInfo? BuildUnifiedJdkApplicationInfo()
+        {
+            var jdkInfos = GetAvailableJdkApplicationInfos();
+            if (jdkInfos.Count == 0)
+            {
+                return null;
+            }
+
+            var defaultInfo = jdkInfos[0];
+            var versions = jdkInfos
+                .Select(info => info.Version)
+                .Where(version => !string.IsNullOrWhiteSpace(version))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return new ApplicationInfo
+            {
+                Id = "jdk",
+                Name = "JDK",
+                Version = defaultInfo.Version,
+                SelectedVersion = defaultInfo.Version,
+                Description = "Temurin JDK 运行时与开发工具包，安装时可选择 17/11/8 版本",
+                Category = defaultInfo.Category,
+                SupportWindows = jdkInfos.Any(info => info.SupportWindows),
+                SupportCentOS = jdkInfos.Any(info => info.SupportCentOS),
+                SupportUbuntu = jdkInfos.Any(info => info.SupportUbuntu),
+                Versions = versions,
+                Parameters = CloneInstallParameters(defaultInfo.Parameters),
+                InstallScriptLinux = defaultInfo.InstallScriptLinux,
+                InstallScriptWindows = defaultInfo.InstallScriptWindows,
+                UninstallScriptLinux = defaultInfo.UninstallScriptLinux,
+                UninstallScriptWindows = defaultInfo.UninstallScriptWindows,
+                CheckScriptLinux = defaultInfo.CheckScriptLinux,
+                CheckScriptWindows = defaultInfo.CheckScriptWindows
+            };
+        }
+
+        private ApplicationCardViewModel? CreateUnifiedJdkApplicationCard()
+        {
+            var jdkInfo = BuildUnifiedJdkApplicationInfo();
+            if (jdkInfo == null)
+            {
+                return null;
+            }
+
+            return new ApplicationCardViewModel(this)
+            {
+                Id = jdkInfo.Id,
+                Name = jdkInfo.Name,
+                Version = jdkInfo.Version,
+                Versions = jdkInfo.Versions,
+                Description = jdkInfo.Description,
+                Icon = "☕",
+                Category = jdkInfo.Category,
+                IsSupported = true,
+                OsType = "Windows Server/CentOS/Ubuntu"
+            };
+        }
+
+        private ApplicationInfo? GetDirectApplicationInfo(string appId)
+        {
             if (_appConfigurationService != null)
             {
                 var appConfig = _appConfigurationService.GetApplicationById(appId);
@@ -2605,8 +3394,131 @@ namespace RemoteInstaller.ViewModels
                 }
             }
 
-            // 回退到硬编码配置
             return GetHardcodedApplicationInfo(appId);
+        }
+
+        private ApplicationInfo? ResolveApplicationInfoForExecution(ApplicationInfo appInfo, string? version)
+        {
+            if (!IsUnifiedJdkApplicationId(appInfo.Id))
+            {
+                return appInfo;
+            }
+
+            var resolvedApplicationId = ResolveJdkVersionApplicationId(version)
+                ?? ResolveJdkVersionApplicationId(appInfo.SelectedVersion)
+                ?? ResolveJdkVersionApplicationId(appInfo.Version);
+
+            if (string.IsNullOrWhiteSpace(resolvedApplicationId))
+            {
+                return appInfo;
+            }
+
+            var resolvedInfo = GetDirectApplicationInfo(resolvedApplicationId);
+            if (resolvedInfo == null)
+            {
+                return appInfo;
+            }
+
+            resolvedInfo.Name = appInfo.Name;
+            resolvedInfo.Description = appInfo.Description;
+            resolvedInfo.Category = appInfo.Category;
+            resolvedInfo.Version = string.IsNullOrWhiteSpace(version) ? resolvedInfo.Version : version;
+            resolvedInfo.SelectedVersion = string.IsNullOrWhiteSpace(version) ? resolvedInfo.SelectedVersion : version;
+            resolvedInfo.LocalPackagePath = appInfo.LocalPackagePath;
+            resolvedInfo.UseLocalPackage = appInfo.UseLocalPackage;
+            return resolvedInfo;
+        }
+
+        private async Task<ApplicationStatus> GetUnifiedJdkStatusAsync(
+            RemoteHost host,
+            InstallerService installerService,
+            CancellationToken cancellationToken = default)
+        {
+            var orderedInfos = GetAvailableJdkApplicationInfos();
+
+            foreach (var jdkInfo in orderedInfos)
+            {
+                var status = await installerService.CheckStatusAsync(host, jdkInfo, cancellationToken);
+                if (status.IsInstalled)
+                {
+                    return status;
+                }
+            }
+
+            return new ApplicationStatus
+            {
+                IsInstalled = false,
+                IsRunning = false,
+                InstalledVersion = string.Empty
+            };
+        }
+
+        private async Task<ApplicationStatus> GetApplicationStatusAsync(
+            RemoteHost host,
+            ApplicationCardViewModel appCard,
+            InstallerService installerService,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsUnifiedJdkApplicationId(appCard.Id))
+            {
+                return await GetUnifiedJdkStatusAsync(host, installerService, cancellationToken);
+            }
+
+            var appInfo = GetApplicationInfo(appCard.Id);
+            if (appInfo == null)
+            {
+                return new ApplicationStatus
+                {
+                    IsInstalled = false,
+                    IsRunning = false,
+                    InstalledVersion = string.Empty
+                };
+            }
+
+            return await installerService.CheckStatusAsync(host, appInfo, cancellationToken);
+        }
+
+        private async Task<ApplicationInfo?> ResolveApplicationInfoForUninstallAsync(
+            ApplicationCardViewModel appCard,
+            RemoteHost host,
+            InstallerService installerService,
+            CancellationToken cancellationToken = default)
+        {
+            var appInfo = GetApplicationInfo(appCard.Id);
+            if (appInfo == null || !IsUnifiedJdkApplicationId(appInfo.Id))
+            {
+                return appInfo;
+            }
+
+            var installedVersion = string.IsNullOrWhiteSpace(appCard.InstalledVersion)
+                ? null
+                : appCard.InstalledVersion;
+
+            if (string.IsNullOrWhiteSpace(installedVersion))
+            {
+                var status = await GetUnifiedJdkStatusAsync(host, installerService, cancellationToken);
+                if (!status.IsInstalled || string.IsNullOrWhiteSpace(status.InstalledVersion))
+                {
+                    return null;
+                }
+
+                installedVersion = status.InstalledVersion;
+            }
+
+            return ResolveApplicationInfoForExecution(appInfo, installedVersion);
+        }
+
+        /// <summary>
+        /// 获取应用信息（从配置文件加载）
+        /// </summary>
+        private ApplicationInfo? GetApplicationInfo(string appId)
+        {
+            if (IsUnifiedJdkApplicationId(appId))
+            {
+                return BuildUnifiedJdkApplicationInfo();
+            }
+
+            return GetDirectApplicationInfo(appId);
         }
 
         /// <summary>
@@ -2689,8 +3601,31 @@ namespace RemoteInstaller.ViewModels
                 return;
             }
 
+            var addedUnifiedJdkCard = false;
+
             foreach (var appConfig in apps)
             {
+                if (string.Equals(appConfig.Category, "自定义应用", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsJdkVersionApplicationId(appConfig.Id))
+                {
+                    if (addedUnifiedJdkCard)
+                    {
+                        continue;
+                    }
+
+                    var unifiedJdkCard = CreateUnifiedJdkApplicationCard();
+                    if (unifiedJdkCard != null)
+                    {
+                        Applications.Add(unifiedJdkCard);
+                        addedUnifiedJdkCard = true;
+                    }
+                    continue;
+                }
+
                 var appCard = new ApplicationCardViewModel(this)
                 {
                     Id = appConfig.Id,
@@ -2703,7 +3638,6 @@ namespace RemoteInstaller.ViewModels
                     OsType = GetOsTypeString(appConfig.OsSupport)
                 };
 
-                // 设置默认版本（第一个版本）
                 if (appConfig.Versions?.Count > 0)
                 {
                     appCard.Version = appConfig.Versions[0].Version;
@@ -2712,6 +3646,7 @@ namespace RemoteInstaller.ViewModels
                 Applications.Add(appCard);
             }
 
+            RefreshAppCategoryFilters();
             AddLog($"成功加载 {Applications.Count} 个应用到 UI", LogLevel.Success);
             ApplyAppFilter();
         }
@@ -2737,6 +3672,39 @@ namespace RemoteInstaller.ViewModels
             return labels.Count > 0 ? string.Join("/", labels) : "未知";
         }
 
+        private void RefreshAppCategoryFilters()
+        {
+            var categories = Applications
+                .Select(app => string.IsNullOrWhiteSpace(app.Category) ? "其他" : app.Category)
+                .Where(category => !string.Equals(category, "自定义应用", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(category => GetAppCategoryOrder(category))
+                .ThenBy(category => category, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var filters = new List<string> { "全部" };
+            filters.AddRange(categories);
+
+            AppCategoryFilters = new ObservableCollection<string>(filters);
+
+            if (!AppCategoryFilters.Contains(SelectedAppCategory))
+            {
+                SelectedAppCategory = "全部";
+            }
+        }
+
+        private static int GetAppCategoryOrder(string? category)
+        {
+            return category switch
+            {
+                "基础环境" => 0,
+                "数据库" => 1,
+                "中间件" => 2,
+                "Web 服务" => 3,
+                _ => 4
+            };
+        }
+
         /// <summary>
         /// 加载硬编码应用（回退方案）
         /// </summary>
@@ -2752,8 +3720,21 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "8.4.0", "8.0.42", "8.0.35", "8.0.28", "5.7.44", "5.7.35" },
                 Description = "开源关系型数据库",
                 Icon = "🐬",
+                Category = "数据库",
                 IsSupported = true,
                 OsType = "Linux/Windows"
+            });
+            Applications.Add(new ApplicationCardViewModel(this)
+            {
+                Id = "mariadb",
+                Name = "MariaDB",
+                Version = "11.4.7",
+                Versions = new List<string> { "11.4.7" },
+                Description = "兼容 MySQL 协议的开源关系型数据库",
+                Icon = "🦭",
+                Category = "数据库",
+                IsSupported = true,
+                OsType = "Linux"
             });
             Applications.Add(new ApplicationCardViewModel(this)
             {
@@ -2763,6 +3744,7 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "7.2.5", "7.2.3", "7.0.15", "6.2.14", "6.0.20", "5.0.14" },
                 Description = "高性能键值数据库",
                 Icon = "📦",
+                Category = "数据库",
                 IsInstalled = true,
                 IsSupported = true,
                 OsType = "Linux/Windows"
@@ -2775,6 +3757,7 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "1.26.1", "1.24.0", "1.22.1", "1.20.2", "1.18.0" },
                 Description = "高性能 Web 服务器",
                 Icon = "🌐",
+                Category = "Web 服务",
                 IsSupported = true,
                 OsType = "Linux"
             });
@@ -2782,10 +3765,11 @@ namespace RemoteInstaller.ViewModels
             {
                 Id = "elasticsearch",
                 Name = "Elasticsearch",
-                Version = "8.14.0",
-                Versions = new List<string> { "8.14.0", "8.13.4", "8.12.2", "7.17.18", "7.10.2" },
+                Version = "8.5.3",
+                Versions = new List<string> { "8.5.3" },
                 Description = "分布式搜索引擎",
                 Icon = "🔍",
+                Category = "数据库",
                 IsSupported = true,
                 OsType = "Linux"
             });
@@ -2797,19 +3781,9 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "3.13.3", "3.12.0", "3.11.20", "3.10.25" },
                 Description = "消息队列中间件",
                 Icon = "🐰",
+                Category = "中间件",
                 IsSupported = true,
                 OsType = "Linux"
-            });
-            Applications.Add(new ApplicationCardViewModel(this)
-            {
-                Id = "nacos",
-                Name = "Nacos",
-                Version = "2.3.0",
-                Versions = new List<string> { "2.3.2", "2.3.0", "2.2.3", "1.4.6" },
-                Description = "服务发现与配置中心",
-                Icon = "🐱",
-                IsSupported = true,
-                OsType = "Both"
             });
             Applications.Add(new ApplicationCardViewModel(this)
             {
@@ -2819,6 +3793,7 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "1.22.6" },
                 Description = "服务发现、KV 存储与健康检查平台",
                 Icon = "🧭",
+                Category = "中间件",
                 IsSupported = true,
                 OsType = "Linux"
             });
@@ -2830,9 +3805,17 @@ namespace RemoteInstaller.ViewModels
                 Versions = new List<string> { "3.6.13" },
                 Description = "云原生反向代理与边缘网关",
                 Icon = "🛣️",
+                Category = "Web 服务",
                 IsSupported = true,
                 OsType = "Linux"
             });
+            var unifiedJdkCard = CreateUnifiedJdkApplicationCard();
+            if (unifiedJdkCard != null)
+            {
+                Applications.Add(unifiedJdkCard);
+            }
+
+            RefreshAppCategoryFilters();
         }
 
         /// <summary>
@@ -2884,8 +3867,8 @@ namespace RemoteInstaller.ViewModels
                 {
                     Id = "elasticsearch",
                     Name = "Elasticsearch",
-                    Version = "8.14.0",
-                    Versions = new List<string> { "8.14.0", "8.13.4", "8.12.2", "7.17.18", "7.10.2" },
+                    Version = "8.5.3",
+                    Versions = new List<string> { "8.5.3" },
                     Description = "分布式搜索引擎",
                     Category = "搜索",
                     SupportWindows = false,
@@ -2918,7 +3901,29 @@ namespace RemoteInstaller.ViewModels
                     {
                         new InstallParameter { Key = "ROOT_PASSWORD", Name = "Root 密码", Description = "MySQL root 用户的初始密码", Type = ParameterType.Password, DefaultValue = "MySql@123", Required = true },
                         new InstallParameter { Key = "PORT", Name = "服务端口", Description = "MySQL 服务监听端口", Type = ParameterType.Number, DefaultValue = "3306", Required = true, MinValue = 1024, MaxValue = 65535 },
-                        new InstallParameter { Key = "ALLOW_REMOTE", Name = "允许远程访问", Description = "是否允许 root 用户远程连接", Type = ParameterType.Boolean, DefaultValue = "true", Required = true }
+                        new InstallParameter { Key = "ALLOW_REMOTE", Name = "允许远程访问", Description = "是否允许 root 用户远程连接", Type = ParameterType.Boolean, DefaultValue = "true", Required = true },
+                        new InstallParameter { Key = "DATA_DIRECTORY", Name = "数据目录", Description = "MySQL 数据目录，留空则使用系统默认目录", Type = ParameterType.Text, DefaultValue = "", Required = false }
+                    }
+                },
+                "mariadb" => new ApplicationInfo
+                {
+                    Id = "mariadb",
+                    Name = "MariaDB",
+                    Version = "11.4.7",
+                    Versions = new List<string> { "11.4.7" },
+                    Description = "兼容 MySQL 协议的开源关系型数据库",
+                    Category = "数据库",
+                    SupportWindows = false,
+                    SupportCentOS = true,
+                    SupportUbuntu = true,
+                    CheckScriptLinux = "Scripts/MariaDB/check_status_linux.sh",
+                    CheckScriptWindows = string.Empty,
+                    Parameters = new List<InstallParameter>
+                    {
+                        new InstallParameter { Key = "ROOT_PASSWORD", Name = "Root 密码", Description = "MariaDB root 用户的初始密码", Type = ParameterType.Password, DefaultValue = "MariaDb@123", Required = true },
+                        new InstallParameter { Key = "PORT", Name = "服务端口", Description = "MariaDB 服务监听端口", Type = ParameterType.Number, DefaultValue = "3306", Required = true, MinValue = 1024, MaxValue = 65535 },
+                        new InstallParameter { Key = "ALLOW_REMOTE", Name = "允许远程访问", Description = "是否允许 root 用户远程连接", Type = ParameterType.Boolean, DefaultValue = "true", Required = true },
+                        new InstallParameter { Key = "DATA_DIRECTORY", Name = "数据目录", Description = "MariaDB 数据目录，留空则使用系统默认目录", Type = ParameterType.Text, DefaultValue = "", Required = false }
                     }
                 },
                 "rabbitmq" => new ApplicationInfo
@@ -2943,27 +3948,24 @@ namespace RemoteInstaller.ViewModels
                         new InstallParameter { Key = "ENABLE_REMOTE_ACCESS", Name = "允许远程访问", Description = "是否允许远程连接", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
                     }
                 },
-                "nacos" => new ApplicationInfo
+                "mosquitto" => new ApplicationInfo
                 {
-                    Id = "nacos",
-                    Name = "Nacos",
-                    Version = "2.3.0",
-                    Versions = new List<string> { "2.3.2", "2.3.0", "2.2.3", "1.4.6" },
-                    Description = "服务发现与配置中心",
+                    Id = "mosquitto",
+                    Name = "Mosquitto",
+                    Version = "2.0.21",
+                    Versions = new List<string> { "2.0.21", "2.0.22", "2.1.2", "1.6.10" },
+                    Description = "轻量级 MQTT 消息代理",
                     Category = "中间件",
                     SupportWindows = true,
                     SupportCentOS = true,
                     SupportUbuntu = true,
-                    CheckScriptLinux = "Scripts/Nacos/check_status_linux.sh",
-                    CheckScriptWindows = "Scripts\\Nacos\\check_status_windows.ps1",
+                    CheckScriptLinux = "Scripts/Mosquitto/check_status_linux.sh",
+                    CheckScriptWindows = "Scripts\\Mosquitto\\check_status_windows.ps1",
                     Parameters = new List<InstallParameter>
                     {
-                        new InstallParameter { Key = "HTTP_PORT", Name = "HTTP 端口", Description = "Nacos HTTP 服务端口", Type = ParameterType.Port, DefaultValue = "8848", Required = true, MinValue = 1024, MaxValue = 65535 },
-                        new InstallParameter { Key = "RAFT_PORT", Name = "Raft 端口", Description = "Raft 集群通信端口", Type = ParameterType.Port, DefaultValue = "9848", Required = true, MinValue = 1024, MaxValue = 65535 },
-                        new InstallParameter { Key = "GRPC_PORT", Name = "gRPC 端口", Description = "gRPC 服务端口", Type = ParameterType.Port, DefaultValue = "9849", Required = true, MinValue = 1024, MaxValue = 65535 },
-                        new InstallParameter { Key = "MODE", Name = "运行模式", Description = "运行模式 (standalone/cluster)", Type = ParameterType.Text, DefaultValue = "standalone", Required = true },
-                        new InstallParameter { Key = "USERNAME", Name = "用户名", Description = "Nacos 登录用户名", Type = ParameterType.Text, DefaultValue = "nacos", Required = true },
-                        new InstallParameter { Key = "PASSWORD", Name = "密码", Description = "Nacos 登录密码", Type = ParameterType.Password, DefaultValue = "nacos", Required = true }
+                        new InstallParameter { Key = "MQTT_PORT", Name = "MQTT 端口", Description = "MQTT TCP 服务端口", Type = ParameterType.Port, DefaultValue = "1883", Required = true, MinValue = 1, MaxValue = 65535 },
+                        new InstallParameter { Key = "USERNAME", Name = "用户名", Description = "Mosquitto 登录用户名（留空则启用匿名访问；启用认证时需与密码同时填写）", Type = ParameterType.Text, DefaultValue = "", Required = false },
+                        new InstallParameter { Key = "PASSWORD", Name = "密码", Description = "Mosquitto 登录密码（留空则启用匿名访问；启用认证时需与用户名同时填写）", Type = ParameterType.Password, DefaultValue = "", Required = false }
                     }
                 },
                 "consul" => new ApplicationInfo
@@ -3009,7 +4011,76 @@ namespace RemoteInstaller.ViewModels
                         new InstallParameter { Key = "DASHBOARD_PORT", Name = "Dashboard 端口", Description = "Traefik Dashboard 端口", Type = ParameterType.Port, DefaultValue = "8080", Required = true, MinValue = 1, MaxValue = 65535 },
                         new InstallParameter { Key = "INSTALL_DIR", Name = "安装目录", Description = "Traefik 安装目录", Type = ParameterType.Path, DefaultValue = "/opt/traefik", Required = true },
                         new InstallParameter { Key = "CONFIG_DIR", Name = "配置目录", Description = "Traefik 配置目录", Type = ParameterType.Path, DefaultValue = "/etc/traefik", Required = true },
-                        new InstallParameter { Key = "ENABLE_DASHBOARD", Name = "启用 Dashboard", Description = "是否启用 Traefik Dashboard", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
+                        new InstallParameter { Key = "ENABLE_DASHBOARD", Name = "启用 Dashboard", Description = "是否启用 Traefik Dashboard", Type = ParameterType.Boolean, DefaultValue = "false", Required = false }
+                    }
+                },
+                "jdk8" => new ApplicationInfo
+                {
+                    Id = "jdk8",
+                    Name = "JDK 8",
+                    Version = "8u452b09",
+                    Versions = new List<string> { "8u452b09" },
+                    Description = "Temurin JDK 8 运行时与开发工具包",
+                    Category = "基础环境",
+                    SupportWindows = true,
+                    SupportCentOS = true,
+                    SupportUbuntu = true,
+                    InstallScriptLinux = "bash Scripts/JDK8/install_linux.sh",
+                    InstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK8/install_windows.ps1\"",
+                    UninstallScriptLinux = "bash Scripts/JDK8/uninstall_linux.sh",
+                    UninstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK8/uninstall_windows.ps1\"",
+                    CheckScriptLinux = "Scripts/JDK8/check_status_linux.sh",
+                    CheckScriptWindows = "Scripts\\JDK8\\check_status_windows.ps1",
+                    Parameters = new List<InstallParameter>
+                    {
+                        new InstallParameter { Key = "INSTALL_DIR", Name = "Install Dir", Description = "可选，自定义安装目录；留空则使用系统默认目录", Type = ParameterType.Path, DefaultValue = "", Required = false },
+                        new InstallParameter { Key = "SET_AS_DEFAULT", Name = "Set As Default", Description = "安装后是否设置为默认 JAVA_HOME 与 java 命令", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
+                    }
+                },
+                "jdk11" => new ApplicationInfo
+                {
+                    Id = "jdk11",
+                    Name = "JDK 11",
+                    Version = "11.0.27_6",
+                    Versions = new List<string> { "11.0.27_6" },
+                    Description = "Temurin JDK 11 运行时与开发工具包",
+                    Category = "基础环境",
+                    SupportWindows = true,
+                    SupportCentOS = true,
+                    SupportUbuntu = true,
+                    InstallScriptLinux = "bash Scripts/JDK11/install_linux.sh",
+                    InstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK11/install_windows.ps1\"",
+                    UninstallScriptLinux = "bash Scripts/JDK11/uninstall_linux.sh",
+                    UninstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK11/uninstall_windows.ps1\"",
+                    CheckScriptLinux = "Scripts/JDK11/check_status_linux.sh",
+                    CheckScriptWindows = "Scripts\\JDK11\\check_status_windows.ps1",
+                    Parameters = new List<InstallParameter>
+                    {
+                        new InstallParameter { Key = "INSTALL_DIR", Name = "Install Dir", Description = "可选，自定义安装目录；留空则使用系统默认目录", Type = ParameterType.Path, DefaultValue = "", Required = false },
+                        new InstallParameter { Key = "SET_AS_DEFAULT", Name = "Set As Default", Description = "安装后是否设置为默认 JAVA_HOME 与 java 命令", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
+                    }
+                },
+                "jdk17" => new ApplicationInfo
+                {
+                    Id = "jdk17",
+                    Name = "JDK 17",
+                    Version = "17.0.15_6",
+                    Versions = new List<string> { "17.0.15_6" },
+                    Description = "Temurin JDK 17 运行时与开发工具包",
+                    Category = "基础环境",
+                    SupportWindows = true,
+                    SupportCentOS = true,
+                    SupportUbuntu = true,
+                    InstallScriptLinux = "bash Scripts/JDK17/install_linux.sh",
+                    InstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK17/install_windows.ps1\"",
+                    UninstallScriptLinux = "bash Scripts/JDK17/uninstall_linux.sh",
+                    UninstallScriptWindows = "powershell -ExecutionPolicy Bypass -File \"Scripts/JDK17/uninstall_windows.ps1\"",
+                    CheckScriptLinux = "Scripts/JDK17/check_status_linux.sh",
+                    CheckScriptWindows = "Scripts\\JDK17\\check_status_windows.ps1",
+                    Parameters = new List<InstallParameter>
+                    {
+                        new InstallParameter { Key = "INSTALL_DIR", Name = "Install Dir", Description = "可选，自定义安装目录；留空则使用系统默认目录", Type = ParameterType.Path, DefaultValue = "", Required = false },
+                        new InstallParameter { Key = "SET_AS_DEFAULT", Name = "Set As Default", Description = "安装后是否设置为默认 JAVA_HOME 与 java 命令", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
                     }
                 },
                 _ => null
@@ -3045,6 +4116,9 @@ namespace RemoteInstaller.ViewModels
         private string _osType = string.Empty;
 
         [ObservableProperty]
+        private string _osVersion = string.Empty;
+
+        [ObservableProperty]
         private string _groupName = string.Empty;
 
         [ObservableProperty]
@@ -3053,6 +4127,8 @@ namespace RemoteInstaller.ViewModels
         public string OsIcon => OsType switch
         {
             "Linux" => "🐧",
+            "CentOS" => "🐧",
+            "Ubuntu" => "🐧",
             "Windows" => "🪟",
             _ => "🖥️"
         };
@@ -3066,6 +4142,9 @@ namespace RemoteInstaller.ViewModels
     public partial class TaskViewModel : ObservableObject
     {
         [ObservableProperty]
+        private string _taskId = string.Empty;
+
+        [ObservableProperty]
         private string _applicationName = string.Empty;
 
         [ObservableProperty]
@@ -3077,8 +4156,123 @@ namespace RemoteInstaller.ViewModels
         [ObservableProperty]
         private string _currentStage = string.Empty;
 
-        public string StageDisplayText => CurrentStage;
+        [ObservableProperty]
+        private string _statusMessage = string.Empty;
+
+        [ObservableProperty]
+        private bool _isCompleted;
+
+        [ObservableProperty]
+        private bool _isFailed;
+
+        [ObservableProperty]
+        private bool _isCanceled;
+
+        [ObservableProperty]
+        private ObservableCollection<LogViewModel> _logEntries = new();
+
+        [ObservableProperty]
+        private DateTime _lastActivityAt = DateTime.Now;
+
+        partial void OnProgressChanged(double value)
+        {
+            OnPropertyChanged(nameof(ProgressText));
+            OnPropertyChanged(nameof(StatusBadgeText));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(DisplayPriority));
+        }
+
+        partial void OnCurrentStageChanged(string value)
+        {
+            OnPropertyChanged(nameof(StageDisplayText));
+            OnPropertyChanged(nameof(SummaryText));
+        }
+
+        partial void OnStatusMessageChanged(string value)
+        {
+            OnPropertyChanged(nameof(SummaryText));
+        }
+
+        partial void OnIsCompletedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(StatusBadgeText));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(DisplayPriority));
+            OnPropertyChanged(nameof(CardBorderBrush));
+            OnPropertyChanged(nameof(CardBorderThickness));
+            OnPropertyChanged(nameof(LastActivityText));
+        }
+
+        partial void OnIsFailedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(StatusBadgeText));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(DisplayPriority));
+            OnPropertyChanged(nameof(CardBorderBrush));
+            OnPropertyChanged(nameof(CardBorderThickness));
+            OnPropertyChanged(nameof(LastActivityText));
+        }
+
+        partial void OnIsCanceledChanged(bool value)
+        {
+            OnPropertyChanged(nameof(StatusBadgeText));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(DisplayPriority));
+            OnPropertyChanged(nameof(CardBorderBrush));
+            OnPropertyChanged(nameof(CardBorderThickness));
+            OnPropertyChanged(nameof(LastActivityText));
+        }
+
+        public string StageDisplayText => string.IsNullOrWhiteSpace(CurrentStage) ? "等待中" : CurrentStage;
         public string AppName => ApplicationName;
+        public string ProgressText => $"{Math.Clamp(Progress, 0, 100):0}%";
+        public string SummaryText => string.IsNullOrWhiteSpace(StatusMessage) ? StageDisplayText : StatusMessage;
+        public string StatusBadgeText => IsFailed
+            ? "失败"
+            : IsCanceled
+                ? "已取消"
+                : IsCompleted
+                    ? "已完成"
+                    : Progress <= 0
+                        ? "等待中"
+                        : "进行中";
+        public string StatusColor => IsFailed
+            ? "#EF4444"
+            : IsCanceled
+                ? "#F59E0B"
+                : IsCompleted
+                    ? "#10B981"
+                    : "#3B82F6";
+        public int DisplayPriority => IsFailed ? 3 : (!IsCompleted && !IsCanceled ? 2 : 1);
+        public string CardBorderBrush => IsFailed ? "#EF4444" : (IsCompleted ? "#10B981" : (IsCanceled ? "#F59E0B" : "#374151"));
+        public double CardBorderThickness => IsFailed ? 2 : 1;
+        public string LastActivityText => (IsFailed ? "失败于 " : IsCanceled ? "取消于 " : IsCompleted ? "完成于 " : "最近更新 ") + LastActivityAt.ToString("HH:mm:ss");
+
+        public void MarkActivity()
+        {
+            LastActivityAt = DateTime.Now;
+            OnPropertyChanged(nameof(LastActivityText));
+        }
+
+        public void AddLog(LogEntry entry)
+        {
+            if (entry == null)
+            {
+                return;
+            }
+
+            LogEntries.Add(new LogViewModel
+            {
+                Message = entry.Message,
+                Level = entry.Level,
+                Timestamp = entry.Timestamp
+            });
+
+            while (LogEntries.Count > 500)
+            {
+                LogEntries.RemoveAt(0);
+            }
+        }
     }
 
     /// <summary>

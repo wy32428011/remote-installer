@@ -17,6 +17,7 @@ namespace RemoteInstaller
         private static ILogger _logger = null!;
         private static AppConfigurationService _appConfigurationService = null!;
         private static ConfigurationService _configurationService = null!;
+        private static HostStatusRefreshCoordinator _hostStatusRefreshCoordinator = null!;
 
         public static MainViewModel Instance
         {
@@ -28,8 +29,9 @@ namespace RemoteInstaller
                     _databaseService = new DatabaseService();
                     _sshService = new SshService();
                     _configurationService = new ConfigurationService(_sshService, _logger);
+                    _hostStatusRefreshCoordinator = new HostStatusRefreshCoordinator();
                     _appConfigurationService = new AppConfigurationService();
-                    _instance = new MainViewModel(_sshService, _databaseService, _logger, _configurationService, _appConfigurationService);
+                    _instance = new MainViewModel(_sshService, _databaseService, _logger, _configurationService, _hostStatusRefreshCoordinator, _appConfigurationService);
                 }
                 return _instance;
             }

@@ -95,7 +95,7 @@ chown -R consul:consul "$DATA_DIR" "$CONFIG_DIR"
 
 write_progress "Configuring" 45
 cat > "$CONFIG_DIR/consul.hcl" <<EOF
-server = false
+server = true
 datacenter = "dc1"
 node_name = "$NODE_NAME"
 data_dir = "$DATA_DIR"

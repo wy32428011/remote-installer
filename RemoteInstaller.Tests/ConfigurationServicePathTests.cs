@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Xunit;
 
@@ -39,12 +40,46 @@ public class ConfigurationServicePathTests
     }
 
     [Fact]
+    public void ConfigurationService_DefinesMariaDbConfigPaths()
+    {
+        var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
+
+        Assert.Contains("[\"MariaDB\"] = new()", service);
+        Assert.Contains("/etc/mysql/mariadb.conf.d/50-server.cnf", service);
+        Assert.Contains("/etc/my.cnf.d/server.cnf", service);
+    }
+
+    [Fact]
     public void ConfigurationService_DefinesTraefikConfigPaths()
     {
         var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
 
         Assert.Contains("[\"Traefik\"] = new()", service);
+        Assert.Contains("/etc/traefik/traefik.yml", service);
+        Assert.Contains("/usr/local/etc/traefik/traefik.yml", service);
         Assert.Contains("/etc/traefik/traefik.toml", service);
+    }
+
+    [Fact]
+    public void ConfigurationService_DefinesMosquittoConfigPaths()
+    {
+        var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
+
+        Assert.Contains("[\"Mosquitto\"] = new()", service);
+        Assert.Contains("/etc/mosquitto/mosquitto.conf", service);
+        Assert.Contains("/etc/mosquitto/conf.d/remote-installer.conf", service);
+        Assert.Contains(@"C:\Program Files\mosquitto\mosquitto.conf", service);
+    }
+
+    [Fact]
+    public void ConfigurationService_NormalizesMosquittoDisplayNameForConfigLookupAndRestart()
+    {
+        var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
+
+        Assert.Contains("NormalizeSoftwareName", service);
+        Assert.Contains("normalized.Contains(\"mosquitto\"", service);
+        Assert.Contains("GetServiceName(softwareName)", service);
+        Assert.Contains("\"Mosquitto\" => \"mosquitto\"", service);
     }
 
     [Fact]
@@ -52,61 +87,137 @@ public class ConfigurationServicePathTests
     {
         var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
 
+        Assert.Contains("/etc/traefik/dynamic.yml", service);
+        Assert.Contains("/usr/local/etc/traefik/dynamic.yml", service);
         Assert.Contains("/etc/traefik/dynamic.toml", service);
+        Assert.Contains("/usr/local/etc/traefik/dynamic.toml", service);
         Assert.Contains("GetSwitchableConfigFilesAsync", service);
     }
 
     [Fact]
-    public void MainViewModel_PassesSwitchableFilesToTraefikConfigEditor()
+    public void ConfigurationService_DefinesSwitchableElasticsearchConfigFiles()
+    {
+        var service = ReadProjectFile("RemoteInstaller", "Services", "ConfigurationService.cs");
+
+        var switchableBlockStart = service.IndexOf("[\"Elasticsearch\"] =", StringComparison.Ordinal);
+        var switchableListEnd = service.IndexOf("        ]", switchableBlockStart, StringComparison.Ordinal);
+        var switchableBlockEnd = service.IndexOf("    };", switchableListEnd, StringComparison.Ordinal);
+        var elasticsearchSwitchableBlock = service.Substring(switchableBlockStart, switchableBlockEnd - switchableBlockStart);
+
+        Assert.Contains("/etc/elasticsearch/elasticsearch.yml", elasticsearchSwitchableBlock);
+        Assert.Contains("/opt/elasticsearch/config/elasticsearch.yml", elasticsearchSwitchableBlock);
+        Assert.Contains("/usr/share/elasticsearch/config/elasticsearch.yml", elasticsearchSwitchableBlock);
+        Assert.Contains("/etc/elasticsearch/jvm.options", elasticsearchSwitchableBlock);
+        Assert.Contains("/opt/elasticsearch/config/jvm.options", elasticsearchSwitchableBlock);
+        Assert.Contains("/usr/share/elasticsearch/config/jvm.options", elasticsearchSwitchableBlock);
+        Assert.Contains("/etc/systemd/system/elasticsearch.service", elasticsearchSwitchableBlock);
+        Assert.Contains("/usr/lib/systemd/system/elasticsearch.service", elasticsearchSwitchableBlock);
+        Assert.Contains("/lib/systemd/system/elasticsearch.service", elasticsearchSwitchableBlock);
+        Assert.Contains("主配置 (/etc)", elasticsearchSwitchableBlock);
+        Assert.Contains("主配置 (/opt)", elasticsearchSwitchableBlock);
+        Assert.Contains("主配置 (/usr/share)", elasticsearchSwitchableBlock);
+        Assert.Contains("JVM 配置 (/etc)", elasticsearchSwitchableBlock);
+        Assert.Contains("JVM 配置 (/opt)", elasticsearchSwitchableBlock);
+        Assert.Contains("JVM 配置 (/usr/share)", elasticsearchSwitchableBlock);
+        Assert.Contains("服务配置 (/etc/systemd)", elasticsearchSwitchableBlock);
+    }
+
+    [Fact]
+    public void AppConfiguration_DefinesMosquittoApplication()
+    {
+        var appConfiguration = ReadProjectFile("Scripts", "app-configuration.json");
+
+        Assert.Contains("\"id\": \"mosquitto\"", appConfiguration);
+        Assert.Contains("\"name\": \"Mosquitto\"", appConfiguration);
+        Assert.Contains("Scripts/Mosquitto/install_linux.sh", appConfiguration);
+        Assert.Contains("PASSWORD_FILE={password_file}", appConfiguration);
+        Assert.Contains("-PasswordFile {password_file}", appConfiguration);
+        Assert.Contains("\"version\": \"2.0.22\"", appConfiguration);
+        Assert.Contains("\"version\": \"2.1.2\"", appConfiguration);
+        Assert.Contains("\"version\": \"1.6.10\"", appConfiguration);
+        Assert.Contains("Scripts/Mosquitto/check_status_linux.sh", appConfiguration);
+        Assert.Contains("\"osSupport\": [\"CentOS\", \"Ubuntu\", \"Windows\"]", appConfiguration);
+        Assert.Contains("\"required\": false", appConfiguration);
+        Assert.Contains("用户名（留空则启用匿名访问；启用认证时需与密码同时填写）", appConfiguration);
+        Assert.Contains("密码（留空则启用匿名访问；启用认证时需与用户名同时填写）", appConfiguration);
+    }
+
+    [Fact]
+    public void MainViewModel_DefinesMosquittoFallback()
     {
         var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "MainViewModel.cs");
 
-        Assert.Contains("GetSwitchableConfigFilesAsync(app.Name", viewModel);
-        Assert.Contains("switchableFiles", viewModel);
+        Assert.Contains("Id = \"mosquitto\"", viewModel);
+        Assert.Contains("Name = \"Mosquitto\"", viewModel);
+        Assert.Contains("Scripts/Mosquitto/check_status_linux.sh", viewModel);
+        Assert.Contains("Scripts\\Mosquitto\\check_status_windows.ps1", viewModel);
+        Assert.Contains("Versions = new List<string> { \"2.0.21\", \"2.0.22\", \"2.1.2\", \"1.6.10\" }", viewModel);
+        Assert.Contains("DefaultValue = \"\"", viewModel);
+        Assert.Contains("Required = false", viewModel);
+        Assert.Contains("Mosquitto 登录用户名（留空则启用匿名访问；启用认证时需与密码同时填写）", viewModel);
     }
 
     [Fact]
-    public void ConfigEditorViewModel_DefinesFileSwitchingStateForTraefik()
+    public void AppConfigurationService_DefinesMosquittoDefaults()
     {
-        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "ConfigEditorViewModel.cs");
+        var service = ReadProjectFile("RemoteInstaller", "Services", "AppConfigurationService.cs");
 
-        Assert.Contains("AvailableFiles", viewModel);
-        Assert.Contains("SelectedFile", viewModel);
-        Assert.Contains("SupportsFileSwitch", viewModel);
-        Assert.Contains("SwitchToFileAsync", viewModel);
+        Assert.Contains("[\"mosquitto\"] = new(StringComparer.OrdinalIgnoreCase)", service);
+        Assert.Contains("MQTT TCP 端口", service);
+        Assert.Contains("轻量级 MQTT 消息代理，支持离线安装与基础认证", service);
+        Assert.Contains("app.Id.Equals(\"mosquitto\"", service);
+        Assert.Contains("parameter.Required = false;", service);
+        Assert.Contains("parameter.Default = string.Empty;", service);
+        Assert.DoesNotContain("MQTT WebSocket 端口", service);
     }
 
     [Fact]
-    public void ConfigEditorViewModel_ProtectsFileSwitchConsistency()
+    public void ScriptsReadme_DefinesMosquittoOfflineLayout()
     {
-        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "ConfigEditorViewModel.cs");
+        var readme = ReadProjectFile("RemoteInstaller", "Scripts", "README.md");
 
-        Assert.Contains("EnsureCurrentFileOption", viewModel);
-        Assert.Contains("_fileSwitchVersion", viewModel);
-        Assert.Contains("if (switchVersion != _fileSwitchVersion)", viewModel);
-        Assert.Contains("if (!IsModified)", viewModel);
-        Assert.Contains("await SaveAsync();", viewModel);
-        Assert.Contains("CloseAction?.Invoke();", viewModel);
+        Assert.Contains("RemoteInstaller/Scripts/Mosquitto/windows", readme);
+        Assert.Contains("RemoteInstaller/Scripts/Mosquitto/mosquitto-ubuntu/22", readme);
+        Assert.Contains("RemoteInstaller/Scripts/Mosquitto/mosquitto-ubuntu/24", readme);
+        Assert.Contains("RemoteInstaller/Scripts/Mosquitto/mosquitto-centos7", readme);
+        Assert.Contains("mosquitto_*.deb", readme);
+        Assert.Contains("mosquitto-*.rpm", readme);
+        Assert.Contains("mosquitto-*.zip", readme);
     }
 
     [Fact]
-    public void ConfigEditorDialog_ShowsFileSwitcherForTraefik()
+    public void InstallConfigViewModel_UsesOsVersionToValidateMySqlOfflineCompatibility()
     {
-        var dialog = ReadProjectFile("RemoteInstaller", "Views", "Dialogs", "ConfigEditorDialog.xaml");
+        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "InstallConfigViewModel.cs");
 
-        Assert.Contains("ItemsSource=\"{Binding AvailableFiles}\"", dialog);
-        Assert.Contains("SelectedItem=\"{Binding SelectedFile, Mode=TwoWay}\"", dialog);
-        Assert.Contains("DisplayMemberPath=\"DisplayName\"", dialog);
-        Assert.Contains("Visibility=\"{Binding SupportsFileSwitch, Converter={StaticResource BoolToVisibilityConverter}}\"", dialog);
+        Assert.Contains("TryGetCompatibleMySqlOfflineFolder", viewModel);
+        Assert.Contains("_host.OsVersion", viewModel);
+        Assert.Contains("ubuntuMajor == 22", viewModel);
+        Assert.Contains("ubuntuMajor == 24", viewModel);
+        Assert.Contains("Ubuntu 22.04 和 Ubuntu 24.04", viewModel);
+        Assert.Contains("Path.Combine(\"mysql-ubuntu\", \"22\")", viewModel);
+        Assert.Contains("Path.Combine(\"mysql-ubuntu\", \"24\")", viewModel);
+        Assert.Contains("centOsMajor != 7", viewModel);
+        Assert.Contains("mysql-centos7", viewModel);
     }
 
     [Fact]
-    public void TraefikInstallScript_GrantsLowPortBindingCapability()
+    public void InstallConfigViewModel_AllowsMySqlOfflineDirectoryToUseMysqlSubdirectory()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Traefik", "install_linux.sh");
+        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "InstallConfigViewModel.cs");
 
-        Assert.Contains("AmbientCapabilities=CAP_NET_BIND_SERVICE", script);
-        Assert.Contains("CapabilityBoundingSet=CAP_NET_BIND_SERVICE", script);
-        Assert.Contains("NoNewPrivileges=true", script);
+        Assert.Contains("Path.Combine(root, \"mysql\")", viewModel);
+        Assert.Contains("SearchOption.TopDirectoryOnly", viewModel);
+        Assert.Contains("packagePath = root;", viewModel);
+    }
+
+    [Fact]
+    public void InstallConfigViewModel_UsesOsVersionToValidateMariaDbOfflineCompatibility()
+    {
+        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "InstallConfigViewModel.cs");
+
+        Assert.Contains("TryGetCompatibleMariaDbOfflineFolder", viewModel);
+        Assert.Contains("Path.Combine(\"mariadb-ubuntu\", \"22\")", viewModel);
+        Assert.Contains("Path.Combine(\"mariadb-ubuntu\", \"24\")", viewModel);
     }
 }

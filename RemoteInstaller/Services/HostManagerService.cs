@@ -195,10 +195,15 @@ public partial class HostManagerService : ObservableObject
                 host.StatusMessage = "连接成功";
                 host.LastConnected = DateTime.Now;
 
-                // 如果检测到不同的 OS 类型，更新
-                if (result.DetectedOsType != host.OsType)
+                var hostInfoChanged = result.DetectedOsType != host.OsType ||
+                                      !string.Equals(result.DetectedOsVersion, host.OsVersion, StringComparison.Ordinal) ||
+                                      !string.Equals(result.DetectedCpuArchitecture, host.CpuArchitecture, StringComparison.Ordinal);
+
+                if (hostInfoChanged)
                 {
                     host.OsType = result.DetectedOsType;
+                    host.OsVersion = result.DetectedOsVersion;
+                    host.CpuArchitecture = result.DetectedCpuArchitecture;
                     _databaseService.SaveHost(host);
                 }
 
@@ -219,7 +224,9 @@ public partial class HostManagerService : ObservableObject
             {
                 Success = result.Success,
                 Message = result.Message,
-                DetectedOsType = result.DetectedOsType
+                DetectedOsType = result.DetectedOsType,
+                DetectedOsVersion = result.DetectedOsVersion,
+                DetectedCpuArchitecture = result.DetectedCpuArchitecture
             };
         }
         catch (OperationCanceledException)
@@ -231,7 +238,9 @@ public partial class HostManagerService : ObservableObject
             {
                 Success = false,
                 Message = "连接已取消",
-                DetectedOsType = host.OsType
+                DetectedOsType = host.OsType,
+                DetectedOsVersion = host.OsVersion,
+                DetectedCpuArchitecture = host.CpuArchitecture
             };
         }
         catch (Exception ex)
@@ -245,7 +254,9 @@ public partial class HostManagerService : ObservableObject
             {
                 Success = false,
                 Message = ex.Message,
-                DetectedOsType = host.OsType
+                DetectedOsType = host.OsType,
+                DetectedOsVersion = host.OsVersion,
+                DetectedCpuArchitecture = host.CpuArchitecture
             };
         }
     }
@@ -386,4 +397,6 @@ public class TestConnectionResult
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
     public OperatingSystemType DetectedOsType { get; set; }
+    public string DetectedOsVersion { get; set; } = string.Empty;
+    public string DetectedCpuArchitecture { get; set; } = string.Empty;
 }

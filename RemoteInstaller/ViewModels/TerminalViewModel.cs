@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -19,9 +21,11 @@ public partial class TerminalViewModel : ObservableObject
     private readonly RemoteHost _remoteHost;
     private readonly object _outputLock = new();
     private readonly object _commandLock = new();
-    private readonly StringBuilder _outputBuilder = new(100000);
+    private readonly StringBuilder _plainTextOutputBuilder = new(100000);
     private readonly StringBuilder _streamBuffer = new();
-    private readonly StringBuilder _pendingUiAppendBuilder = new();
+    private readonly TerminalAnsiParser _ansiParser = new();
+    private readonly List<TerminalOutputSpan> _visibleRenderSpans = new();
+    private readonly List<TerminalOutputSpan> _pendingUiAppendSpans = new();
 
     private readonly ObservableCollection<string> _commandHistory = new();
     private CancellationTokenSource? _connectCts;
@@ -41,7 +45,6 @@ public partial class TerminalViewModel : ObservableObject
     private const int MaxVisibleOutputLength = 200_000;
     private const int OutputBatchFlushThreshold = 16_384;
     private const int UiFlushIntervalMs = 33;
-    private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-?]*[ -/]*[@-~]|\x1B\][^\a]*(\a|\x1B\\)", RegexOptions.Compiled);
 
     [ObservableProperty]
     private string _currentCommand = string.Empty;
@@ -67,6 +70,13 @@ public partial class TerminalViewModel : ObservableObject
     [ObservableProperty]
     private string _currentDirectory = "~";
 
+    /// <summary>
+    /// 终端右侧文件侧栏。
+    /// 与终端会话共用同一个 SSH/SFTP 服务，但保持独立职责。
+    /// </summary>
+    [ObservableProperty]
+    private TerminalFilePaneViewModel? _filePane;
+
     [ObservableProperty]
     private string _lastExitCode = "--";
 
@@ -82,7 +92,7 @@ public partial class TerminalViewModel : ObservableObject
     [ObservableProperty]
     private string _shellLabel = "Shell";
 
-    public event Action<string>? OutputAppended;
+    public event Action<IReadOnlyList<TerminalOutputSpan>>? OutputAppended;
     public event Action? OutputReloadRequested;
 
     public string WindowTitle => HostViewModel != null
@@ -99,7 +109,7 @@ public partial class TerminalViewModel : ObservableObject
 
     public string OutputSnapshot => GetOutputSnapshot();
 
-    public string VisibleOutputSnapshot => GetVisibleOutputSnapshot();
+    public IReadOnlyList<TerminalOutputSpan> VisibleRenderSpans => GetVisibleRenderSpansSnapshot();
 
     public int VisibleOutputLimit => MaxVisibleOutputLength;
 
@@ -112,6 +122,7 @@ public partial class TerminalViewModel : ObservableObject
         OperatingSystemLabel = GetOperatingSystemLabel(remoteHost.OsType);
         ShellLabel = IsWindowsHost ? "PowerShell" : "Bash / sh";
         CurrentDirectory = IsWindowsHost ? @"C:\" : "~";
+        FilePane = new TerminalFilePaneViewModel(_sshService, _remoteHost);
 
         _ = ConnectAsync();
     }
@@ -138,6 +149,11 @@ public partial class TerminalViewModel : ObservableObject
             StatusMessage = "已连接";
             AddSystemLine($"已使用 {HostViewModel?.Username} 登录");
             AddSystemLine($"会话已就绪（{ShellLabel}）");
+
+            if (FilePane != null)
+            {
+                await FilePane.InitializeAsync(_connectCts.Token);
+            }
         }
         catch (Exception ex)
         {
@@ -262,6 +278,22 @@ public partial class TerminalViewModel : ObservableObject
         {
             AddErrorLine($"导出失败: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 把右侧文件栏同步到当前终端目录。
+    /// 第一版只做显式同步，避免把 shell 的每次目录变化都做成脆弱的实时双向绑定。
+    /// </summary>
+    [RelayCommand]
+    private async Task SyncFilePaneToCurrentDirectoryAsync()
+    {
+        if (FilePane == null || !FilePane.IsSftpAvailable || string.IsNullOrWhiteSpace(CurrentDirectory))
+        {
+            return;
+        }
+
+        await FilePane.LoadDirectoryCommand.ExecuteAsync(CurrentDirectory);
+        AddSystemLine($"文件侧栏已同步到 {CurrentDirectory}");
     }
 
     private async Task ExecuteTerminalCommandAsync(string? rawCommand, bool clearInput)
@@ -440,7 +472,7 @@ public partial class TerminalViewModel : ObservableObject
             return;
         }
 
-        AppendCommittedOutput(pendingChunk.ToString());
+        AppendTerminalOutput(pendingChunk.ToString());
         pendingChunk.Clear();
     }
 
@@ -479,6 +511,11 @@ public partial class TerminalViewModel : ObservableObject
             _streamBuffer.Clear();
         }
 
+        lock (_outputLock)
+        {
+            _ansiParser.Reset();
+        }
+
         completion?.TrySetCanceled();
     }
 
@@ -498,7 +535,10 @@ public partial class TerminalViewModel : ObservableObject
     {
         lock (_outputLock)
         {
-            _outputBuilder.Clear();
+            _plainTextOutputBuilder.Clear();
+            _visibleRenderSpans.Clear();
+            _pendingUiAppendSpans.Clear();
+            _ansiParser.Reset();
             if (!IsExecuting)
             {
                 _streamBuffer.Clear();
@@ -516,30 +556,56 @@ public partial class TerminalViewModel : ObservableObject
 
     private void AddSystemLine(string message)
     {
-        AddMetaLine(message, "[系统]");
+        AddMetaLine(message, "[系统]", "InfoBrush");
     }
 
     private void AddErrorLine(string message)
     {
-        AddMetaLine(message, "[错误]");
+        AddMetaLine(message, "[错误]", "ErrorBrush");
     }
 
-    private void AddMetaLine(string message, string prefix)
+    private void AddMetaLine(string message, string prefix, string foregroundKey)
     {
-        AppendCommittedOutput($"{prefix} {message}\n");
+        AppendRenderSpans(new[]
+        {
+            new TerminalOutputSpan
+            {
+                Text = $"{prefix} {message}\n",
+                ForegroundKey = foregroundKey,
+                IsBold = true
+            }
+        });
     }
 
-    private void AppendCommittedOutput(string text)
+    private void AppendTerminalOutput(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
             return;
         }
 
+        IReadOnlyList<TerminalOutputSpan> spans;
         lock (_outputLock)
         {
-            var trimmed = EnsureOutputCapacityLocked(text.Length);
-            _outputBuilder.Append(text);
+            spans = _ansiParser.Parse(text);
+        }
+
+        AppendRenderSpans(spans);
+    }
+
+    private void AppendRenderSpans(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        if (spans.Count == 0)
+        {
+            return;
+        }
+
+        lock (_outputLock)
+        {
+            var plainText = ToPlainText(spans);
+            var trimmed = EnsureOutputCapacityLocked(plainText.Length);
+            _plainTextOutputBuilder.Append(plainText);
+            AppendVisibleRenderSpansLocked(spans);
             UpdateOutputSizeLocked();
             if (trimmed)
             {
@@ -547,48 +613,115 @@ public partial class TerminalViewModel : ObservableObject
             }
             else
             {
-                QueueUiAppendLocked(text);
+                QueueUiAppendLocked(spans);
             }
         }
     }
 
     private bool EnsureOutputCapacityLocked(int incomingLength)
     {
-        if (_outputBuilder.Length + incomingLength <= MaxOutputLength)
+        if (_plainTextOutputBuilder.Length + incomingLength <= MaxOutputLength)
         {
             return false;
         }
 
         var targetLength = Math.Min(TrimLength, Math.Max(0, MaxOutputLength - incomingLength));
-        var removeLength = Math.Max(0, _outputBuilder.Length - targetLength);
+        var removeLength = Math.Max(0, _plainTextOutputBuilder.Length - targetLength);
         if (removeLength > 0)
         {
-            _outputBuilder.Remove(0, removeLength);
+            _plainTextOutputBuilder.Remove(0, removeLength);
         }
 
+        _visibleRenderSpans.Clear();
+        _pendingUiAppendSpans.Clear();
         return true;
+    }
+
+    private void AppendVisibleRenderSpansLocked(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        foreach (var span in spans)
+        {
+            if (string.IsNullOrEmpty(span.Text))
+            {
+                continue;
+            }
+
+            if (_visibleRenderSpans.Count > 0 && CanMergeSpan(_visibleRenderSpans[^1], span))
+            {
+                _visibleRenderSpans[^1].Text += span.Text;
+                continue;
+            }
+
+            _visibleRenderSpans.Add(CloneSpan(span));
+        }
+
+        TrimVisibleRenderSpansLocked();
+    }
+
+    private void TrimVisibleRenderSpansLocked()
+    {
+        var totalLength = 0;
+        for (var index = _visibleRenderSpans.Count - 1; index >= 0; index--)
+        {
+            totalLength += _visibleRenderSpans[index].Text.Length;
+            if (totalLength <= MaxVisibleOutputLength)
+            {
+                continue;
+            }
+
+            var overflow = totalLength - MaxVisibleOutputLength;
+            if (overflow >= _visibleRenderSpans[index].Text.Length)
+            {
+                _visibleRenderSpans.RemoveRange(0, index + 1);
+            }
+            else
+            {
+                _visibleRenderSpans[index].Text = _visibleRenderSpans[index].Text[overflow..];
+                if (index > 0)
+                {
+                    _visibleRenderSpans.RemoveRange(0, index);
+                }
+            }
+
+            break;
+        }
     }
 
     private void UpdateOutputSizeLocked()
     {
-        _pendingOutputLength = _outputBuilder.Length;
+        _pendingOutputLength = _plainTextOutputBuilder.Length;
         _outputMetricsDirty = true;
     }
 
-    private void QueueUiAppendLocked(string text)
+    private void QueueUiAppendLocked(IReadOnlyList<TerminalOutputSpan> spans)
     {
-        if (string.IsNullOrEmpty(text) || _uiNeedsReload)
+        if (spans.Count == 0 || _uiNeedsReload)
         {
             return;
         }
 
-        _pendingUiAppendBuilder.Append(text);
+        foreach (var span in spans)
+        {
+            if (string.IsNullOrEmpty(span.Text))
+            {
+                continue;
+            }
+
+            if (_pendingUiAppendSpans.Count > 0 && CanMergeSpan(_pendingUiAppendSpans[^1], span))
+            {
+                _pendingUiAppendSpans[^1].Text += span.Text;
+                continue;
+            }
+
+            _pendingUiAppendSpans.Add(CloneSpan(span));
+        }
+
         ScheduleUiFlushLocked();
     }
 
     private void QueueUiReloadLocked()
     {
-        _pendingUiAppendBuilder.Clear();
+        _pendingUiAppendSpans.Clear();
         _uiNeedsReload = true;
         ScheduleUiFlushLocked();
     }
@@ -611,16 +744,18 @@ public partial class TerminalViewModel : ObservableObject
         bool outputMetricsChanged;
         int outputLength;
         bool reloadRequested;
-        string appendedText;
+        List<TerminalOutputSpan> appendedSpans;
 
         lock (_outputLock)
         {
             outputMetricsChanged = _outputMetricsDirty;
             outputLength = _pendingOutputLength;
             reloadRequested = _uiNeedsReload;
-            appendedText = reloadRequested ? string.Empty : _pendingUiAppendBuilder.ToString();
+            appendedSpans = reloadRequested
+                ? new List<TerminalOutputSpan>()
+                : _pendingUiAppendSpans.Select(CloneSpan).ToList();
             _outputMetricsDirty = false;
-            _pendingUiAppendBuilder.Clear();
+            _pendingUiAppendSpans.Clear();
             _uiNeedsReload = false;
             _uiFlushScheduled = false;
         }
@@ -639,16 +774,16 @@ public partial class TerminalViewModel : ObservableObject
                     return;
                 }
 
-                if (!string.IsNullOrEmpty(appendedText))
+                if (appendedSpans.Count > 0)
                 {
-                    OutputAppended?.Invoke(appendedText);
+                    OutputAppended?.Invoke(appendedSpans);
                 }
             },
             System.Windows.Threading.DispatcherPriority.Background);
 
         lock (_outputLock)
         {
-            if (_uiNeedsReload || _pendingUiAppendBuilder.Length > 0)
+            if (_uiNeedsReload || _pendingUiAppendSpans.Count > 0)
             {
                 ScheduleUiFlushLocked();
             }
@@ -659,21 +794,15 @@ public partial class TerminalViewModel : ObservableObject
     {
         lock (_outputLock)
         {
-            return _outputBuilder.ToString();
+            return _plainTextOutputBuilder.ToString();
         }
     }
 
-    private string GetVisibleOutputSnapshot()
+    private IReadOnlyList<TerminalOutputSpan> GetVisibleRenderSpansSnapshot()
     {
         lock (_outputLock)
         {
-            if (_outputBuilder.Length <= MaxVisibleOutputLength)
-            {
-                return _outputBuilder.ToString();
-            }
-
-            var startIndex = _outputBuilder.Length - MaxVisibleOutputLength;
-            return _outputBuilder.ToString(startIndex, MaxVisibleOutputLength);
+            return _visibleRenderSpans.Select(CloneSpan).ToList();
         }
     }
 
@@ -697,31 +826,58 @@ public partial class TerminalViewModel : ObservableObject
             return output;
         }
 
-        var normalized = output
+        return output
             .Replace("\0", string.Empty)
             .Replace("\r\n", "\n")
             .Replace('\r', '\n')
             .Replace("\b", string.Empty);
-
-        if (normalized.IndexOf('\u001b') < 0)
-        {
-            return normalized;
-        }
-
-        return AnsiEscapeRegex.Replace(normalized, string.Empty);
     }
 
     private static bool NeedsOutputNormalization(string output)
     {
         foreach (var character in output)
         {
-            if (character is '\0' or '\r' or '\b' or '\u001b')
+            if (character is '\0' or '\r' or '\b')
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static string ToPlainText(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        if (spans.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        foreach (var span in spans)
+        {
+            builder.Append(span.Text);
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool CanMergeSpan(TerminalOutputSpan left, TerminalOutputSpan right)
+    {
+        return string.Equals(left.ForegroundKey, right.ForegroundKey, StringComparison.Ordinal)
+            && string.Equals(left.BackgroundKey, right.BackgroundKey, StringComparison.Ordinal)
+            && left.IsBold == right.IsBold;
+    }
+
+    private static TerminalOutputSpan CloneSpan(TerminalOutputSpan source)
+    {
+        return new TerminalOutputSpan
+        {
+            Text = source.Text,
+            ForegroundKey = source.ForegroundKey,
+            BackgroundKey = source.BackgroundKey,
+            IsBold = source.IsBold
+        };
     }
 
     private string BuildCompletionCommand(string marker)
@@ -788,6 +944,7 @@ public partial class TerminalViewModel : ObservableObject
             IsConnected = false;
             IsExecuting = false;
             StatusMessage = "已断开";
+            FilePane?.ResetUnavailable("文件侧栏未连接");
 
             if (logMessage)
             {

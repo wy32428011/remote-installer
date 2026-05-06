@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using RemoteInstaller.Models;
 using RemoteInstaller.ViewModels;
 
 namespace RemoteInstaller.Views.Dialogs;
@@ -21,20 +27,12 @@ public partial class TerminalDialog : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         Loaded += TerminalDialog_Loaded;
+        FileTreeView.AddHandler(TreeViewItem.ExpandedEvent, new RoutedEventHandler(FileTreeViewItem_Expanded));
     }
 
     private void TerminalDialog_Loaded(object sender, RoutedEventArgs e)
     {
-        OutputTextBox.BeginChange();
-        try
-        {
-            OutputTextBox.Text = _viewModel.VisibleOutputSnapshot;
-        }
-        finally
-        {
-            OutputTextBox.EndChange();
-        }
-
+        ReloadVisibleOutput();
         CommandInput.Focus();
     }
 
@@ -48,58 +46,203 @@ public partial class TerminalDialog : Window
         }
     }
 
-    private void OnOutputAppended(string text)
+    /// <summary>
+    /// 追加终端渲染片段。
+    /// 这里只负责把 ViewModel 产出的样式片段映射到 RichTextBox，
+    /// 不在视图层重复做 ANSI 解析。
+    /// </summary>
+    private void OnOutputAppended(IReadOnlyList<TerminalOutputSpan> spans)
     {
-        if (string.IsNullOrEmpty(text))
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(new Action(() => OnOutputAppended(spans)));
+            return;
+        }
+
+        if (spans.Count == 0)
         {
             return;
         }
 
+        var currentLength = GetVisibleDocumentLength();
+        var incomingLength = GetSpanTextLength(spans);
         var visibleLimit = _viewModel.AutoScroll ? _viewModel.VisibleOutputLimit : VisibleOutputHardLimit;
-        var currentLength = OutputTextBox.Text?.Length ?? 0;
-        if (currentLength + text.Length > visibleLimit)
+        if (currentLength + incomingLength > visibleLimit)
         {
             ReloadVisibleOutput();
             return;
         }
 
-        OutputTextBox.BeginChange();
-        try
-        {
-            OutputTextBox.AppendText(text);
-        }
-        finally
-        {
-            OutputTextBox.EndChange();
-        }
+        AppendSpans(spans);
 
         if (_viewModel.AutoScroll)
         {
-            OutputTextBox.ScrollToEnd();
+            OutputRichTextBox.ScrollToEnd();
         }
     }
 
     private void OnOutputReloadRequested()
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(new Action(OnOutputReloadRequested));
+            return;
+        }
+
         ReloadVisibleOutput();
     }
 
     private void ReloadVisibleOutput()
     {
-        OutputTextBox.BeginChange();
-        try
-        {
-            OutputTextBox.Text = _viewModel.VisibleOutputSnapshot;
-        }
-        finally
-        {
-            OutputTextBox.EndChange();
-        }
+        var document = CreateDocument(_viewModel.VisibleRenderSpans);
+        OutputRichTextBox.Document = document;
 
         if (_viewModel.AutoScroll)
         {
-            OutputTextBox.ScrollToEnd();
+            OutputRichTextBox.ScrollToEnd();
         }
+    }
+
+    private void AppendSpans(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        var paragraph = EnsureOutputParagraph();
+        OutputRichTextBox.BeginChange();
+        try
+        {
+            foreach (var span in spans)
+            {
+                if (string.IsNullOrEmpty(span.Text))
+                {
+                    continue;
+                }
+
+                paragraph.Inlines.Add(CreateRun(span));
+            }
+        }
+        finally
+        {
+            OutputRichTextBox.EndChange();
+        }
+    }
+
+    private Paragraph EnsureOutputParagraph()
+    {
+        if (OutputRichTextBox.Document?.Blocks.FirstBlock is Paragraph paragraph)
+        {
+            return paragraph;
+        }
+
+        var document = CreateDocument([]);
+        OutputRichTextBox.Document = document;
+        return (Paragraph)document.Blocks.FirstBlock!;
+    }
+
+    private FlowDocument CreateDocument(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        var paragraph = new Paragraph
+        {
+            Margin = new Thickness(0),
+            LineHeight = 18
+        };
+
+        foreach (var span in spans)
+        {
+            if (string.IsNullOrEmpty(span.Text))
+            {
+                continue;
+            }
+
+            paragraph.Inlines.Add(CreateRun(span));
+        }
+
+        return new FlowDocument(paragraph)
+        {
+            PagePadding = new Thickness(0),
+            TextAlignment = TextAlignment.Left,
+            Background = Brushes.Transparent
+        };
+    }
+
+    private Run CreateRun(TerminalOutputSpan span)
+    {
+        var run = new Run(span.Text)
+        {
+            Foreground = ResolveBrush(span.ForegroundKey, OutputRichTextBox.Foreground),
+            FontWeight = span.IsBold ? FontWeights.SemiBold : FontWeights.Normal
+        };
+
+        if (!string.IsNullOrWhiteSpace(span.BackgroundKey))
+        {
+            run.Background = ResolveBrush(span.BackgroundKey, null);
+        }
+
+        return run;
+    }
+
+    private Brush? ResolveBrush(string? resourceKey, Brush? fallbackBrush)
+    {
+        if (!string.IsNullOrWhiteSpace(resourceKey) && TryFindResource(resourceKey) is Brush brush)
+        {
+            return brush;
+        }
+
+        return fallbackBrush;
+    }
+
+    private int GetVisibleDocumentLength()
+    {
+        if (OutputRichTextBox.Document == null)
+        {
+            return 0;
+        }
+
+        var range = new TextRange(OutputRichTextBox.Document.ContentStart, OutputRichTextBox.Document.ContentEnd);
+        return range.Text.Length;
+    }
+
+    /// <summary>
+    /// TreeView 展开时按需懒加载子目录。
+    /// 这里保留少量 code-behind，仅做 WPF 事件到 ViewModel 命令的桥接。
+    /// </summary>
+    private async void FileTreeViewItem_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is TreeViewItem item && item.DataContext is DirectoryItem dirItem)
+        {
+            if (dirItem.IsDirectory && !dirItem.IsLoaded && _viewModel.FilePane != null)
+            {
+                await _viewModel.FilePane.LoadChildrenCommand.ExecuteAsync(dirItem);
+            }
+
+            e.Handled = true;
+        }
+    }
+
+    private void FileTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (_viewModel.FilePane != null && e.NewValue is DirectoryItem selected)
+        {
+            _viewModel.FilePane.SelectedItem = selected;
+        }
+    }
+
+    private async void FileTreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_viewModel.FilePane?.OpenSelectedDirectoryCommand.CanExecute(null) == true)
+        {
+            await _viewModel.FilePane.OpenSelectedDirectoryCommand.ExecuteAsync(null);
+            e.Handled = true;
+        }
+    }
+
+    private static int GetSpanTextLength(IReadOnlyList<TerminalOutputSpan> spans)
+    {
+        var totalLength = 0;
+        foreach (var span in spans)
+        {
+            totalLength += span.Text.Length;
+        }
+
+        return totalLength;
     }
 
     private void CommandInput_KeyDown(object sender, KeyEventArgs e)

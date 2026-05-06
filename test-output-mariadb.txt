@@ -1,0 +1,62 @@
+  正在确定要还原的项目…
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj]
+C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj : warning NU1902: Package 'SSH.NET' 2020.0.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-72p8-v4hg-v45p
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Security.Cryptography.ProtectedData will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj]
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Text.Encoding.CodePages will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj]
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1902: Package 'SSH.NET' 2020.0.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-72p8-v4hg-v45p [C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj]
+  所有项目均是最新的，无法还原。
+C:\projects\远程安装应用\RemoteInstaller.Tests\RemoteInstaller.Tests.csproj : warning NU1902: Package 'SSH.NET' 2020.0.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-72p8-v4hg-v45p
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Security.Cryptography.ProtectedData will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1510: PackageReference System.Text.Encoding.CodePages will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+C:\projects\远程安装应用\RemoteInstaller\RemoteInstaller.csproj : warning NU1902: Package 'SSH.NET' 2020.0.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-72p8-v4hg-v45p
+  RemoteInstaller -> C:\projects\远程安装应用\RemoteInstaller\bin\Debug\net10.0-windows\RemoteInstaller.dll
+  RemoteInstaller.Tests -> C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\RemoteInstaller.Tests.dll
+C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\RemoteInstaller.Tests.dll (.NETCoreApp,Version=v10.0)的测试运行
+VSTest 版本 18.0.1 (x64)
+
+正在启动测试执行，请稍候...
+总共 1 个测试文件与指定模式相匹配。
+[xUnit.net 00:00:00.39]     RemoteInstaller.Tests.RabbitMqScriptTests.InstallConfigDialog_PrioritizesLocalResourcesInLabelsAndOrder [FAIL]
+  失败 RemoteInstaller.Tests.RabbitMqScriptTests.InstallConfigDialog_PrioritizesLocalResourcesInLabelsAndOrder [7 ms]
+  错误消息:
+   Assert.Contains() Failure: Sub-string not found
+String:    "<Window x:Class="RemoteInstaller.Views.In"···
+Not found: "推荐优先使用本地资源安装"
+  堆栈跟踪:
+     at RemoteInstaller.Tests.RabbitMqScriptTests.InstallConfigDialog_PrioritizesLocalResourcesInLabelsAndOrder() in C:\projects\远程安装应用\RemoteInstaller.Tests\RabbitMqScriptTests.cs:line 146
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.52]     RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_ScriptsDirectoryPackage_IsAutoSelectedAsLocalResource [FAIL]
+[xUnit.net 00:00:00.53]     RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_WithoutScriptsDirectoryPackage_StaysLocalButDoesNotAutoSelectPackage [FAIL]
+  失败 RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_ScriptsDirectoryPackage_IsAutoSelectedAsLocalResource [250 ms]
+  错误消息:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\"···
+Actual:   ""
+  堆栈跟踪:
+     at RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_ScriptsDirectoryPackage_IsAutoSelectedAsLocalResource() in C:\projects\远程安装应用\RemoteInstaller.Tests\RabbitMqOfflineSelectionTests.cs:line 74
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  失败 RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_WithoutScriptsDirectoryPackage_StaysLocalButDoesNotAutoSelectPackage [14 ms]
+  错误消息:
+   Assert.True() Failure
+Expected: True
+Actual:   False
+  堆栈跟踪:
+     at RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.NormalApplication_WithoutScriptsDirectoryPackage_StaysLocalButDoesNotAutoSelectPackage() in C:\projects\远程安装应用\RemoteInstaller.Tests\RabbitMqOfflineSelectionTests.cs:line 112
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.55]     RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.UbuntuRabbitMqOfflineDirectory_WithoutRequiredSystemDependency_StaysLocalButDoesNotAutoSelectPackage [FAIL]
+  失败 RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.UbuntuRabbitMqOfflineDirectory_WithoutRequiredSystemDependency_StaysLocalButDoesNotAutoSelectPackage [19 ms]
+  错误消息:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  堆栈跟踪:
+     at RemoteInstaller.Tests.RabbitMqOfflineSelectionTests.UbuntuRabbitMqOfflineDirectory_WithoutRequiredSystemDependency_StaysLocalButDoesNotAutoSelectPackage() in C:\projects\远程安装应用\RemoteInstaller.Tests\RabbitMqOfflineSelectionTests.cs:line 160
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+失败!  - 失败:     4，通过:   103，已跳过:     0，总计:   107，持续时间: 652 ms - RemoteInstaller.Tests.dll (net10.0)

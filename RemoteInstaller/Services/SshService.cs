@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using RemoteInstaller.Models;
 using Renci.SshNet;
 using Renci.SshNet.Common;
+using Renci.SshNet.Sftp;
 
 namespace RemoteInstaller.Services;
 
@@ -23,6 +24,7 @@ public class SshService : IDisposable
     private bool _disposed;
     private ILogger? _logger;
     private string? _connectedHostKey;
+    private ConnectionInfo? _connectionInfo;
 
     private ShellStream? _terminalShellStream;
     private CancellationTokenSource? _terminalReadCts;
@@ -50,6 +52,8 @@ public class SshService : IDisposable
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
         public OperatingSystemType DetectedOsType { get; set; } = OperatingSystemType.CentOS;
+        public string DetectedOsVersion { get; set; } = string.Empty;
+        public string DetectedCpuArchitecture { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -147,6 +151,8 @@ public class SshService : IDisposable
 
                     // 检测操作系统类型
                     var detectedOsType = await DetectOperatingSystemAsync(client, cancellationToken);
+                    var detectedOsVersion = await DetectOperatingSystemVersionAsync(client, cancellationToken);
+                    var detectedCpuArchitecture = await DetectCpuArchitectureAsync(client, detectedOsType, cancellationToken);
 
                     client.Disconnect();
 
@@ -154,7 +160,9 @@ public class SshService : IDisposable
                     {
                         Success = true,
                         Message = "连接成功",
-                        DetectedOsType = detectedOsType
+                        DetectedOsType = detectedOsType,
+                        DetectedOsVersion = detectedOsVersion,
+                        DetectedCpuArchitecture = detectedCpuArchitecture
                     };
 
                     return result;
@@ -354,6 +362,76 @@ public class SshService : IDisposable
         return OperatingSystemType.CentOS;
     }
 
+    private async Task<string> DetectOperatingSystemVersionAsync(SshClient client, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var commandResult = client.RunCommand("cat /etc/os-release 2>/dev/null");
+            string? osRelease = commandResult?.Result ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(osRelease))
+            {
+                return string.Empty;
+            }
+
+            var versionLine = osRelease
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault(line => line.StartsWith("VERSION_ID=", StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrWhiteSpace(versionLine))
+            {
+                return string.Empty;
+            }
+
+            return versionLine.Substring("VERSION_ID=".Length).Trim().Trim('"', '\'');
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private async Task<string> DetectCpuArchitectureAsync(SshClient client, OperatingSystemType osType, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var command = osType == OperatingSystemType.Windows
+                ? "powershell -NoProfile -Command \"[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()\""
+                : "uname -m 2>/dev/null";
+
+            var result = await Task.Run(() =>
+            {
+                using var sshCommand = client.CreateCommand(command);
+                sshCommand.CommandTimeout = TimeSpan.FromSeconds(5);
+                return sshCommand.Execute();
+            }, cancellationToken);
+
+            return NormalizeCpuArchitecture(result);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string NormalizeCpuArchitecture(string? architecture)
+    {
+        if (string.IsNullOrWhiteSpace(architecture))
+        {
+            return string.Empty;
+        }
+
+        return architecture.Trim().ToLowerInvariant() switch
+        {
+            "x86_64" => "amd64",
+            "x64" => "amd64",
+            "amd64" => "amd64",
+            "aarch64" => "arm64",
+            "arm64" => "arm64",
+            _ => string.Empty
+        };
+    }
+
     /// <summary>
     /// 获取友好的错误消息
     /// </summary>
@@ -395,15 +473,14 @@ public class SshService : IDisposable
     }
 
     /// <summary>
-    /// 连接到远程主机
+    /// 连接到远程主机。
     /// </summary>
     public async Task ConnectAsync(RemoteHost host, CancellationToken cancellationToken = default)
     {
         var requestedHostKey = GetHostKey(host);
 
-        // 如果已经连接，直接返回
+        // 如果当前 SSH 会话已连接到目标主机，则直接复用。
         if (_sshClient != null && _sshClient.IsConnected &&
-            _sftpClient != null && _sftpClient.IsConnected &&
             string.Equals(_connectedHostKey, requestedHostKey, StringComparison.Ordinal))
         {
             return;
@@ -411,17 +488,18 @@ public class SshService : IDisposable
 
         _logger?.Info($"连接到 {host.Name}");
 
-        // 解密密码
+        // 解密密码。
         string? password = null;
         if (host.AuthType == AuthType.Password && !string.IsNullOrEmpty(host.EncryptedPassword))
         {
             password = EncryptionService.Decrypt(host.EncryptedPassword);
         }
 
-        // 创建连接信息
+        // 创建连接信息，并缓存起来供后续按需创建 SFTP 客户端复用。
         ConnectionInfo connectionInfo = CreateConnectionInfo(host, password);
+        _connectionInfo = connectionInfo;
 
-        // 如果已有客户端但断开，先断开
+        // 如果已有客户端但目标主机不同或连接失效，则先完整清理。
         if (_sshClient != null)
         {
             CleanupTerminalSession();
@@ -429,6 +507,7 @@ public class SshService : IDisposable
             _sshClient.Dispose();
             _sshClient = null;
         }
+
         if (_sftpClient != null)
         {
             try { _sftpClient.Disconnect(); } catch { }
@@ -436,18 +515,25 @@ public class SshService : IDisposable
             _sftpClient = null;
         }
 
-        // 创建并连接 SSH 客户端
+        // 先建立 SSH 主连接。
         _sshClient = new SshClient(connectionInfo);
         await Task.Run(() => _sshClient.Connect(), cancellationToken);
-
-        // 创建 SFTP 客户端
-        _sftpClient = new SftpClient(connectionInfo);
-        await Task.Run(() => _sftpClient.Connect(), cancellationToken);
         _connectedHostKey = requestedHostKey;
+
+        // SFTP 能力改为按需建立。
+        // 这里不因为 SFTP 不可用而让整个 SSH/终端连接失败。
+        try
+        {
+            await EnsureSftpConnectedAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning($"SFTP 未就绪，已降级为仅 SSH 会话：{ex.Message}");
+        }
 
         _logger?.Success($"连接到 {host.Name} 成功");
 
-        // 触发连接建立事件
+        // 触发连接建立事件。
         ConnectionEstablished?.Invoke(this, host.Id);
     }
 
@@ -569,6 +655,7 @@ public class SshService : IDisposable
         {
             _sshClient = null;
             _connectedHostKey = null;
+            _connectionInfo = null;
         }
 
         // 触发连接断开事件
@@ -806,6 +893,260 @@ public class SshService : IDisposable
     private static string GetHostKey(RemoteHost host)
     {
         return $"{host.IpAddress}:{host.Port}:{host.Username}";
+    }
+
+    /// <summary>
+    /// 确保 SFTP 客户端已连接。
+    /// </summary>
+    private async Task EnsureSftpConnectedAsync(CancellationToken cancellationToken = default)
+    {
+        // 如果已经连接，则直接复用。
+        if (_sftpClient != null && _sftpClient.IsConnected)
+        {
+            return;
+        }
+
+        // SFTP 依赖 SSH 主连接和连接信息。
+        if (_sshClient == null || !_sshClient.IsConnected || _connectionInfo == null)
+        {
+            throw new InvalidOperationException("SSH 未连接，无法建立 SFTP 客户端");
+        }
+
+        // 旧的 SFTP 客户端如果残留但已断开，先清理再重建。
+        if (_sftpClient != null)
+        {
+            try { _sftpClient.Disconnect(); } catch { }
+            _sftpClient.Dispose();
+            _sftpClient = null;
+        }
+
+        _sftpClient = new SftpClient(_connectionInfo);
+        await Task.Run(() => _sftpClient.Connect(), cancellationToken);
+    }
+
+    /// <summary>
+    /// 判断当前连接是否提供可用的 SFTP 能力。
+    /// </summary>
+    public virtual async Task<bool> IsSftpAvailableAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureSftpConnectedAsync(cancellationToken);
+            return _sftpClient != null && _sftpClient.IsConnected;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 列举远程目录内容。
+    /// </summary>
+    public virtual async Task<IReadOnlyList<RemoteFileEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new ArgumentException("远程目录路径不能为空", nameof(remotePath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
+        return await Task.Run<IReadOnlyList<RemoteFileEntry>>(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            var entries = _sftpClient
+                .ListDirectory(normalizedRemotePath, _ => { })
+                .Where(file => file.Name != "." && file.Name != "..")
+                .Select(MapRemoteFileEntry)
+                .OrderByDescending(file => file.IsDirectory)
+                .ThenBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return entries;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// 获取单个远程条目。
+    /// </summary>
+    public virtual async Task<RemoteFileEntry?> GetEntryAsync(string remotePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new ArgumentException("远程路径不能为空", nameof(remotePath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
+        return await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            if (!_sftpClient.Exists(normalizedRemotePath))
+            {
+                return null;
+            }
+
+            var file = _sftpClient.Get(normalizedRemotePath);
+            return MapRemoteFileEntry(file);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// 下载单个远程文件。
+    /// </summary>
+    public async Task DownloadFileAsync(string remotePath, string localPath, Action<int>? onProgress = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new ArgumentException("远程文件路径不能为空", nameof(remotePath));
+        }
+
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            throw new ArgumentException("本地文件路径不能为空", nameof(localPath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
+        var localDirectory = Path.GetDirectoryName(localPath);
+        if (!string.IsNullOrWhiteSpace(localDirectory))
+        {
+            Directory.CreateDirectory(localDirectory);
+        }
+
+        await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            var file = _sftpClient.Get(normalizedRemotePath);
+            if (file.IsDirectory)
+            {
+                throw new InvalidOperationException("当前路径是目录，第一版仅支持下载单个文件");
+            }
+
+            using var localStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            _sftpClient.DownloadFile(normalizedRemotePath, localStream, downloadedBytes =>
+            {
+                if (onProgress == null || file.Length <= 0)
+                {
+                    return;
+                }
+
+                var progress = (int)Math.Round(downloadedBytes * 100d / file.Length);
+                onProgress(Math.Max(0, Math.Min(100, progress)));
+            });
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// 删除远程文件。
+    /// </summary>
+    public async Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new ArgumentException("远程文件路径不能为空", nameof(remotePath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
+
+        await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            _sftpClient.DeleteFile(normalizedRemotePath);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// 删除远程目录。
+    /// </summary>
+    public async Task DeleteDirectoryAsync(string remotePath, bool recursive, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            throw new ArgumentException("远程目录路径不能为空", nameof(remotePath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
+
+        if (string.IsNullOrWhiteSpace(normalizedRemotePath) || normalizedRemotePath == "/")
+        {
+            throw new InvalidOperationException("不允许删除根目录");
+        }
+
+        await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            if (recursive)
+            {
+                DeleteDirectoryInternal(normalizedRemotePath);
+                return;
+            }
+
+            _sftpClient.DeleteDirectory(normalizedRemotePath);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// 移动或重命名远程条目。
+    /// </summary>
+    public async Task MoveAsync(string sourcePath, string targetPath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            throw new ArgumentException("源路径不能为空", nameof(sourcePath));
+        }
+
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            throw new ArgumentException("目标路径不能为空", nameof(targetPath));
+        }
+
+        await EnsureSftpConnectedAsync(cancellationToken);
+
+        var normalizedSourcePath = ResolveRemotePath(sourcePath);
+        var normalizedTargetPath = ResolveRemotePath(targetPath);
+        var targetDirectory = GetRemoteDirectoryPath(normalizedTargetPath);
+
+        if (!string.IsNullOrWhiteSpace(targetDirectory))
+        {
+            await EnsureRemoteDirectoryExistsAsync(targetDirectory, cancellationToken);
+        }
+
+        await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            _sftpClient.RenameFile(normalizedSourcePath, normalizedTargetPath);
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -1059,12 +1400,9 @@ public class SshService : IDisposable
     /// </summary>
     public async Task UploadStreamAsync(Stream localStream, string remotePath, Action<int>? onProgress = null, CancellationToken cancellationToken = default)
     {
-        if (_sftpClient == null || !_sftpClient.IsConnected)
-        {
-            throw new InvalidOperationException("SFTP 未连接，无法上传文件");
-        }
+        await EnsureSftpConnectedAsync(cancellationToken);
 
-        var normalizedRemotePath = NormalizeRemotePath(remotePath);
+        var normalizedRemotePath = ResolveRemotePath(remotePath);
         var fileSize = localStream.Length;
         var remoteDirectory = GetRemoteDirectoryPath(normalizedRemotePath);
 
@@ -1135,14 +1473,17 @@ public class SshService : IDisposable
     /// </summary>
     public async Task<string> ReadTextFileAsync(string remotePath, CancellationToken cancellationToken = default)
     {
-        if (_sftpClient == null || !_sftpClient.IsConnected)
-        {
-            throw new InvalidOperationException("SFTP 未连接，无法读取文件");
-        }
+        await EnsureSftpConnectedAsync(cancellationToken);
 
         return await Task.Run(() =>
         {
-            using (var remoteStream = _sftpClient.OpenRead(remotePath))
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            var normalizedRemotePath = ResolveRemotePath(remotePath);
+            using (var remoteStream = _sftpClient.OpenRead(normalizedRemotePath))
             using (var reader = new StreamReader(remoteStream, Encoding.UTF8))
             {
                 return reader.ReadToEnd();
@@ -1155,12 +1496,18 @@ public class SshService : IDisposable
     /// </summary>
     public async Task<bool> FileExistsAsync(string remotePath, CancellationToken cancellationToken = default)
     {
-        if (_sftpClient == null || !_sftpClient.IsConnected)
-        {
-            throw new InvalidOperationException("SFTP 未连接，无法检查文件");
-        }
+        await EnsureSftpConnectedAsync(cancellationToken);
 
-        return await Task.Run(() => _sftpClient.Exists(remotePath), cancellationToken);
+        return await Task.Run(() =>
+        {
+            if (_sftpClient == null || !_sftpClient.IsConnected)
+            {
+                throw new InvalidOperationException("SFTP 客户端未连接");
+            }
+
+            var normalizedRemotePath = ResolveRemotePath(remotePath);
+            return _sftpClient.Exists(normalizedRemotePath);
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -1168,23 +1515,21 @@ public class SshService : IDisposable
     /// </summary>
     public async Task MakeDirectoryAsync(string remotePath, CancellationToken cancellationToken = default)
     {
-        if (_sftpClient == null || !_sftpClient.IsConnected)
-        {
-            throw new InvalidOperationException("SFTP 未连接，无法创建目录");
-        }
-
         await EnsureRemoteDirectoryExistsAsync(remotePath, cancellationToken);
     }
 
     private async Task EnsureRemoteDirectoryExistsAsync(string remotePath, CancellationToken cancellationToken = default)
     {
-        if (_sftpClient == null || !_sftpClient.IsConnected)
+        await EnsureSftpConnectedAsync(cancellationToken);
+
+        var normalizedInputPath = NormalizeRemotePath(remotePath);
+        if (string.IsNullOrWhiteSpace(normalizedInputPath))
         {
-            throw new InvalidOperationException("SFTP 未连接，无法创建目录");
+            return;
         }
 
-        var normalizedPath = NormalizeRemotePath(remotePath);
-        if (string.IsNullOrWhiteSpace(normalizedPath))
+        var normalizedPath = ResolveRemotePath(remotePath);
+        if (normalizedPath == "/")
         {
             return;
         }
@@ -1229,6 +1574,51 @@ public class SshService : IDisposable
             current = CombineRemotePath(current, segments[i]);
             yield return current;
         }
+    }
+
+    /// <summary>
+    /// 将用户输入路径解析为 SFTP 可用的实际路径。
+    /// </summary>
+    private string ResolveRemotePath(string remotePath)
+    {
+        if (_sftpClient == null || !_sftpClient.IsConnected)
+        {
+            throw new InvalidOperationException("SFTP 客户端未连接");
+        }
+
+        var normalizedPath = NormalizeRemotePath(remotePath);
+        var workingDirectory = NormalizeRemotePath(_sftpClient.WorkingDirectory);
+
+        // 空路径或波浪线路径统一落到当前 SFTP 工作目录。
+        if (string.IsNullOrWhiteSpace(normalizedPath) || normalizedPath == "~")
+        {
+            return workingDirectory;
+        }
+
+        // ~/xxx 解析为当前工作目录下的相对路径。
+        if (normalizedPath.StartsWith("~/", StringComparison.Ordinal))
+        {
+            return CombineRemotePath(workingDirectory, normalizedPath[2..]);
+        }
+
+        // 绝对路径直接使用；相对路径则挂到当前工作目录之下。
+        return IsAbsoluteRemotePath(normalizedPath)
+            ? normalizedPath
+            : CombineRemotePath(workingDirectory, normalizedPath);
+    }
+
+    /// <summary>
+    /// 判断远程路径是否已是绝对路径。
+    /// </summary>
+    private static bool IsAbsoluteRemotePath(string remotePath)
+    {
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            return false;
+        }
+
+        return remotePath.StartsWith("/", StringComparison.Ordinal)
+            || (remotePath.Length >= 2 && char.IsLetter(remotePath[0]) && remotePath[1] == ':');
     }
 
     private static string GetRemoteDirectoryPath(string remotePath)
@@ -1278,6 +1668,76 @@ public class SshService : IDisposable
         }
 
         return remotePath.Trim().Replace('\\', '/');
+    }
+
+    /// <summary>
+    /// 递归删除远程目录。
+    /// </summary>
+    private void DeleteDirectoryInternal(string remotePath)
+    {
+        if (_sftpClient == null || !_sftpClient.IsConnected)
+        {
+            throw new InvalidOperationException("SFTP 客户端未连接");
+        }
+
+        foreach (var entry in _sftpClient.ListDirectory(remotePath, _ => { }))
+        {
+            if (entry.Name == "." || entry.Name == "..")
+            {
+                continue;
+            }
+
+            if (entry.IsDirectory)
+            {
+                DeleteDirectoryInternal(entry.FullName);
+            }
+            else
+            {
+                _sftpClient.DeleteFile(entry.FullName);
+            }
+        }
+
+        _sftpClient.DeleteDirectory(remotePath);
+    }
+
+    /// <summary>
+    /// 将 SSH.NET 的远程文件对象映射为仓库内通用模型。
+    /// </summary>
+    private static RemoteFileEntry MapRemoteFileEntry(SftpFile file)
+    {
+        return new RemoteFileEntry
+        {
+            Name = file.Name,
+            RemotePath = NormalizeRemotePath(file.FullName),
+            IsDirectory = file.IsDirectory,
+            Size = file.IsDirectory ? 0 : file.Length,
+            ModifiedTime = file.LastWriteTimeUtc == DateTime.MinValue
+                ? null
+                : new DateTimeOffset(DateTime.SpecifyKind(file.LastWriteTimeUtc, DateTimeKind.Utc)),
+            Permissions = FormatPermissions(file.Attributes)
+        };
+    }
+
+    /// <summary>
+    /// 将 SFTP 权限位格式化为类似 rwxr-xr-x 的字符串。
+    /// </summary>
+    private static string FormatPermissions(SftpFileAttributes attributes)
+    {
+        var chars = new[]
+        {
+            attributes.IsDirectory ? 'd' : '-',
+            attributes.OwnerCanRead ? 'r' : '-',
+            attributes.OwnerCanWrite ? 'w' : '-',
+            attributes.OwnerCanExecute ? 'x' : '-',
+            attributes.GroupCanRead ? 'r' : '-',
+            attributes.GroupCanWrite ? 'w' : '-',
+            attributes.GroupCanExecute ? 'x' : '-',
+            attributes.OthersCanRead ? 'r' : '-',
+            attributes.OthersCanWrite ? 'w' : '-',
+            attributes.OthersCanExecute ? 'x' : '-'
+        };
+
+        return new string(chars);
     }
     #region IDisposable 支持
 

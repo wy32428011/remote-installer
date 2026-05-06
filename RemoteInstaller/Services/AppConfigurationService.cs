@@ -31,12 +31,16 @@ public class AppConfigurationService : IDisposable
 
         var configCandidates = new[]
         {
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "app-configuration.json"),
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "app-configuration.json"),
             Path.Combine(Directory.GetCurrentDirectory(), "Scripts", "app-configuration.json"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Scripts", "app-configuration.json"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "app-configuration.json"),
             Path.Combine(Directory.GetCurrentDirectory(), "..", "Scripts", "app-configuration.json"),
             Path.Combine("Scripts", "app-configuration.json")
-        };
+        }
+        .Select(Path.GetFullPath)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
         _configFilePath = configCandidates.FirstOrDefault(File.Exists)
             ?? configCandidates[0];
@@ -311,11 +315,12 @@ public class AppConfigurationService : IDisposable
         var appDefaults = new Dictionary<string, (string Category, string Description, string Icon)>(StringComparer.OrdinalIgnoreCase)
         {
             ["mysql"] = ("\u6570\u636e\u5e93", "\u6d41\u884c\u7684\u5f00\u6e90\u5173\u7cfb\u578b\u6570\u636e\u5e93\u7ba1\u7406\u7cfb\u7edf", "\U0001F42C"),
+            ["mariadb"] = ("\u6570\u636e\u5e93", "\u517c\u5bb9 MySQL \u534f\u8bae\u7684\u5f00\u6e90\u5173\u7cfb\u578b\u6570\u636e\u5e93", "\U0001F9AD"),
             ["redis"] = ("\u6570\u636e\u5e93", "\u5f00\u6e90\u5185\u5b58\u6570\u636e\u7ed3\u6784\u5b58\u50a8\uff0c\u7528\u4f5c\u6570\u636e\u5e93\u3001\u7f13\u5b58\u548c\u6d88\u606f\u4ee3\u7406", "\U0001F534"),
             ["nginx"] = ("Web \u670d\u52a1", "\u9ad8\u6027\u80fd HTTP \u548c\u53cd\u5411\u4ee3\u7406\u670d\u52a1\u5668", "\U0001F310"),
             ["elasticsearch"] = ("\u6570\u636e\u5e93", "\u5206\u5e03\u5f0f RESTful \u641c\u7d22\u548c\u5206\u6790\u5f15\u64ce", "\U0001F50D"),
             ["rabbitmq"] = ("\u4e2d\u95f4\u4ef6", "\u5f00\u6e90\u6d88\u606f\u4ee3\u7406\u8f6f\u4ef6", "\U0001F430"),
-            ["nacos"] = ("\u4e2d\u95f4\u4ef6", "\u52a8\u6001\u670d\u52a1\u53d1\u73b0\u3001\u914d\u7f6e\u548c\u670d\u52a1\u7ba1\u7406", "\U0001F3DB\uFE0F"),
+            ["mosquitto"] = ("\u4e2d\u95f4\u4ef6", "\u8f7b\u91cf\u7ea7 MQTT \u6d88\u606f\u4ee3\u7406\uff0c\u652f\u6301\u79bb\u7ebf\u5b89\u88c5\u4e0e\u57fa\u7840\u8ba4\u8bc1", "\U0001F4E1"),
             ["consul"] = ("\u4e2d\u95f4\u4ef6", "\u670d\u52a1\u53d1\u73b0\u3001KV \u5b58\u50a8\u548c\u5065\u5eb7\u68c0\u67e5\u5e73\u53f0", "\U0001F9ED"),
             ["traefik"] = ("Web \u670d\u52a1", "\u4e91\u539f\u751f\u53cd\u5411\u4ee3\u7406\u4e0e\u8fb9\u7f18\u7f51\u5173", "\U0001F6E3\uFE0F")
         };
@@ -326,6 +331,13 @@ public class AppConfigurationService : IDisposable
             {
                 ["Port"] = "MySQL \u670d\u52a1\u7aef\u53e3",
                 ["Root Password"] = "root \u7528\u6237\u5bc6\u7801",
+                ["Data Directory"] = "\u6570\u636e\u76ee\u5f55\u8def\u5f84"
+            },
+            ["mariadb"] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Port"] = "MariaDB \u670d\u52a1\u7aef\u53e3",
+                ["Root Password"] = "root \u7528\u6237\u5bc6\u7801",
+                ["Allow Remote"] = "\u662f\u5426\u5141\u8bb8 root \u7528\u6237\u8fdc\u7a0b\u8fde\u63a5",
                 ["Data Directory"] = "\u6570\u636e\u76ee\u5f55\u8def\u5f84"
             },
             ["redis"] = new(StringComparer.OrdinalIgnoreCase)
@@ -354,13 +366,11 @@ public class AppConfigurationService : IDisposable
                 ["Password"] = "\u5bc6\u7801",
                 ["Enable Remote Access"] = "\u662f\u5426\u5141\u8bb8\u8fdc\u7a0b\u8bbf\u95ee\uff08\u9ed8\u8ba4\u542f\u7528\uff09"
             },
-            ["nacos"] = new(StringComparer.OrdinalIgnoreCase)
+            ["mosquitto"] = new(StringComparer.OrdinalIgnoreCase)
             {
-                ["HTTP Port"] = "HTTP \u7aef\u53e3",
-                ["Raft Port"] = "Raft \u7aef\u53e3",
-                ["Mode"] = "\u8fd0\u884c\u6a21\u5f0f (standalone/cluster)",
-                ["Username"] = "\u7ba1\u7406\u5458\u7528\u6237\u540d",
-                ["Password"] = "\u7ba1\u7406\u5458\u5bc6\u7801"
+                ["MQTT Port"] = "MQTT TCP \u7aef\u53e3",
+                ["Username"] = "\u7528\u6237\u540d",
+                ["Password"] = "\u5bc6\u7801"
             },
             ["consul"] = new(StringComparer.OrdinalIgnoreCase)
             {
@@ -403,6 +413,14 @@ public class AppConfigurationService : IDisposable
                     if (parameterDescriptions.TryGetValue(parameter.Name, out var description))
                     {
                         parameter.Description = description;
+                    }
+
+                    if (app.Id.Equals("mosquitto", StringComparison.OrdinalIgnoreCase)
+                        && (parameter.Name.Equals("Username", StringComparison.OrdinalIgnoreCase)
+                            || parameter.Name.Equals("Password", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        parameter.Required = false;
+                        parameter.Default = string.Empty;
                     }
                 }
             }

@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using RemoteInstaller.Models;
 using RemoteInstaller.ViewModels;
+using RemoteInstaller.ViewModels.Shared.ConfigEditing;
 
 namespace RemoteInstaller.Views.Dialogs;
 
@@ -49,7 +50,7 @@ public partial class GenericAppDeployDialog : Window
     {
         if (DataContext is GenericAppDeployViewModel vm)
         {
-            vm.SelectedYamlNode = e.NewValue as GenericAppDeployViewModel.YamlTreeNode;
+            vm.SelectedYamlNode = e.NewValue as YamlTreeNode;
         }
     }
 }

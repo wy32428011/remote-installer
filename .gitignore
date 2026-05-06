@@ -2932,3 +2932,13 @@
 /RemoteInstaller/obj/RemoteInstaller_zxwwf5xu_wpftmp.csproj.nuget.g.targets
 /RemoteInstaller/obj/rider.project.model.nuget.info
 /RemoteInstaller/obj/rider.project.restore.info
+/.worktrees/
+/.claude/worktrees/
+/.codex/
+/.idea/
+/artifacts/
+/RemoteInstaller/bin/
+/RemoteInstaller/obj/
+/RemoteInstaller/publish/
+/RemoteInstaller.Tests/bin/
+/RemoteInstaller.Tests/obj/

@@ -118,13 +118,23 @@ public class RabbitMqScriptTests
     }
 
     [Fact]
-    public void InstallerService_ValidatesUbuntuRabbitMqOfflineDependenciesBeforeUpload()
+    public void InstallerService_DoesNotKeepRabbitMqSingleFileDependencyUploadSpecialCase()
     {
         var installerService = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
 
-        Assert.Contains("logrotate", installerService);
-        Assert.Contains("RabbitMQ Ubuntu 离线安装缺少依赖", installerService);
-        Assert.Contains("dependencyFiles", installerService);
+        Assert.DoesNotContain("RabbitMQ Ubuntu 离线安装缺少依赖", installerService);
+        Assert.DoesNotContain("RabbitMQ 离线依赖文件列表", installerService);
+        Assert.DoesNotContain("dependencyFiles", installerService);
+    }
+
+    [Fact]
+    public void InstallConfigViewModel_UsesRabbitMqOfflineDirectoryInsteadOfSinglePackageFile()
+    {
+        var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "InstallConfigViewModel.cs");
+
+        Assert.Contains("packagePath = root;", viewModel);
+        Assert.Contains("已从 Scripts 目录自动匹配 RabbitMQ 本地资源目录", viewModel);
+        Assert.Contains("RabbitMQ Ubuntu 离线资源目录缺少依赖", viewModel);
     }
 
     [Fact]

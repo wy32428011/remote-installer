@@ -10,6 +10,7 @@
     <AssemblyName>RemoteInstaller</AssemblyName>
     <StartupObject>RemoteInstaller.App</StartupObject>
     <Version>1.0.0</Version>
+    <ApplicationIcon>Assets\Brand\remoteinstaller-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Authors>Leon</Authors>
     <Description>跨平台服务器管理工具 - 远程安装应用</Description>
@@ -46,11 +47,19 @@
     <None Update="Scripts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\Scripts\app-configuration.json">
+      <Link>Scripts\app-configuration.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="publish\" />
     <Folder Include="Scripts\Elasticsearch\elasticsearch-centos7\" />
     <Folder Include="Scripts\Elasticsearch\elasticsearch-ubuntu\" />
+    <Folder Include="Scripts\Mosquitto\mosquitto-centos7\" />
+    <Folder Include="Scripts\Mosquitto\mosquitto-ubuntu\" />
+    <Folder Include="Scripts\Mosquitto\windows\" />
     <Folder Include="Scripts\Nginx\nginx-centos7\" />
     <Folder Include="Scripts\Nginx\nginx-ubuntu\" />
   </ItemGroup>

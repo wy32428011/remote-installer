@@ -1,0 +1,941 @@
+Package: galera-4
+Architecture: amd64
+Version: 26.4.22-ubu2404
+Priority: optional
+Section: libs
+Maintainer: Codership Oy <info@codership.com>
+Installed-Size: 33353
+Provides: galera, galera-4, wsrep
+Depends: libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1)
+Conflicts: galera-3, garbd-2, garbd-3, garbd2, garbd3, percona-galera-3, percona-galera-4, percona-xtradb-cluster-galera, percona-xtradb-cluster-galera-2.x, percona-xtradb-cluster-galera-26, percona-xtradb-cluster-galera-3.x, percona-xtradb-cluster-galera-4.x, percona-xtradb-cluster-garbd-2.x, percona-xtradb-cluster-garbd-3.x, percona-xtradb-cluster-garbd-4.x
+Breaks: galera
+Replaces: galera
+Filename: ./galera-4_26.4.22-ubu2404_amd64.deb
+Size: 10142804
+MD5sum: 5ff30f925f9c35f8d37253063bcc6782
+SHA1: ce7fa2f3b17031fe996254ac684952efed5eda72
+SHA256: 4b342f7f74d1dc3514c8c156f60c1ab0403be4385811e97a85e55aacb5f1105d
+SHA512: a55c1af4bb8e015ab2d6db329fb070a32c98dba95d4636e415d9ef95caeb3198390a83d417564f775bb97b22e535121d872437bca1d43f647e6e590c49d90ad8
+Homepage: https://www.galeracluster.com/
+Description: Replication framework for transactional applications
+ Galera is a fast synchronous multimaster wsrep provider (replication engine)
+ for transactional databases and similar applications. For more information
+ about wsrep API see https://github.com/codership/wsrep-API. For a description
+ of Galera replication engine see http://galeracluster.com.
+ .
+ This package contains the Galera library/plugin.
+
+Package: galera-arbitrator-4
+Architecture: amd64
+Version: 26.4.22-ubu2404
+Priority: optional
+Section: database
+Source: galera-4
+Maintainer: Codership Oy <info@codership.com>
+Installed-Size: 23681
+Depends: lsb-base (>= 3.0-6), libboost-program-options1.83.0 (>= 1.83.0), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1)
+Conflicts: galera-arbitrator-3, garbd-2, garbd-3, garbd2, garbd3, percona-galera-arbitrator-3, percona-galera-arbitrator-4, percona-xtradb-cluster-garbd-2.x, percona-xtradb-cluster-garbd-3.x, percona-xtradb-cluster-garbd-4.x
+Filename: ./galera-arbitrator-4_26.4.22-ubu2404_amd64.deb
+Size: 6929272
+MD5sum: 8532861b9333a6f3618b380b50501672
+SHA1: 91eace969939b364f2a2bc295f59365bd0fae082
+SHA256: 2d2aa4bdd3f43aa8356e47b8c786da4ca3e6187ed5d077121f02b9aed3b8b4b4
+SHA512: 7be69402caed138880564a7df9588c1dc92bef9af6052614e8f3fc2bd95a1dee8267a14c86611c03f64207a4aa17801975e857c9658eb6b63983723fcc3bfedf
+Homepage: https://www.galeracluster.com/
+Description: Galera arbitrator daemon
+ Galera is a fast synchronous multimaster wsrep provider (replication engine)
+ for transactional databases and similar applications. For more information
+ about wsrep API see https://github.com/codership/wsrep-API. For a description
+ of Galera replication engine see http://galeracluster.com.
+ .
+ This package contains the Galera arbitrator daemon (garbd).
+
+Package: libmariadb-dev-compat
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libdevel
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 25
+Provides: libmariadb-client-lgpl-dev-compat, libmariadbclient-dev-compat, libmysqlclient-dev
+Depends: libmariadb-dev (= 1:11.4.7+maria~ubu2404)
+Conflicts: libmariadb-client-lgpl-dev, libmariadb-client-lgpl-dev-compat, libmariadbclient-dev (<< 1:11.4.7+maria~ubu2404), libmariadbclient-dev-compat, libmysqlclient-dev, libmysqlclient10-dev, libmysqlclient12-dev, libmysqlclient14-dev, libmysqlclient15-dev, libmysqlclient16-dev
+Breaks: libmariadb-dev (<< 1:11.4.7+maria~ubu2404)
+Replaces: libmariadb-client-lgpl-dev, libmariadb-client-lgpl-dev-compat, libmariadb-dev (<< 1:11.4.7+maria~ubu2404), libmariadbclient-dev (<< 1:11.4.7+maria~ubu2404), libmariadbclient-dev-compat, libmysqlclient-dev
+Filename: ./libmariadb-dev-compat_11.4.7+maria~ubu2404_amd64.deb
+Size: 3084
+MD5sum: d0214dd0dabe47ea5482b96dadd38a13
+SHA1: 406862fe7263359f04bad0e5d09636a0659b5430
+SHA256: 95a2813981df66e5f2247e75f4fc3366e83bd05be0bf2dd1ab7d9e5e568dec5a
+SHA512: d88e62980e360aae3c300fc4e4d3de6041daca84857bbb9ba45c219dca6e8e7dc1ddd0e2ef4c4504d38e170441f737e83fd77613647fb3898a03a6a861e57c72
+Homepage: https://mariadb.org/
+Description: MariaDB Connector/C, compatibility symlinks
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes compatibility symlinks to allow sources expecting the
+ MySQL client libraries to be built against MariaDB Connector/C.
+
+Package: libmariadb-dev
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libdevel
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 1025
+Provides: libmariadbclient-dev
+Depends: libmariadb3 (= 1:11.4.7+maria~ubu2404), libssl-dev, zlib1g-dev, libc6 (>= 2.34)
+Conflicts: libmariadb-dev-compat (<< 3.0.0), libmariadbclient-dev, libmariadbclient16-dev
+Breaks: libmariadb-client-lgpl-dev, libmysqlclient-dev (<< 1:11.4.7+maria~ubu2404), libmysqld-dev (<< 1:11.4.7+maria~ubu2404)
+Replaces: libmariadb-client-lgpl-dev, libmariadb-dev-compat (<< 3.0.0), libmariadbclient-dev, libmysqlclient-dev (<< 1:11.4.7+maria~ubu2404), libmysqld-dev (<< 1:11.4.7+maria~ubu2404)
+Filename: ./libmariadb-dev_11.4.7+maria~ubu2404_amd64.deb
+Size: 269346
+MD5sum: 35fbdce645e028f639c8af76db7647a6
+SHA1: d8d548f7134ac82b7c968cbb89d75af7c287fb0f
+SHA256: 6c695124f9565f7e973a1403e99bb3418f339828b5d5aceb4f5e320eb855dede
+SHA512: 75604236ebd3f7e7ec1f5d92f21c0edd1b6bad86697e712cf70925e296173c2a561482d565048369ee666ad094c9e14f874472440b19e7b88c4b0e8ffb1ece81
+Homepage: https://mariadb.org/
+Description: MariaDB database development files
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes development libraries and header files to allow sources
+ expecting the MariaDB Connector/C to build. Sources that expect the MySQL
+ client libraries should use files from the libmariadb-dev-compat package.
+
+Package: libmariadb3-compat
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libs
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 14
+Provides: libmysqlclient19, libmysqlclient20, libmysqlclient21
+Depends: libmariadb3, mariadb-common
+Breaks: libmysqlclient19, libmysqlclient20, libmysqlclient21
+Replaces: libmysqlclient19, libmysqlclient20, libmysqlclient21
+Filename: ./libmariadb3-compat_11.4.7+maria~ubu2404_amd64.deb
+Size: 2754
+MD5sum: 371302555bca1f512fe31c03a14c3819
+SHA1: e9713479ff0eff1b2734eaa24161d867cb17f44d
+SHA256: 5795dfdc318127899475aae9d51e1bce0cbecea1eb9ec94e8490aee876f8c480
+SHA512: 8ce653313fc2b18d26a3e62c9026009ff734b1accdb2d0a6ca991d3e0c12e104d32ae540d6d7b66a9a58f1aa76c9521ad6c20e72bcdcce6ea2d6292456ac54b7
+Homepage: https://mariadb.org/
+Description: MariaDB database client library MySQL compat package
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the client runtime libraries that simulate and replace
+ the equivalents found in MySQL 5.6, 5.7 and 8.0 (mysqlclient19, 20 and 21).
+
+Package: libmariadb3
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Multi-Arch: same
+Priority: optional
+Section: libs
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 526
+Depends: mariadb-common, libc6 (>= 2.34), libssl3t64 (>= 3.0.0), zlib1g (>= 1:1.1.4)
+Conflicts: libmariadbclient18 (<< 10.2.0), mariadb-galera-server-10.0, mariadb-galera-server-5.5, mariadb-server-10.0, mariadb-server-5.1, mariadb-server-5.2, mariadb-server-5.3, mariadb-server-5.5
+Breaks: libmariadbclient18 (<< 1:11.4.7+maria~ubu2404)
+Replaces: libmariadbclient18 (<< 1:11.4.7+maria~ubu2404)
+Filename: ./libmariadb3_11.4.7+maria~ubu2404_amd64.deb
+Size: 171710
+MD5sum: 3f907d604123d0ba23f1912b05959ae3
+SHA1: ddfa32d5344976cf4ccb696683e0a0923590b991
+SHA256: c27c0be93a23a2b134f7c8ff2bd3997482301045d62d3cdec50bb121d71077f7
+SHA512: cb0f5ae7ac597b486c4319045f14f552d0069e92114762fd273ec551fe76b21fc40c868652d311d4471bde4d144fb43588836ca97fa8f95ffb2b85f01cc30629
+Homepage: https://mariadb.org/
+Description: MariaDB database client library
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the client library.
+
+Package: libmariadbclient18
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libs
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 13
+Provides: libmariadbclient18
+Depends: libmariadb3 (= 1:11.4.7+maria~ubu2404)
+Replaces: libmariadbclient18
+Filename: ./libmariadbclient18_11.4.7+maria~ubu2404_amd64.deb
+Size: 2706
+MD5sum: df8b8d626352c7af62b95a034102062e
+SHA1: b5de56848b98934823749e61ee5133eebac4d32a
+SHA256: da6759d78eb4600f3e11c61660d7ded7f398321f8bbc239c6adaa04cf08e59fd
+SHA512: 42178500db5a7459e30b22bccd697c2659e782818df668c41c6eadea5df6e2e98cf797e3f51cab75aa55286260edfdfff71f666a58832a4cb1ccc0a24b9fb69e
+Homepage: https://mariadb.org/
+Description: Virtual package to satisfy external libmariadbclient18 depends
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package provides compatibility symlinks for binaries that expect to find
+ libmariadbclient.so.18 will automatically use libmariadb.so.3 instead.
+
+Package: libmariadbd-dev
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libdevel
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 50117
+Provides: libmysqld-dev
+Depends: libmariadb-dev (= 1:11.4.7+maria~ubu2404), libmariadbd19 (= 1:11.4.7+maria~ubu2404)
+Breaks: libmariadb-dev (<< 1:11.4.7+maria~ubu2404), libmariadbclient-dev (<< 1:11.4.7+maria~ubu2404), libmysqld-dev
+Replaces: libmariadb-dev (<< 1:11.4.7+maria~ubu2404), libmariadbclient-dev (<< 1:11.4.7+maria~ubu2404), libmysqld-dev
+Filename: ./libmariadbd-dev_11.4.7+maria~ubu2404_amd64.deb
+Size: 7518140
+MD5sum: 3e23d282a98df6bb61b0e01c1e6bf9c3
+SHA1: 6603d7e8eccd3665bb6909e9535ebe9e32841930
+SHA256: 8a5388a0e96b7a2c62c2106386eeaa59e6e1459e1675c2621f90c0ebd607e475
+SHA512: a5bc0505bfb41bd398fd34b6b4e4f9e6b62c2a545efd301d4e173188a8325c6cc38665eb10e9f2cbc4a22b6a17f3f6132868d5a315dd32f8d443d1702ba370ae
+Homepage: https://mariadb.org/
+Description: MariaDB embedded database, development files package
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the MariaDB embedded server library development
+ and header files.
+
+Package: libmariadbd19
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Multi-Arch: same
+Priority: optional
+Section: libs
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 23929
+Depends: libc6 (>= 2.38), libcrypt1 (>= 1:4.1.0), libgcc-s1 (>= 3.3.1), libpcre2-8-0 (>= 10.22), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), liburing2 (>= 2.3), zlib1g (>= 1:1.2.0)
+Conflicts: libmariadbd19t64
+Breaks: libmariadbd-dev (<< 1:11.4.7+maria~ubu2404)
+Replaces: libmariadbd-dev (<< 1:11.4.7+maria~ubu2404)
+Filename: ./libmariadbd19_11.4.7+maria~ubu2404_amd64.deb
+Size: 5925752
+MD5sum: e675a13422856d512448df383d63e5ea
+SHA1: 7192a2bcc77145fb30bda8e7a102556aeaf7f437
+SHA256: a3b2a8aeefe3b02323a22fb8b185f06ebd28f393a39945931f8b0985ae7b83d2
+SHA512: 276bc230037d0f7ea2102e514773bbe21d3ce05501a32009d378f9d56de879485ddadf0d406b7ed456fb342db8f0b9d2998ef93584cbcfe8c4d537ec6b237f60
+Homepage: https://mariadb.org/
+Description: MariaDB embedded database, shared library
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes a shared library for embedded MariaDB applications.
+
+Package: libmysqlclient18
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: libs
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 13
+Provides: libmysqlclient18
+Depends: libmariadb3 (= 1:11.4.7+maria~ubu2404)
+Replaces: libmysqlclient18
+Filename: ./libmysqlclient18_11.4.7+maria~ubu2404_amd64.deb
+Size: 2718
+MD5sum: de63f31b4bee94a07170840486d70cbf
+SHA1: 3bbaf91841defe7d1164a687789701d687d98ab3
+SHA256: 4b3db5e39d4f85435cb67b5203a9b34bc3285c07b90000e3ff7b9231dd10ae61
+SHA512: 0749d6b93eb5913cbfa460c49665f1b1e0532ae359cfcabd778072801982458a55342264282eff4739564a3a796323805e49a3e6595e273cefeebe04aeec7afe
+Homepage: https://mariadb.org/
+Description: Virtual package to satisfy external libmysqlclient18 depends
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package provides compatibility symlinks for binaries that expect to find
+ libmysqlclient.so.18 will automatically use libmariadb.so.3 instead.
+
+Package: mariadb-backup
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 27184
+Depends: mariadb-client-core (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libcrypt1 (>= 1:4.1.0), libgcc-s1 (>= 3.3.1), libpcre2-8-0 (>= 10.22), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), libsystemd0 (>= 227), liburing2 (>= 2.3), zlib1g (>= 1:1.2.0)
+Breaks: mariadb-backup-10.1, mariadb-backup-10.2, mariadb-backup-10.3, mariadb-client-10.1
+Replaces: mariadb-backup-10.1, mariadb-backup-10.2, mariadb-backup-10.3, mariadb-client-10.1
+Filename: ./mariadb-backup_11.4.7+maria~ubu2404_amd64.deb
+Size: 7166118
+MD5sum: b754c9b4b21244f6b119b4d34e928dbe
+SHA1: ef5382acd831c6e27e81351fc1c60e63450b1a15
+SHA256: 83597ce38cd7dcd61645f6be68cc64037968fe840bb06e5e2ef0716c79560c63
+SHA512: 2ed5fe22a3f7e84f155a56a1771c988160acbdc90a9fe1de9ed800753fb751a3ac189956153dabea9b0ee805501374c7dc7bccdaaa85bcf6e9d37e707cd8e66d
+Homepage: https://mariadb.org/
+Description: Backup tool for MariaDB server
+ Based on Xtrabackup, but improved to work with MariaDB server.
+ This backup tool is guaranteed to be compatible with MariaDB server.
+ .
+ Please refer to the MariaDB Knowledge Base on more information on
+ how to use this tool.
+
+Package: mariadb-client-compat
+Architecture: all
+Version: 1:11.4.7+maria~ubu2404
+Multi-Arch: foreign
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 59
+Depends: mariadb-client (>= 1:11.4.7+maria~ubu2404)
+Conflicts: mariadb-client (<< 11.0.0), mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-client-5.1, mariadb-client-5.2, mariadb-client-5.3, mariadb-client-5.5, mariadb-client-core (<< 11.0.0), mariadb-client-core-10.0, mariadb-client-core-10.1, mariadb-client-core-10.2, mariadb-client-core-10.3, mariadb-client-core-10.4, mariadb-client-core-10.5, mariadb-client-core-10.6, mariadb-client-core-10.7, mariadb-client-core-10.8, mariadb-client-core-5.1, mariadb-client-core-5.2, mariadb-client-core-5.3, mariadb-client-core-5.5, mariadb-server (<< 11.0.0), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-core (<< 11.0.0), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mysql-client (<< 5.0.51), mysql-client-5.0, mysql-client-5.1, mysql-client-5.5, mysql-client-5.6, mysql-client-5.7, mysql-client-8.0, mysql-client-core-5.0, mysql-client-core-5.1, mysql-client-core-5.5, mysql-client-core-5.6, mysql-client-core-5.7, mysql-client-core-8.0, mysql-server-5.7, mysql-server-core-8.0, percona-server-server, percona-server-server-5.6, percona-xtradb-cluster-server, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7
+Filename: ./mariadb-client-compat_11.4.7+maria~ubu2404_all.deb
+Size: 4518
+MD5sum: 393cf65eb6d5b65fea6f71df0f32f128
+SHA1: b57e9a3b3b53cfd064fcafd6fb7f0afbd69f3062
+SHA256: c649f019edf896e46422df537604dbc655755ee69fbe737714473edec3748579
+SHA512: 1e7ecf49980eee69df87719d1ccf267ab3b336b1d3427db46e1df6babe45098491858b31b48cf06fe7b2379638bf31681de751e2e3381f467dac5ea28c39bf33
+Homepage: https://mariadb.org/
+Description: MySQL compatibility links to mariadb-client binaries/scripts.
+ The package contains links and binaries that are needed by MySQL centric
+ tools which also works with MariaDB.
+ .
+ This package is also useful for users with strong  background in MySQL
+ maintenance, but wants to switch to MariaDB
+
+Package: mariadb-client-core
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 10700
+Provides: default-mysql-client-core, virtual-mysql-client-core
+Depends: libmariadb3 (>= 10.5.4), mariadb-common (>= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libedit2 (>= 2.11-20080614-0), libgcc-s1 (>= 3.3.1), libncurses6 (>= 6), libssl3t64 (>= 3.0.0), libtinfo6 (>= 6), zlib1g (>= 1:1.1.4)
+Conflicts: mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-client-5.1, mariadb-client-5.2, mariadb-client-5.3, mariadb-client-5.5, mariadb-client-core-10.0, mariadb-client-core-10.1, mariadb-client-core-10.2, mariadb-client-core-10.3, mariadb-client-core-10.4, mariadb-client-core-10.5, mariadb-client-core-10.6, mariadb-client-core-10.7, mariadb-client-core-10.8, mariadb-client-core-5.1, mariadb-client-core-5.2, mariadb-client-core-5.3, mariadb-client-core-5.5, mysql-client (<< 5.0.51), mysql-client-5.0, mysql-client-5.1, mysql-client-5.5, mysql-client-core-5.1, mysql-client-core-5.5, mysql-client-core-5.6, mysql-client-core-5.7, mysql-client-core-8.0, virtual-mysql-client-core
+Breaks: mariadb-client (<< 1:11.4.7+maria~ubu2404), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-core (<< 1:11.4.7+maria~ubu2404), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mysql-cluster-community-client-plugins, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, percona-server-server-5.6, percona-server-server-5.7, percona-server-server-8.0, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7, percona-xtradb-cluster-server-8.0
+Replaces: mariadb-client (<< 1:11.4.7+maria~ubu2404), mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-client-5.1, mariadb-client-5.2, mariadb-client-5.3, mariadb-client-5.5, mariadb-client-core-10.0, mariadb-client-core-10.1, mariadb-client-core-10.2, mariadb-client-core-10.3, mariadb-client-core-10.4, mariadb-client-core-10.5, mariadb-client-core-10.6, mariadb-client-core-10.7, mariadb-client-core-10.8, mariadb-client-core-5.1, mariadb-client-core-5.2, mariadb-client-core-5.3, mariadb-client-core-5.5, mariadb-server-10.0, mariadb-server-10.1, mariadb-server-core (<< 1:11.4.7+maria~ubu2404), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mysql-client (<< 5.0.51), mysql-client-5.0, mysql-client-5.1, mysql-client-5.5, mysql-client-core-5.1, mysql-client-core-5.5, mysql-client-core-5.6, mysql-client-core-5.7, mysql-client-core-8.0, mysql-cluster-community-client-plugins, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, percona-server-server-5.6, percona-server-server-5.7, percona-server-server-8.0, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7, percona-xtradb-cluster-server-8.0, virtual-mysql-client-core
+Filename: ./mariadb-client-core_11.4.7+maria~ubu2404_amd64.deb
+Size: 1122694
+MD5sum: 8dab4d3d94891689e2cad51717ccec4a
+SHA1: 1bc25b84db45b25a7a8cd2157cc949227bf89142
+SHA256: 5a92474bf83d66540ecd4f38e379a8124ad7c6d7b63ecc939fc4c03ecc211fea
+SHA512: 09b9a19f108cd74079e8d78f63718b33657e45571536c5baf48abe2b1c8eeaa059f38fb67cb8191b6c1743a22ac4680ced2cfacd4250c1f0b0238a7fb7d2b312
+Homepage: https://mariadb.org/
+Description: MariaDB database core client binaries
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the core client files, as used by Akonadi.
+
+Package: mariadb-client
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 21375
+Provides: default-mysql-client, virtual-mysql-client
+Depends: debianutils (>= 1.6), libconfig-inifiles-perl, mariadb-client-core (>= 1:11.4.7+maria~ubu2404), mariadb-common, perl:any, libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libssl3t64 (>= 3.0.0), libstdc++6 (>= 11), zlib1g (>= 1:1.1.4)
+Recommends: libdbd-mariadb-perl | libdbd-mysql-perl, libdbi-perl, libterm-readkey-perl, mariadb-client-compat
+Conflicts: mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-client-5.1, mariadb-client-5.2, mariadb-client-5.3, mariadb-client-5.5, mysql-client (<< 5.0.51), mysql-client-5.0, mysql-client-5.1, mysql-client-5.5, mysql-client-5.6, mysql-client-5.7, mysql-client-8.0, mysql-client-core-5.0, mysql-client-core-5.1, mysql-client-core-5.5, mysql-client-core-5.6, mysql-client-core-5.7, mysql-client-core-8.0, mytop, virtual-mysql-client
+Breaks: mariadb-client-core (<< 1:11.4.7+maria~ubu2404), mariadb-client-core-10.0, mariadb-client-core-10.1, mariadb-client-core-10.2, mariadb-client-core-10.3, mariadb-client-core-10.4, mariadb-client-core-10.5, mariadb-client-core-10.6, mariadb-client-core-10.7, mariadb-client-core-10.8, mariadb-server (<< 1:11.4.7+maria~ubu2404), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-core (<< 1:11.4.7+maria~ubu2404), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7
+Replaces: mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-client-5.1, mariadb-client-5.2, mariadb-client-5.3, mariadb-client-5.5, mariadb-client-core (<< 1:11.4.7+maria~ubu2404), mariadb-client-core-10.0, mariadb-client-core-10.1, mariadb-client-core-10.2, mariadb-client-core-10.3, mariadb-client-core-10.4, mariadb-client-core-10.5, mariadb-client-core-10.6, mariadb-client-core-10.7, mariadb-client-core-10.8, mariadb-server (<< 1:11.4.7+maria~ubu2404), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-core (<< 1:11.4.7+maria~ubu2404), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mysql-client (<< 5.0.51), mysql-client-5.0, mysql-client-5.1, mysql-client-5.5, mysql-client-5.6, mysql-client-5.7, mysql-client-8.0, mysql-client-core-5.0, mysql-client-core-5.1, mysql-client-core-5.5, mysql-client-core-5.6, mysql-client-core-5.7, mysql-client-core-8.0, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, mytop, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7, virtual-mysql-client
+Filename: ./mariadb-client_11.4.7+maria~ubu2404_amd64.deb
+Size: 2019122
+MD5sum: 94e51666fc2c2c931e0c756fbfd87aae
+SHA1: 332146964b053179e3e5c4653d50762222cb5dcc
+SHA256: b36f389669978a0ffacb370b22c9d67e743f83688c846976f312879be6299a45
+SHA512: 8c8d50a46700931ee68552fb667f49f9e5d287e21b0fe8fd7106321de2459a78817806c7ceab6a4f02a79666b15dad9ff5c943d75643612414993468c7a70b98
+Homepage: https://mariadb.org/
+Description: MariaDB database client binaries
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the client binaries and the additional tools
+ innotop and mariadb-report (mysqlreport).
+
+Package: mariadb-columnstore-cmapi
+Architecture: amd64
+Version: 23.10.0
+Priority: optional
+Section: devel
+Maintainer: MariaDB Corporation Ab
+Installed-Size: 332271
+Depends: curl
+Replaces: mariadb-columnstore-cmapi
+Filename: ./mariadb-columnstore-cmapi_23.10.0_amd64.deb
+Size: 80196892
+MD5sum: 8adc3091c71d81303460d8f91c8ceb91
+SHA1: 1335cd80d6f116f02f4030a7ca3b273d58c5a5bd
+SHA256: a4207e711460275db499fba727a3d876e7b2a64eadd8678d5de3124d098a3d90
+SHA512: dc342a9a767f0e9f53a60987c2a07f42017ddff06cffdd642a1bec428779aa71814ffc11cfdd3318450dd56d3f23da88cc9a9e628ede93b1beb3766a46d60e2f
+Description: MariaDB ColumnStore CMAPI: cluster management API and command line tool.
+ MariaDB ColumnStore CMAPI: cluster management API and command line tool.
+
+Package: mariadb-common
+Architecture: all
+Version: 1:11.4.7+maria~ubu2404
+Multi-Arch: foreign
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 22
+Depends: mysql-common (>= 5.6.25)
+Filename: ./mariadb-common_11.4.7+maria~ubu2404_all.deb
+Size: 4096
+MD5sum: eaeb50ce9b44ae46980226aa5ae9fb18
+SHA1: e78f4ce6a01e6ffa2eeec1016f7e2c0771c3d4d1
+SHA256: 9d882a3490eea7e82fcf751c864741e7eeafdf2386e62ef59611b564f525b34a
+SHA512: 4e260cea182d122cb4a4e5961abfeefbdaf49eabc95819ef9d1a41eb55a006eab05fe9f6ad5d6869de668bed85e936c5c15d7851ce551667bcec24f862720d65
+Homepage: https://mariadb.org/
+Description: MariaDB database common files (e.g. /etc/mysql/mariadb.conf.d/)
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes configuration files common to all MariaDB programs.
+
+Package: mariadb-plugin-columnstore
+Architecture: amd64
+Version: 1:11.4.7-23.10.3+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 40396
+Depends: binutils, libjemalloc1 | libjemalloc2, libsnappy1v5 (>= 1.1.10), liblz4-1 (>= 0.0~r130), mariadb-server (= 1:11.4.7+maria~ubu2404), libmariadb3 (= 1:11.4.7+maria~ubu2404), net-tools, python3, procps, libboost-chrono1.83.0t64 (>= 1.83.0), libboost-filesystem1.83.0 (>= 1.83.0), libboost-program-options1.83.0 (>= 1.83.0), libboost-regex1.83.0-icu74, libboost-system1.83.0 (>= 1.83.0), libboost-thread1.83.0 (>= 1.83.0), libc6 (>= 2.39), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 7), libncurses6 (>= 6), libpcre2-8-0 (>= 10.22), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), libtinfo6 (>= 6), libxml2 (>= 2.7.4), zlib1g (>= 1:1.1.4)
+Breaks: mariadb-columnstore-libs, mariadb-columnstore-platform
+Replaces: mariadb-columnstore-libs, mariadb-columnstore-platform
+Filename: ./mariadb-plugin-columnstore_11.4.7-23.10.3+maria~ubu2404_amd64.deb
+Size: 9147202
+MD5sum: 0a67a8c7e41cb3f8c7918d32bac20e26
+SHA1: c892ba58c219466077b82f23ad262ccb414f572a
+SHA256: 6048c9d9ad9840b3f154dbdebe38359676270de5156f9c9e33e65ebeb8c45670
+SHA512: 98a34ffcefbad606fc27f0994d02b9dbf5825201aee532a7a08f2eb93777b434a089e63b3bb9937e89f80895e4d91e43a5dda6ef4ac0277d8abc2e6bed3b38a9
+Homepage: https://mariadb.org/
+Description: MariaDB ColumnStore storage engine
+ The MariaDB ColumnStore storage engine is a high-performance columnar
+ analytical engine, aimed at rapid processing of analytical queries on very
+ large amounts of data.
+
+Package: mariadb-plugin-connect-jdbc
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 19
+Depends: default-jre-headless
+Suggests: libcsvjdbc-java, libmariadb-java, libpostgis-java, libpostgresql-jdbc-java, libxerial-sqlite-jdbc-java
+Enhances: mariadb-plugin-connect
+Filename: ./mariadb-plugin-connect-jdbc_11.4.7+maria~ubu2404_amd64.deb
+Size: 10202
+MD5sum: af70235da2d06f39e57b23c3593f5db4
+SHA1: 059acf1a97825cf827af502c9c91bf99c1b4f12b
+SHA256: a7c1ffc498244f369040f96fbb50a7cffc6344221fbb61de139991959ec94e24
+SHA512: caa2f7e4d64cf5e2614ba3fd563bd38f0f752a4bad33e49453520bb0e5a48ac1a9aa0515184e8b72a27a7cc209e0ac20fd50aa3347df10f0af8b4bd81d9ebbd5
+Homepage: https://mariadb.org/
+Description: Connect storage engine JDBC interface for MariaDB server.
+ To connect to remote DBMS using Connect Storage Engine (SE) and JDBC driver,
+ there is need for JDBC interface byte code.
+ The JDBC driver for the remote DBMS connection is required.
+ This package contains the Connect SE plugin JDBC interface file for MariaDB server.
+
+Package: mariadb-plugin-connect
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 1679
+Depends: libxml2 (>= 2.7.4), mariadb-server (= 1:11.4.7+maria~ubu2404), unixodbc, libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libodbc2 (>= 2.3.1), libstdc++6 (>= 13.1), zlib1g (>= 1:1.2.3.4)
+Recommends: curl
+Suggests: mariadb-plugin-connect-jdbc
+Breaks: mariadb-connect-engine-10.0, mariadb-connect-engine-10.1, mariadb-connect-engine-10.2, mariadb-connect-engine-10.3, mariadb-connect-engine-10.4, mariadb-server-10.0, mariadb-server-10.1
+Replaces: mariadb-connect-engine-10.0, mariadb-connect-engine-10.1, mariadb-connect-engine-10.2, mariadb-connect-engine-10.3, mariadb-connect-engine-10.4, mariadb-server-10.0, mariadb-server-10.1
+Filename: ./mariadb-plugin-connect_11.4.7+maria~ubu2404_amd64.deb
+Size: 563658
+MD5sum: 93b2a8bd506f0861999b0c2134691499
+SHA1: 919053505a266dcc96076911441753abca75a77a
+SHA256: 8befcbf0e19ab55d15919e3e05d1d41bf3c9c98ff083a504f47dead8b5cad8bb
+SHA512: e55ff3130f63dae2d40c5b99c451556599f5564750de89a5690c23210107a8a35035870cd20ab38ea1d11ae17bae691234c7c981342ae79f80a0500cbd08346c
+Homepage: https://mariadb.org/
+Description: Connect storage engine for MariaDB server
+ Connect engine supports a number of file formats (dbf, xml, txt, bin, etc),
+ connections to ODBC tables and remote MySQL tables, as well as a number of
+ other interesting features.
+ This package contains the Connect plugin for MariaDB server.
+
+Package: mariadb-plugin-cracklib-password-check
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 33
+Depends: libcrack2 (>= 2.9.0), mariadb-server, libc6 (>= 2.4)
+Filename: ./mariadb-plugin-cracklib-password-check_11.4.7+maria~ubu2404_amd64.deb
+Size: 5172
+MD5sum: 231598ca185cf4ac75946032b454cbca
+SHA1: 1602696c84042d187e078221e79d15524c79cfc6
+SHA256: 88c2d074ccaac5b4de08fa4c7d9894107c47ab79298f4afe3b7b0d9778ce7c89
+SHA512: aea920611342e9b7a6ad3772463ffc94131996d09f5f07894a2947f20c7f9d06069da3919cf0a877b58f87add881519d0a7b04d400745d3ca382e59081918531
+Homepage: https://mariadb.org/
+Description: CrackLib Password Validation Plugin for MariaDB server
+ This password validation plugin uses cracklib to allow only
+ sufficiently secure (as defined by cracklib) user passwords in
+ MariaDB server.
+ .
+ Install and configure this to enforce stronger passwords for
+ MariaDB server users.
+
+Package: mariadb-plugin-gssapi-client
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 29
+Depends: libgssapi-krb5-2 (>= 1.17), mariadb-client (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.14)
+Breaks: mariadb-gssapi-client-10.1, mariadb-gssapi-client-10.2, mariadb-gssapi-client-10.3, mariadb-gssapi-client-10.4
+Replaces: mariadb-gssapi-client-10.1, mariadb-gssapi-client-10.2, mariadb-gssapi-client-10.3, mariadb-gssapi-client-10.4
+Filename: ./mariadb-plugin-gssapi-client_11.4.7+maria~ubu2404_amd64.deb
+Size: 5928
+MD5sum: 5ba2a346fb42e130e81870a3b2d0d51c
+SHA1: 38d0c53de4b2fc56cc517aeea4c8deab5c19fc50
+SHA256: d336cae08e5058448bd0aceaf0d4c524ecebe6eeec44d09a82646d5d92f0cde4
+SHA512: ffe728a1ad12bb00891d3b9290b0213982cded588edc36af65291b410ca367966451ebc9584339c89b928409a966ccef341c1489c9d2ce8655998999b0b71899
+Homepage: https://mariadb.org/
+Description: GSSAPI authentication plugin for MariaDB client
+ This plugin includes support for Kerberos on Unix, but can also be used for
+ Windows authentication with or without domain environment.
+ .
+ This package contains the client parts.
+
+Package: mariadb-plugin-gssapi-server
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 37
+Depends: libgssapi-krb5-2 (>= 1.17), mariadb-server, libc6 (>= 2.14), libkrb5-3 (>= 1.13~alpha1+dfsg)
+Breaks: mariadb-gssapi-server-10.1, mariadb-gssapi-server-10.2, mariadb-gssapi-server-10.3, mariadb-gssapi-server-10.4, mariadb-server-10.0, mariadb-server-10.1
+Replaces: mariadb-gssapi-server-10.1, mariadb-gssapi-server-10.2, mariadb-gssapi-server-10.3, mariadb-gssapi-server-10.4, mariadb-server-10.0, mariadb-server-10.1
+Filename: ./mariadb-plugin-gssapi-server_11.4.7+maria~ubu2404_amd64.deb
+Size: 7570
+MD5sum: 0e9a037b637976f579cbe8e182831096
+SHA1: e331c91f089c9ea64f328bc65cd5c0cbbf161c9c
+SHA256: 7ee07469e4a8c350ce13005ae1326fdcdf7d82bd7ed6ee397f107495874808e2
+SHA512: a9122de589de2d635a99806e13336dff580c740b9a90a95198471de090fc2e2bae080a75da6a2f430c753e5fceffdffdde6ec42b8d45801d317f4f5774e07b64
+Homepage: https://mariadb.org/
+Description: GSSAPI authentication plugin for MariaDB server
+ This plugin includes support for Kerberos on Unix, but can also be used for
+ Windows authentication with or without domain environment.
+ .
+ This package contains the server parts.
+
+Package: mariadb-plugin-hashicorp-key-management
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 65
+Depends: libcurl4, mariadb-server, libc6 (>= 2.38), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 11)
+Filename: ./mariadb-plugin-hashicorp-key-management_11.4.7+maria~ubu2404_amd64.deb
+Size: 19212
+MD5sum: b70a2869ac88740cbcc1e2bfe71a45f9
+SHA1: dc77899f5d307f7e44ec3b671541c3d0880899fd
+SHA256: c0bd7059aeb3af119b7e033584142bb3cbcb8207ae38ade031185758a670ec95
+SHA512: e2b64d4de62ab8be58a550a989224f53fd37eaf72087f98f89ee34f48885a6c6a5d25face21fc5030fd0b43deda13616fbb45fba3f40267343601b37cb21f5df
+Homepage: https://mariadb.org/
+Description: Hashicorp Key Management plugin for MariaDB
+ This encryption plugin uses Hashicorp Vault for storing encryption
+ keys for MariaDB Data-at-Rest encryption.
+
+Package: mariadb-plugin-mroonga
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 6079
+Depends: mariadb-server (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libmecab2 (>= 0.996), libstdc++6 (>= 13.1), zlib1g (>= 1:1.2.0)
+Breaks: mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4
+Replaces: mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4
+Filename: ./mariadb-plugin-mroonga_11.4.7+maria~ubu2404_amd64.deb
+Size: 1325416
+MD5sum: 0bd5d9d07b69c846569688a42daa3665
+SHA1: 056f3fd96ba4d11b84d3ed3ab7dc3850e283111d
+SHA256: ca572167110e64213112aedd3df2357a73f63418e0fd8cd739732764cef16d13
+SHA512: 11c3249b6ce916b387ab56ebaf4673706f05be339ef78d2a28861225ca9ab18c7c1fcdf27eca96a0ba1157c5729e139c0b963ed6bbb73e4bd72206dbd58bd110
+Homepage: https://mariadb.org/
+Description: Mroonga storage engine for MariaDB server
+ Mroonga (formerly named Groonga Storage Engine) is a storage engine that
+ provides fast CJK-ready full text searching using column store.
+ This package contains the Mroonga plugin for MariaDB server.
+
+Package: mariadb-plugin-oqgraph
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 174
+Depends: libjudydebian1, mariadb-server (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 13.1)
+Breaks: mariadb-oqgraph-engine-10.0, mariadb-oqgraph-engine-10.1, mariadb-oqgraph-engine-10.2, mariadb-oqgraph-engine-10.3, mariadb-oqgraph-engine-10.4, mariadb-server-10.0, mariadb-server-10.1
+Replaces: mariadb-oqgraph-engine-10.0, mariadb-oqgraph-engine-10.1, mariadb-oqgraph-engine-10.2, mariadb-oqgraph-engine-10.3, mariadb-oqgraph-engine-10.4, mariadb-server-10.0, mariadb-server-10.1
+Filename: ./mariadb-plugin-oqgraph_11.4.7+maria~ubu2404_amd64.deb
+Size: 57518
+MD5sum: 5daa87f5161f43cac75b699ae4831e66
+SHA1: a1dd49f8e56f7170e6107984a53c50fae4cb9410
+SHA256: 858016629e7536b0f3d9b99432b7a8bc1c42af877f4bafb51548c2d67811e241
+SHA512: af041ab7b04c37f2bc1937b486f85b7c9f7b8dfee9f85c1f42d2918593adc4ddc84517800452baef22b6cfcd08533a8f01975182b9e2e69e8b42f8bddb31c994
+Homepage: https://mariadb.org/
+Description: OQGraph storage engine for MariaDB server
+ The OQGraph engine is a computation engine plugin for handling hierarchies
+ (trees) and graphs (friend-of-a-friend, etc) cleanly through standard SQL.
+ This package contains the OQGraph plugin for MariaDB server.
+
+Package: mariadb-plugin-provider-bzip2
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 36
+Depends: mariadb-server, libbz2-1.0
+Filename: ./mariadb-plugin-provider-bzip2_11.4.7+maria~ubu2404_amd64.deb
+Size: 4776
+MD5sum: ecb2323f77d1ea83c47e5125dc00d920
+SHA1: 490f7190c517f8d4a3b8d60e0a6ef7752f594cac
+SHA256: f47f7d5428b6accc8955f97d8b9f1d4c01ae6d4333cabdc93446cefefdef0d17
+SHA512: 5b8896b37a383291b212e8356e61d1b6479f6be594f57535393563b7f898e479bf88d04e46768663684c4c368ad5ffd402f085a5d88f7dd3d558f3e8b66b11eb
+Homepage: https://mariadb.org/
+Description: BZip2 compression support in the server and storage engines
+ The various MariaDB storage engines, such as InnoDB, RocksDB, Mroonga,
+ can use different compression libraries.
+ .
+ Plugin provides BZip2 (https://sourceware.org/bzip2/) compression
+ .
+ Note that these affect InnoDB and Mroonga only;
+ RocksDB still uses the compression algorithms from its own library
+
+Package: mariadb-plugin-provider-lz4
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 36
+Depends: mariadb-server, liblz4-1 (>= 0.0~r130)
+Filename: ./mariadb-plugin-provider-lz4_11.4.7+maria~ubu2404_amd64.deb
+Size: 4690
+MD5sum: f9571a194b25751d779546e2bc87938d
+SHA1: ebb2600fba73b22bcc9ca5e9761fece5e83cde6d
+SHA256: 419af534642a9a7e08853c341adee547ffcb677f08a86a6d92bfb30c1a987259
+SHA512: dbe1974fb8f708caffc76a14fab9b168081c230a0b0ac40f4f6b5be9a1d0a24aa3f60341493231eca4102bd3e2819d15211d47845931cbf675c5038ea53aaee8
+Homepage: https://mariadb.org/
+Description: LZ4 compression support in the server and storage engines
+ The various MariaDB storage engines, such as InnoDB, RocksDB, Mroonga,
+ can use different compression libraries.
+ .
+ Plugin provides LZ4 (http://lz4.github.io/lz4/) compression
+ .
+ Note that these affect InnoDB and Mroonga only;
+ RocksDB still uses the compression algorithms from its own library
+
+Package: mariadb-plugin-provider-lzma
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 36
+Depends: mariadb-server, liblzma5 (>= 5.1.1alpha+20110809)
+Filename: ./mariadb-plugin-provider-lzma_11.4.7+maria~ubu2404_amd64.deb
+Size: 4760
+MD5sum: 8f5fa0528d1674bde7c9907f894d6d59
+SHA1: 44beceda33a0a62b1741fd9ae2dd71b72d15ef43
+SHA256: 6dcf2957fd0480c9722e903f7c9f6c23bafab4aeb5a87a96d34cb97587bcf5ee
+SHA512: 2c37dcd8a42701d22e7ab25c448ba833b2b70a53e7ddb947a37644f55902721888d954e80a7670f735718436c6d7a33648037cabae367c83548a87bc92a93909
+Homepage: https://mariadb.org/
+Description: LZMA compression support in the server and storage engines
+ The various MariaDB storage engines, such as InnoDB, RocksDB, Mroonga,
+ can use different compression libraries.
+ .
+ Plugin provides LZMA (https://tukaani.org/lzma/) compression
+ .
+ Note that these affect InnoDB and Mroonga only;
+ RocksDB still uses the compression algorithms from its own library
+
+Package: mariadb-plugin-provider-lzo
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 36
+Depends: mariadb-server, liblzo2-2 (>= 2.02)
+Filename: ./mariadb-plugin-provider-lzo_11.4.7+maria~ubu2404_amd64.deb
+Size: 4676
+MD5sum: b91cd1f363ac7054d684fdb80911598e
+SHA1: d938ea88feeed7391096d63d817f9e0c6792cb0a
+SHA256: 8748ac7a94f548803403fb641359e3a52aa85ddff2246f16a72f39f3a4df25c2
+SHA512: 438efa9e278674290f9db2a55da68b3d0ed08cc4bc3664c7fc765edd022b6ec58995862afa894b5f524df7cff965de36638e4d4e97ac8ad21d887fa73f6d1c5c
+Homepage: https://mariadb.org/
+Description: LZO compression support in the server and storage engines
+ The various MariaDB storage engines, such as InnoDB, RocksDB, Mroonga,
+ can use different compression libraries.
+ .
+ Plugin provides LZO (http://www.oberhumer.com/opensource/lzo/) compression
+ .
+ Note that these affect InnoDB and Mroonga only;
+ RocksDB still uses the compression algorithms from its own library
+
+Package: mariadb-plugin-provider-snappy
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 36
+Depends: mariadb-server, libsnappy1v5 (>= 1.1.10)
+Filename: ./mariadb-plugin-provider-snappy_11.4.7+maria~ubu2404_amd64.deb
+Size: 4710
+MD5sum: 4748199ac7310aaef224794117f80bf8
+SHA1: abce3aef3a8fcfbb82f75319e8f9af95d4612608
+SHA256: e780e5358fd838df18a1cb7134b7f6b9cc471627429f1cf39d4c32adf9d7b120
+SHA512: 6d3d1f2b3ee4d8513f23188397db8afcae196589a11eaa7f67366b2cc7e6b92e8b784fabe8a615350c1ec2ef5f5e3709033eff0b003988016bfcd3dbcbab6b6e
+Homepage: https://mariadb.org/
+Description: Snappy compression support in the server and storage engines
+ The various MariaDB storage engines, such as InnoDB, RocksDB, Mroonga,
+ can use different compression libraries.
+ .
+ Plugin provides Snappy (https://github.com/google/snappy) compression
+ .
+ Note that these affect InnoDB and Mroonga only;
+ RocksDB still uses the compression algorithms from its own library
+
+Package: mariadb-plugin-rocksdb
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 11281
+Depends: mariadb-server (= 1:11.4.7+maria~ubu2404), python3:any, rocksdb-tools, libc6 (>= 2.38), libgcc-s1 (>= 3.4), liblz4-1 (>= 0.0~r130), libsnappy1v5 (>= 1.1.10), libstdc++6 (>= 13.1), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.2.0)
+Recommends: python3-mysqldb
+Breaks: mariadb-rocksdb-engine-10.2, mariadb-rocksdb-engine-10.3, mariadb-rocksdb-engine-10.4
+Replaces: mariadb-rocksdb-engine-10.2, mariadb-rocksdb-engine-10.3, mariadb-rocksdb-engine-10.4
+Filename: ./mariadb-plugin-rocksdb_11.4.7+maria~ubu2404_amd64.deb
+Size: 3453962
+MD5sum: 50465395b58709c2638cd3c795b2987a
+SHA1: 4cb68ae40dd86158528d1d07575cbd51e235aab8
+SHA256: 9cdecf359b640f0e97309a4f0c8a1963197df14b9a10841b6402d35f7e2ac3ac
+SHA512: 5a14f03e2e9fc1b044cd571c2ae633bf09710889228f396f928d60b72f3a5297ff9189623adaaa2a34c1684c696583e7721ff9efead31e5da31f0fe160b70c15
+Homepage: https://mariadb.org/
+Description: RocksDB storage engine for MariaDB server
+ The RocksDB storage engine is a high performance storage engine, aimed
+ at maximising storage efficiency while maintaining InnoDB-like performance.
+ This package contains the RocksDB plugin for MariaDB server.
+
+Package: mariadb-plugin-s3
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 634
+Depends: libcurl4, mariadb-server (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 3.0), libstdc++6 (>= 13.1), zlib1g (>= 1:1.1.4)
+Filename: ./mariadb-plugin-s3_11.4.7+maria~ubu2404_amd64.deb
+Size: 156976
+MD5sum: f144f147ebfa047a8da46a1a5666ee62
+SHA1: 05b944fbe7c8d0a1d6418d21dcdb9592a101093b
+SHA256: b28e1bfce8d747806f1781a8fd6a8f65310d45d2a13806b5ef67767020df460a
+SHA512: ab0eaccccc790f7814893d34d49afcdc4c06b7e4a762ad922202db23da2f4882d0f2cd804e850565759148b5b69348cefa27845ad8da33c42e7cf5fcfe770029
+Homepage: https://mariadb.org/
+Description: Amazon S3 archival storage engine for MariaDB
+ The S3 storage engine allows one to archive MariaDB tables in Amazon S3 (or any
+ third-party public or private cloud that implements S3 API), but still have
+ them accessible in MariaDB in read-only mode.
+
+Package: mariadb-plugin-spider
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 1053
+Depends: mariadb-server (= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 13.1)
+Breaks: mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4
+Replaces: mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4
+Filename: ./mariadb-plugin-spider_11.4.7+maria~ubu2404_amd64.deb
+Size: 353754
+MD5sum: 4c711f9263cfd6e57bf41fde1df8221a
+SHA1: 983c9ac1220a345bb75bf175812a74d65f0b9f7b
+SHA256: 9c96a7469eb5c65f8a71eeddd3fbdfd24398a90bc379382c5dd347a8d4b13c81
+SHA512: 4563d759195eb74c07014342415fb56db0ea3163da27d45639a33d2084e3c57286c58d728dfa85f86e3c1c3ec22efd35141bb5cf7f5bedcdc56d0f19750c2571
+Homepage: https://mariadb.org/
+Description: Spider storage engine for MariaDB server
+ The Spider storage engine with built-in sharding features. It supports
+ partitioning and xa transactions, and allows tables of different MariaDB server
+ instances to be handled as if they were on the same instance. It refers to one
+ possible implementation of ISO/IEC 9075-9:2008 SQL/MED.
+
+Package: mariadb-server-compat
+Architecture: all
+Version: 1:11.4.7+maria~ubu2404
+Multi-Arch: foreign
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 27
+Depends: mariadb-server (>= 1:11.4.7+maria~ubu2404)
+Conflicts: mariadb-server (<< 11.0.0), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-5.1, mariadb-server-5.2, mariadb-server-5.3, mariadb-server-5.5, mariadb-server-core (<< 11.0.0), mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mariadb-server-core-5.1, mariadb-server-core-5.2, mariadb-server-core-5.3, mariadb-server-core-5.5, mysql-server-5.0, mysql-server-core-5.0, mysql-server-core-5.1, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, percona-server-server, percona-server-server-5.6, percona-server-server-5.7, percona-xtradb-cluster-server, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7
+Filename: ./mariadb-server-compat_11.4.7+maria~ubu2404_all.deb
+Size: 3354
+MD5sum: 8b367fa979ebdbe7b348c52ae00065f4
+SHA1: 3d5053f5505ccc371cef34959413924667164eeb
+SHA256: 4b10b8fb5f6b4252008109e94ec12642a8630942228b08dcdbf1dc57fd0465be
+SHA512: 88f9a0a8f9c01a3dfd33817c94e5a84482735ce7395d79802bba03a36aed62293161e4d4f60e3a8261fcf33e78d9be2b2a2d3435bc6b65e4227b52d8a3bdb54e
+Homepage: https://mariadb.org/
+Description: MySQL compatibility links to mariadb-server binaries/scripts.
+ The package contains links and binaries that are needed by MySQL centric
+ tools which also works with MariaDB.
+ .
+ This package is also useful for users with strong  background in MySQL
+ maintenance, but wants to switch to MariaDB
+
+Package: mariadb-server-core
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 33388
+Provides: default-mysql-server-core, virtual-mysql-server-core
+Depends: mariadb-common (>= 1:11.4.7+maria~ubu2404), libc6 (>= 2.38), libcrypt1 (>= 1:4.1.0), libgcc-s1 (>= 3.3.1), libpcre2-8-0 (>= 10.22), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), libsystemd0 (>= 227), liburing2 (>= 2.3), zlib1g (>= 1:1.2.0)
+Conflicts: mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-10.6, mariadb-server-core-10.7, mariadb-server-core-10.8, mariadb-server-core-5.1, mariadb-server-core-5.2, mariadb-server-core-5.3, mariadb-server-core-5.5, mysql-server-5.0, mysql-server-core-5.0, mysql-server-core-5.1, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, virtual-mysql-server-core
+Breaks: mariadb-client (<< 1:11.4.7+maria~ubu2404), mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-server (<< 1:11.4.7+maria~ubu2404), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mysql-client-5.5, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7
+Replaces: mariadb-client (<< 1:11.4.7+maria~ubu2404), mariadb-client-10.0, mariadb-client-10.1, mariadb-client-10.2, mariadb-client-10.3, mariadb-client-10.4, mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-server (<< 1:11.4.7+maria~ubu2404), mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-core-10.0, mariadb-server-core-10.1, mariadb-server-core-10.2, mariadb-server-core-10.3, mariadb-server-core-10.4, mariadb-server-core-10.5, mariadb-server-core-5.1, mariadb-server-core-5.2, mariadb-server-core-5.3, mariadb-server-core-5.5, mysql-client-5.5, mysql-server-5.0, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, mysql-server-core-5.0, mysql-server-core-5.1, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7, virtual-mysql-server-core
+Filename: ./mariadb-server-core_11.4.7+maria~ubu2404_amd64.deb
+Size: 7782866
+MD5sum: 8f13172e2a84ba444cee702fe3ab6b11
+SHA1: 776e82b21786a87e699c621f9d94500e3665ced6
+SHA256: e6fabc8f57564c1c86073f943a58d902efc8f75a99e0ca804826c0707635460b
+SHA512: 023a3862f23368355171ae8a32e058e7afc29fa4d1fdd1bcc1fbcd062839feda11dbd2ecbaa6f4fa75b9c9e91d4a2326de1f0cc7a105634c3e1b47cb8242a5c2
+Homepage: https://mariadb.org/
+Description: MariaDB database core server files
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the core server files, as used by Akonadi.
+
+Package: mariadb-server
+Architecture: amd64
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 42810
+Provides: default-mysql-server, virtual-mysql-server
+Pre-Depends: adduser (>= 3.40), debconf, mariadb-common (>= 1:11.4.7+maria~ubu2404)
+Depends: galera-4 (>= 26.4), gawk, iproute2, libdbi-perl, lsof, mariadb-client (>= 1:11.4.7+maria~ubu2404), mariadb-server-core (>= 1:11.4.7+maria~ubu2404), passwd, perl (>= 5.6), procps, psmisc, rsync, socat, debconf (>= 0.5) | debconf-2.0, perl:any, libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libpam0g (>= 0.99.7.1), libssl3t64 (>= 3.0.0), libstdc++6 (>= 13.1), zlib1g (>= 1:1.1.4)
+Recommends: libhtml-template-perl, mariadb-server-compat, pv
+Suggests: mailx, mariadb-test, netcat-openbsd
+Conflicts: mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-5.1, mariadb-server-5.2, mariadb-server-5.3, mariadb-server-5.5, mysql-client-5.5, mysql-client-5.6, mysql-client-5.7, mysql-client-8.0, mysql-client-core-8.0, mysql-server, mysql-server-4.1, mysql-server-5.0, mysql-server-5.1, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, mysql-server-core-5.5, mysql-server-core-5.6, mysql-server-core-5.7, mysql-server-core-8.0, virtual-mysql-server
+Breaks: handlersocket-mysql-5.5, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7
+Replaces: handlersocket-mysql-5.5, libmariadbclient-dev (<< 5.5.0), libmariadbclient16, mariadb-client (<< 1:11.4.7+maria~ubu2404), mariadb-client-10.5, mariadb-client-10.6, mariadb-client-10.7, mariadb-client-10.8, mariadb-server-10.0, mariadb-server-10.1, mariadb-server-10.2, mariadb-server-10.3, mariadb-server-10.4, mariadb-server-10.5, mariadb-server-10.6, mariadb-server-10.7, mariadb-server-10.8, mariadb-server-5.1, mariadb-server-5.2, mariadb-server-5.3, mariadb-server-5.5, mysql-client-5.5, mysql-client-5.6, mysql-client-5.7, mysql-client-8.0, mysql-client-core-8.0, mysql-server, mysql-server-4.1, mysql-server-5.0, mysql-server-5.1, mysql-server-5.5, mysql-server-5.6, mysql-server-5.7, mysql-server-8.0, percona-server-server-5.6, percona-xtradb-cluster-server-5.6, percona-xtradb-cluster-server-5.7, virtual-mysql-server
+Filename: ./mariadb-server_11.4.7+maria~ubu2404_amd64.deb
+Size: 3280368
+MD5sum: d9041e8d4a3cbfad2f1c12f85f3eeb4b
+SHA1: 6bbbea1a7717cd05c61b29cd2132ef8c242131fe
+SHA256: 696d6adb0649e831c16cda386dc348daacb7030084bf17562732d8581b9eccba
+SHA512: d390ec64f0cfc83fda00adbdccea97afe04d9996ff9746880d0050eddb5d6d279beae42c04620645f47774a648dc9c3a7694e3133e95061977ddc364bb3b9e54
+Homepage: https://mariadb.org/
+Description: MariaDB database server binaries
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes the server binaries.
+
+Package: mysql-common
+Architecture: all
+Version: 1:11.4.7+maria~ubu2404
+Priority: optional
+Section: database
+Source: mariadb
+Maintainer: MariaDB Developers <developers@lists.mariadb.org>
+Installed-Size: 18
+Filename: ./mysql-common_11.4.7+maria~ubu2404_all.deb
+Size: 2930
+MD5sum: e3cf3a8478bd8a7feed0be2320e494c3
+SHA1: 13d80a379cdfd1c26e693703563ccef6ea36300e
+SHA256: db3c43784188e5da6af0fd899fa04f72c0ae6e282d218e8d7992c6b08307ebd2
+SHA512: 8d9e6cd06c0f0bd600e8e37494d79107dce874ad59e739d46949fb159d484f9eb9b57adb2d9fb52a3dd753bb856dd8402919bf85f390f32de2ee1a00fb9f8e84
+Homepage: https://mariadb.org/
+Description: MariaDB client common configuration files package (e.g. /etc/mysql/my.cnf)
+ MariaDB is a fast, stable and true multi-user, multi-threaded SQL database
+ server. SQL (Structured Query Language) is the most popular database query
+ language in the world. The main goals of MariaDB are speed, robustness and
+ ease of use.
+ .
+ This package includes files needed by all versions of the client library
+ (e.g. /etc/mysql/my.cnf).
+

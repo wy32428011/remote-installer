@@ -55,18 +55,18 @@ public partial class InstallTask : ObservableObject
     /// </summary>
     public string StageDisplayText => Stage switch
     {
-        InstallStage.Preparing => "准备中...",
-        InstallStage.Connecting => "连接服务器...",
-        InstallStage.Uploading => "上传文件...",
-        InstallStage.Extracting => "解压文件...",
-        InstallStage.Configuring => "配置参数...",
-        InstallStage.Installing => "执行安装...",
-        InstallStage.Starting => "启动服务...",
-        InstallStage.Verifying => "验证安装...",
-        InstallStage.Completed => "✅ 完成",
-        InstallStage.Failed => "❌ 失败",
-        InstallStage.Cancelled => "⏹️ 已取消",
-        _ => "未知"
+        InstallStage.Preparing => "准备任务",
+        InstallStage.Connecting => "连接目标主机",
+        InstallStage.Uploading => "上传安装资源",
+        InstallStage.Extracting => "解压安装资源",
+        InstallStage.Configuring => "写入安装配置",
+        InstallStage.Installing => "执行安装脚本",
+        InstallStage.Starting => "启动服务",
+        InstallStage.Verifying => "校验安装结果",
+        InstallStage.Completed => "安装完成",
+        InstallStage.Failed => "执行失败",
+        InstallStage.Cancelled => "已取消",
+        _ => "未知阶段"
     };
 
     /// <summary>
