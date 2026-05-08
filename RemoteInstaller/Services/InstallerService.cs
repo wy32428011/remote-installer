@@ -498,6 +498,7 @@ public class InstallerService
             _fileLogger.Info("UninstallAsync", $"脚本路径: {scriptPath ?? "未找到"}");
 
             string scriptContent = "";
+            RemoteCommandResult? scriptResult = null;
 
             if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath))
             {
@@ -575,68 +576,95 @@ public class InstallerService
                 
                 var outputBuilder = new StringBuilder();
                 _fileLogger.Info("UninstallAsync", $"执行卸载命令: {command}");
-                await _sshService.ExecuteCommandAsync(command,
-                    line =>
+                try
+                {
+                    scriptResult = await _sshService.ExecuteCommandResultAsync(command,
+                        line =>
+                        {
+                            logCollector.ProcessOutput(line);
+                            outputBuilder.AppendLine(line);
+                        },
+                        cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    scriptResult = new RemoteCommandResult
                     {
-                        logCollector.ProcessOutput(line);
-                        outputBuilder.AppendLine(line);
-                    },
-                    cancellationToken,
-                    throwOnError: true);
+                        Command = command,
+                        ExitCode = -1,
+                        Stderr = ex.Message
+                    };
+                    outputBuilder.AppendLine(ex.Message);
+                    logCollector.AddLog(LogLevel.Warning, $"卸载脚本退出异常，继续通过状态检测确认真实卸载结果：{ex.Message}");
+                    _logger.Warning($"卸载脚本退出异常，将继续验证真实卸载状态：{ex.Message}");
+                }
 
                 // 记录脚本执行输出
                 _fileLogger.Info("UninstallAsync", $"脚本执行输出:\n{outputBuilder}");
+                if (scriptResult?.Failed == true)
+                {
+                    logCollector.AddLog(LogLevel.Warning, $"卸载脚本退出异常，继续通过状态检测确认真实卸载结果：{scriptResult.ExitCode}");
+                    _logger.Warning($"卸载脚本退出异常，将继续验证真实卸载状态：{scriptResult.ExitCode}");
+                }
 
                 // 尝试解析最终状态（如果脚本提供了机器可读输出）
                 // 更加严谨的做法是：即使脚本运行完了，也主动调用 CheckStatusAsync 来验证真实状态
+                var finalStatus = new ApplicationStatus();
                 try
                 {
-                    var checkStatus = await CheckStatusAsync(host, app, cancellationToken);
-                    _fileLogger.Info("UninstallAsync", $"卸载后状态检测结果: IsInstalled={checkStatus.IsInstalled}, IsRunning={checkStatus.IsRunning}, Version={checkStatus.InstalledVersion}");
-
-                    app.IsInstalled = checkStatus.IsInstalled;
-                    app.IsRunning = checkStatus.IsRunning;
-                    if (!string.IsNullOrEmpty(checkStatus.InstalledVersion) && checkStatus.InstalledVersion != "未知")
-                    {
-                        app.InstalledVersion = checkStatus.InstalledVersion;
-                    }
-
-                    // 根据实际检测结果判断卸载是否成功
-                    if (checkStatus.IsInstalled)
-                    {
-                        task.Fail("卸载后检测到应用仍已安装，请查看日志排查问题");
-                        _logger.Error($"{app.Name} 卸载后检测到应用仍已安装");
-                    }
-                    else
-                    {
-                        task.Complete();
-                        _logger.Success($"{app.Name} 卸载完成");
-                    }
+                    finalStatus = await CheckStatusAsync(host, app, cancellationToken);
+                    _fileLogger.Info("UninstallAsync", $"卸载后状态检测结果: IsInstalled={finalStatus.IsInstalled}, IsRunning={finalStatus.IsRunning}, Version={finalStatus.InstalledVersion}");
                 }
                 catch (Exception ex)
                 {
                     _logger.Warning($"卸载后的状态验证失败：{ex.Message}");
                     _fileLogger.Error("UninstallAsync", "卸载后状态验证失败", ex);
-                    // 如果主动检查失败，回退到尝试解析脚本输出
-                    var finalStatus = new ApplicationStatus();
                     ParseCheckOutput(outputBuilder.ToString(), finalStatus);
-                    app.IsInstalled = finalStatus.IsInstalled;
-                    app.IsRunning = finalStatus.IsRunning;
+                }
 
-                    // 根据脚本输出来判断卸载是否成功
-                    // 即使验证检查失败，只要脚本输出显示已卸载，就标记为成功
-                    if (finalStatus.IsInstalled)
+                app.IsInstalled = finalStatus.IsInstalled;
+                app.IsRunning = finalStatus.IsRunning;
+                if (!string.IsNullOrEmpty(finalStatus.InstalledVersion) && finalStatus.InstalledVersion != "未知")
+                {
+                    app.InstalledVersion = finalStatus.InstalledVersion;
+                }
+
+                var protocolEvents = ScriptProtocolParser.Parse(
+                    outputBuilder + Environment.NewLine +
+                    string.Join(Environment.NewLine, logCollector.GetLogs().Select(log => log.Message))).ToList();
+                var evidence = ApplicationStatusNormalizer.BuildEvidence(protocolEvents);
+                if (finalStatus.IsInstalled || finalStatus.IsRunning)
+                {
+                    evidence = new ApplicationStatusEvidence
                     {
-                        task.Fail($"卸载后验证失败，应用可能仍已安装：{ex.Message}");
-                        _fileLogger.Warning("UninstallAsync", $"卸载未完全成功，脚本输出显示仍已安装");
-                    }
-                    else
-                    {
-                        // 验证检查异常，但脚本输出显示已卸载，标记为成功
-                        task.Complete();
-                        _logger.Success($"{app.Name} 卸载完成（验证检查异常：{ex.Message}）");
-                        _fileLogger.Success("UninstallAsync", $"{app.Name} 卸载完成");
-                    }
+                        BinaryFound = evidence.BinaryFound || finalStatus.IsInstalled,
+                        PackageFound = evidence.PackageFound,
+                        ServiceFound = evidence.ServiceFound,
+                        ServiceActive = evidence.ServiceActive || finalStatus.IsRunning,
+                        ProcessFound = evidence.ProcessFound || finalStatus.IsRunning,
+                        PortListening = evidence.PortListening,
+                        ConfigOnlyResidue = evidence.ConfigOnlyResidue,
+                        ServiceOnlyResidue = evidence.ServiceOnlyResidue
+                    };
+                }
+
+                var decision = OperationDecisionPolicy.DecideUninstall(scriptResult, finalStatus, evidence);
+                if (decision.HasWarning)
+                {
+                    logCollector.AddLog(LogLevel.Warning, decision.Message);
+                    _logger.Warning(decision.Message);
+                }
+
+                if (decision.Outcome == OperationOutcome.Completed)
+                {
+                    task.Complete();
+                    _logger.Success($"{app.Name} 卸载完成");
+                    _fileLogger.Success("UninstallAsync", $"{app.Name} 卸载完成");
+                }
+                else
+                {
+                    task.Fail(decision.Message);
+                    _logger.Error(decision.Message);
                 }
             }
             else
