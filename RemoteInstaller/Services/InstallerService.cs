@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using RemoteInstaller.Models;
+using RemoteInstaller.Services.Operations;
 
 namespace RemoteInstaller.Services;
 
@@ -1036,26 +1037,29 @@ _ => null
     /// </summary>
     private void ParseCombinedCheckOutput(string output, ApplicationStatus status)
     {
-        if (string.IsNullOrEmpty(output)) return;
+        ParseCheckOutput(output, status);
+        NormalizeApplicationStatus(status);
+    }
 
-        foreach (var line in output.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+    private static void NormalizeApplicationStatus(ApplicationStatus status)
+    {
+        if (status.IsRunning && !status.IsInstalled)
         {
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("INSTALLED:", StringComparison.OrdinalIgnoreCase))
+            status.IsInstalled = true;
+
+            if (string.IsNullOrWhiteSpace(status.InstalledVersion))
             {
-                var val = trimmed.Substring(10).Trim().ToLower();
-                status.IsInstalled = val == "true" || val == "1" || val == "installed";
-            }
-            else if (trimmed.StartsWith("VERSION:", StringComparison.OrdinalIgnoreCase))
-            {
-                status.InstalledVersion = trimmed.Substring(8).Trim();
-            }
-            else if (trimmed.StartsWith("RUNNING:", StringComparison.OrdinalIgnoreCase))
-            {
-                var val = trimmed.Substring(8).Trim().ToLower();
-                status.IsRunning = val == "true" || val == "1" || val == "running" || val == "active";
+                status.InstalledVersion = "未知";
             }
         }
+
+        var evidence = new ApplicationStatusEvidence
+        {
+            BinaryFound = status.IsInstalled,
+            ProcessFound = status.IsRunning
+        };
+
+        ApplicationStatusNormalizer.Normalize(status, evidence);
     }
 
     private async Task<bool> IsInstalledAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
@@ -2408,26 +2412,11 @@ _ => null
     private void ParseCheckOutput(string output, ApplicationStatus status)
     {
         if (string.IsNullOrEmpty(output)) return;
-        
-        foreach (var line in output.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("INSTALLED:", StringComparison.OrdinalIgnoreCase))
-            {
-                status.IsInstalled = ParseBool(trimmedLine.Substring(10));
-            }
-            else if (trimmedLine.StartsWith("VERSION:", StringComparison.OrdinalIgnoreCase))
-            {
-                status.InstalledVersion = trimmedLine.Substring(8).Trim();
-            }
-            else if (trimmedLine.StartsWith("RUNNING:", StringComparison.OrdinalIgnoreCase))
-            {
-                status.IsRunning = ParseBool(trimmedLine.Substring(8));
-            }
-            else if (trimmedLine.StartsWith("PORT:", StringComparison.OrdinalIgnoreCase))
-            {
-                status.Port = trimmedLine.Substring(5).Trim();
-            }
-        }
+
+        var events = ScriptProtocolParser.Parse(output).ToList();
+        ApplicationStatusNormalizer.ApplyStatusEvents(status, events);
+        var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
+        ApplicationStatusNormalizer.Normalize(status, evidence);
+        NormalizeApplicationStatus(status);
     }
 }
