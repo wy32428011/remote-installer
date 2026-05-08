@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using RemoteInstaller.Models;
 
 namespace RemoteInstaller.Services.Operations;
@@ -38,6 +40,19 @@ public static class OperationDecisionPolicy
             };
         }
 
+        var scriptReportedStatus = TryBuildSuccessfulInstallStatusFromScriptOutput(scriptResult);
+        if (scriptReportedStatus?.IsInstalled == true)
+        {
+            return new OperationDecision
+            {
+                Outcome = OperationOutcome.Completed,
+                HasWarning = true,
+                Message = scriptResult is { Failed: true }
+                    ? "脚本退出异常但脚本输出已确认安装"
+                    : "状态验证未通过但脚本输出已确认安装"
+            };
+        }
+
         if (scriptResult is { Failed: true })
         {
             return new OperationDecision
@@ -54,6 +69,31 @@ public static class OperationDecisionPolicy
             Outcome = OperationOutcome.Failed,
             Message = "安装验证失败，请查看日志"
         };
+    }
+
+    private static ApplicationStatus? TryBuildSuccessfulInstallStatusFromScriptOutput(RemoteCommandResult? scriptResult)
+    {
+        if (scriptResult is null || string.IsNullOrWhiteSpace(scriptResult.CombinedOutput))
+        {
+            return null;
+        }
+
+        var events = ScriptProtocolParser.Parse(scriptResult.CombinedOutput).ToList();
+        var hasSuccessStage = events.Any(item =>
+            item.Kind == ScriptProtocolEventKind.Result &&
+            item.Stage.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase));
+
+        if (!hasSuccessStage)
+        {
+            return null;
+        }
+
+        var status = new ApplicationStatus();
+        ApplicationStatusNormalizer.ApplyStatusEvents(status, events);
+        var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
+        ApplicationStatusNormalizer.Normalize(status, evidence);
+
+        return status;
     }
 
     public static OperationDecision DecideUninstall(
