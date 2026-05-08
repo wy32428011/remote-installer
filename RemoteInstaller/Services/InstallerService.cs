@@ -250,13 +250,36 @@ public class InstallerService
             }
 
             // 4. 执行安装
+            RemoteCommandResult? scriptResult = null;
             if (remoteScriptPath != null || !string.IsNullOrEmpty(app.GetInstallScript(host.OsType)))
             {
                 task.UpdateProgress(InstallStage.Installing, 40);
                 progressReporter?.Report(task);
                 _logger.Info("正在执行安装脚本...");
-                await ExecuteInstallScriptAsync(host, app, parameters, logCollector, remoteScriptPath, cancellationToken);
-                _logger.Success("安装脚本执行完成");
+                try
+                {
+                    scriptResult = await ExecuteInstallScriptAsync(host, app, parameters, logCollector, remoteScriptPath, cancellationToken);
+                    if (scriptResult.Failed)
+                    {
+                        AddTaskLog(LogLevel.Warning, $"安装脚本退出异常，继续通过状态检测确认真实安装结果：{scriptResult.ExitCode}");
+                        _logger.Warning($"安装脚本退出异常，将继续验证真实安装状态：{scriptResult.ExitCode}");
+                    }
+                    else
+                    {
+                        _logger.Success("安装脚本执行完成");
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    scriptResult = new RemoteCommandResult
+                    {
+                        Command = "install script",
+                        ExitCode = -1,
+                        Stderr = ex.Message
+                    };
+                    AddTaskLog(LogLevel.Warning, $"安装脚本退出异常，继续通过状态检测确认真实安装结果：{ex.Message}");
+                    _logger.Warning($"安装脚本退出异常，将继续验证真实安装状态：{ex.Message}");
+                }
             }
             else if (remotePackagePath != null)
             {
@@ -307,8 +330,14 @@ public class InstallerService
                 status = await CheckStatusAsync(host, app, cancellationToken);
             }
 
-            
-            if (status?.IsInstalled == true)
+            var decision = OperationDecisionPolicy.DecideInstall(scriptResult, status ?? new ApplicationStatus());
+            if (decision.HasWarning)
+            {
+                AddTaskLog(LogLevel.Warning, decision.Message);
+                _logger.Warning(decision.Message);
+            }
+
+            if (decision.Outcome == OperationOutcome.Completed)
             {
                 task.Complete();
                 progressReporter?.Report(task);
@@ -316,9 +345,10 @@ public class InstallerService
             }
             else
             {
-                task.Fail("安装验证失败，请查看日志");
+                task.Fail(decision.Message);
+                AddTaskLog(LogLevel.Error, decision.Message);
                 progressReporter?.Report(task);
-                _logger.Error("安装验证失败");
+                _logger.Error(decision.Message);
             }
             
             // 更新最终任务状态
@@ -1869,7 +1899,7 @@ _ => null
         await _sshService.ExecuteCommandAsync(writeCommand, cancellationToken: cancellationToken);
     }
 
-    private async Task ExecuteInstallScriptAsync(
+    private async Task<RemoteCommandResult> ExecuteInstallScriptAsync(
         RemoteHost host, 
         ApplicationInfo app, 
         Dictionary<string, string> parameters,
@@ -1892,9 +1922,14 @@ _ => null
         if (string.IsNullOrEmpty(script))
         {
             _logger.Warning("未找到安装脚本");
-            return;
+            return new RemoteCommandResult
+            {
+                Command = string.Empty,
+                ExitCode = 0
+            };
         }
 
+        RemoteCommandResult result;
         
         if (host.OsType != OperatingSystemType.Windows)
         {
@@ -1933,14 +1968,13 @@ _ => null
 
             _logger.Info("准备执行远程安装脚本...");
             
-            await _sshService.ExecuteCommandAsync(
+            result = await _sshService.ExecuteCommandResultAsync(
                 $"bash -c '{command.Replace("'", "'\"'\"'")}'", 
                 output => 
                 {
                     logCollector.ProcessOutput(output);
                 }, 
-                cancellationToken,
-                throwOnError: true);
+                cancellationToken);
         }
         else
         {
@@ -1964,13 +1998,13 @@ _ => null
                 command = ReplacePowerShellPlaceholders(script.Trim(), parameters);
             }
 
-            await _sshService.ExecuteCommandAsync(command,
+            result = await _sshService.ExecuteCommandResultAsync(command,
                 output => logCollector.ProcessOutput(output),
-                cancellationToken,
-                throwOnError: true);
+                cancellationToken);
         }
         
         _logger.Success("脚本执行完成");
+        return result;
     }
 
     /// <summary>
