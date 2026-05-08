@@ -66,6 +66,15 @@ public static class ApplicationStatusNormalizer
             {
                 serviceActive = ParseBool(item.Value);
             }
+            else if (item.Key.Equals("SERVICE_NAME", StringComparison.OrdinalIgnoreCase))
+            {
+                serviceFound = IsKnownServiceValue(item.Value);
+            }
+            else if (item.Key.Equals("SERVICE_STATUS", StringComparison.OrdinalIgnoreCase))
+            {
+                serviceFound = serviceFound || IsKnownServiceValue(item.Value);
+                serviceActive = serviceActive || ParseBool(item.Value);
+            }
             else if (item.Key.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) ||
                      item.Key.Equals("PROCESS_FOUND", StringComparison.OrdinalIgnoreCase))
             {
@@ -78,6 +87,17 @@ public static class ApplicationStatusNormalizer
             else if (item.Key.Equals("PORT_LISTENING", StringComparison.OrdinalIgnoreCase))
             {
                 portListening = ParseBool(item.Value);
+            }
+            else if (item.Key.Equals("MANAGEMENT_OPEN", StringComparison.OrdinalIgnoreCase) ||
+                     item.Key.Equals("MANAGEMENT_HTTP_READY", StringComparison.OrdinalIgnoreCase) ||
+                     item.Key.Equals("REMOTE_ACCESS_AVAILABLE", StringComparison.OrdinalIgnoreCase))
+            {
+                portListening = portListening || ParseBool(item.Value);
+            }
+            else if (item.Key.Equals("AMQP_BIND_ALL", StringComparison.OrdinalIgnoreCase) ||
+                     item.Key.Equals("MGMT_BIND_ALL", StringComparison.OrdinalIgnoreCase))
+            {
+                portListening = portListening || ParseBool(item.Value);
             }
             else if (item.Key.Equals("SERVICE_ONLY_STALE", StringComparison.OrdinalIgnoreCase) ||
                      item.Key.Equals("SERVICE_ONLY_RESIDUE", StringComparison.OrdinalIgnoreCase))
@@ -135,5 +155,16 @@ public static class ApplicationStatusNormalizer
 
         var cleanValue = value.Trim().ToLowerInvariant();
         return cleanValue is "true" or "1" or "running" or "active" or "installed" or "yes";
+    }
+
+    private static bool IsKnownServiceValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var cleanValue = value.Trim().ToLowerInvariant();
+        return cleanValue is not "unknown" and not "not-found" and not "not_found" and not "none" and not "false";
     }
 }

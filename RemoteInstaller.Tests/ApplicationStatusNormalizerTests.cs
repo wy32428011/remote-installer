@@ -79,6 +79,28 @@ public class ApplicationStatusNormalizerTests
     }
 
     [Fact]
+    public void Normalize_RabbitMqRuntimeEvidenceMarksInstalledAndRunning()
+    {
+        var events = ScriptProtocolParser.Parse(string.Join('\n', new[]
+        {
+            "INSTALLED: false",
+            "RUNNING: false",
+            "SERVICE_NAME: rabbitmq-server",
+            "SERVICE_STATUS: active",
+            "MANAGEMENT_OPEN: true",
+            "MANAGEMENT_HTTP_READY: true"
+        })).ToList();
+        var status = new ApplicationStatus();
+
+        ApplicationStatusNormalizer.ApplyStatusEvents(status, events);
+        var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
+        ApplicationStatusNormalizer.Normalize(status, evidence);
+
+        Assert.True(status.IsInstalled);
+        Assert.True(status.IsRunning);
+    }
+
+    [Fact]
     public void InstallerService_DelegatesCheckOutputParsingToProtocolNormalizer()
     {
         var installerService = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");

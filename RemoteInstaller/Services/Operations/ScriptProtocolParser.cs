@@ -17,8 +17,16 @@ public static class ScriptProtocolParser
         "BINARY_FOUND",
         "SERVICE_FOUND",
         "SERVICE_ACTIVE",
+        "SERVICE_NAME",
+        "SERVICE_STATUS",
         "PROCESS_FOUND",
-        "PORT_LISTENING"
+        "PORT_LISTENING",
+        "REMOTE_ACCESS_AVAILABLE",
+        "MANAGEMENT_PLUGIN_ENABLED",
+        "MANAGEMENT_HTTP_READY",
+        "AMQP_BIND_ALL",
+        "MGMT_BIND_ALL",
+        "MANAGEMENT_OPEN"
     };
 
     public static IEnumerable<ScriptProtocolEvent> Parse(string output)
