@@ -1096,28 +1096,6 @@ _ => null
     private void ParseCombinedCheckOutput(string output, ApplicationStatus status)
     {
         ParseCheckOutput(output, status);
-        NormalizeApplicationStatus(status);
-    }
-
-    private static void NormalizeApplicationStatus(ApplicationStatus status)
-    {
-        if (status.IsRunning && !status.IsInstalled)
-        {
-            status.IsInstalled = true;
-
-            if (string.IsNullOrWhiteSpace(status.InstalledVersion))
-            {
-                status.InstalledVersion = "未知";
-            }
-        }
-
-        var evidence = new ApplicationStatusEvidence
-        {
-            BinaryFound = status.IsInstalled,
-            ProcessFound = status.IsRunning
-        };
-
-        ApplicationStatusNormalizer.Normalize(status, evidence);
     }
 
     private async Task<bool> IsInstalledAsync(RemoteHost host, ApplicationInfo app, CancellationToken cancellationToken)
@@ -2479,6 +2457,5 @@ _ => null
         ApplicationStatusNormalizer.ApplyStatusEvents(status, events);
         var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
         ApplicationStatusNormalizer.Normalize(status, evidence);
-        NormalizeApplicationStatus(status);
     }
 }

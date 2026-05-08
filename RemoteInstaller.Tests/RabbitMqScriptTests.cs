@@ -131,10 +131,13 @@ public class RabbitMqScriptTests
     public void InstallConfigViewModel_UsesRabbitMqOfflineDirectoryInsteadOfSinglePackageFile()
     {
         var viewModel = ReadProjectFile("RemoteInstaller", "ViewModels", "InstallConfigViewModel.cs");
+        var packageResolver = ReadProjectFile("RemoteInstaller", "Services", "Operations", "DefaultPackageResolver.cs");
 
-        Assert.Contains("packagePath = root;", viewModel);
-        Assert.Contains("已从 Scripts 目录自动匹配 RabbitMQ 本地资源目录", viewModel);
-        Assert.Contains("RabbitMQ Ubuntu 离线资源目录缺少依赖", viewModel);
+        Assert.Contains("new DefaultPackageResolver", viewModel);
+        Assert.Contains("return resolution.Found;", viewModel);
+        Assert.Contains("return PackageResolution.FoundPackage(", packageResolver);
+        Assert.Contains("已从 Scripts 目录自动匹配 RabbitMQ 本地资源目录", packageResolver);
+        Assert.Contains("RabbitMQ Ubuntu 离线资源目录缺少依赖", packageResolver);
     }
 
     [Fact]
