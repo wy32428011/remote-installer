@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using RemoteInstaller.Models;
+using RemoteInstaller.Services.Operations;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using Renci.SshNet.Sftp;
@@ -520,16 +522,7 @@ public class SshService : IDisposable
         await Task.Run(() => _sshClient.Connect(), cancellationToken);
         _connectedHostKey = requestedHostKey;
 
-        // SFTP 能力改为按需建立。
-        // 这里不因为 SFTP 不可用而让整个 SSH/终端连接失败。
-        try
-        {
-            await EnsureSftpConnectedAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger?.Warning($"SFTP 未就绪，已降级为仅 SSH 会话：{ex.Message}");
-        }
+        // SFTP 按需建立。状态检测、终端和普通命令不需要为 SFTP 握手付出额外等待。
 
         _logger?.Success($"连接到 {host.Name} 成功");
 
@@ -1154,6 +1147,25 @@ public class SshService : IDisposable
     /// </summary>
     public async Task<string> ExecuteCommandAsync(string command, Action<string>? onOutput = null, CancellationToken cancellationToken = default, bool throwOnError = false)
     {
+        var result = await ExecuteCommandResultAsync(command, onOutput, cancellationToken);
+
+        if (throwOnError && result.ExitCode != 0)
+        {
+            var error = string.IsNullOrWhiteSpace(result.Stderr) ? result.Stdout : result.Stderr;
+            throw new Exception($"远程命令执行失败 (ExitCode: {result.ExitCode}): {error}");
+        }
+
+        return result.CombinedOutput;
+    }
+
+    /// <summary>
+    /// 执行远程命令并返回结构化结果。
+    /// </summary>
+    public async Task<RemoteCommandResult> ExecuteCommandResultAsync(
+        string command,
+        Action<string>? onOutput = null,
+        CancellationToken cancellationToken = default)
+    {
         // 移除命令中的 \r 字符，防止在 Linux 环境下执行出错
         var cleanCommand = command.Replace("\r\n", "\n").Replace("\r", "");
 
@@ -1180,11 +1192,14 @@ public class SshService : IDisposable
 
         return await Task.Run(async () =>
         {
+            var stopwatch = Stopwatch.StartNew();
             using var cmd = _sshClient!.CreateCommand(cleanCommand);
             cmd.CommandTimeout = TimeSpan.FromMilliseconds(timeoutMs);
 
             var asyncResult = cmd.BeginExecute();
             var fullOutput = new StringBuilder();
+            var stdoutOutput = new StringBuilder();
+            var stderrOutput = new StringBuilder();
 
             try
             {
@@ -1213,6 +1228,7 @@ public class SshService : IDisposable
                                     var chunk = new string(buffer, 0, readCount);
                                     onOutput?.Invoke(chunk);
                                     fullOutput.Append(chunk);
+                                    stdoutOutput.Append(chunk);
                                     readAnything = true;
                                 }
                             }
@@ -1226,6 +1242,7 @@ public class SshService : IDisposable
                                     var chunk = new string(buffer, 0, readCount);
                                     onOutput?.Invoke(chunk);
                                     fullOutput.Append(chunk);
+                                    stderrOutput.Append(chunk);
                                     readAnything = true;
                                 }
                             }
@@ -1259,6 +1276,7 @@ public class SshService : IDisposable
                             var chunk = new string(buffer, 0, readCount);
                             onOutput?.Invoke(chunk);
                             fullOutput.Append(chunk);
+                            stdoutOutput.Append(chunk);
                         }
                         while (errorReader.Peek() != -1)
                         {
@@ -1267,6 +1285,7 @@ public class SshService : IDisposable
                             var chunk = new string(buffer, 0, readCount);
                             onOutput?.Invoke(chunk);
                             fullOutput.Append(chunk);
+                            stderrOutput.Append(chunk);
                         }
                     }
                     catch (ObjectDisposedException) { }
@@ -1287,25 +1306,37 @@ public class SshService : IDisposable
                 }
 
                 cmd.EndExecute(asyncResult);
+                stopwatch.Stop();
 
-                var result = fullOutput.ToString();
-
-                if (cmd.ExitStatus != 0)
+                var stderr = stderrOutput.ToString();
+                if (string.IsNullOrWhiteSpace(stderr) && !string.IsNullOrWhiteSpace(cmd.Error))
                 {
-                    var error = cmd.Error;
-
-                    if (throwOnError)
-                    {
-                        throw new Exception($"远程命令执行失败 (ExitCode: {cmd.ExitStatus}): {error ?? result}");
-                    }
+                    stderr = cmd.Error;
                 }
 
-                return result ?? string.Empty;
+                return new RemoteCommandResult
+                {
+                    Command = cleanCommand,
+                    ExitCode = cmd.ExitStatus,
+                    Stdout = stdoutOutput.ToString(),
+                    Stderr = stderr,
+                    TimedOut = false,
+                    Duration = stopwatch.Elapsed
+                };
             }
             catch (ObjectDisposedException)
             {
                 // 如果整个 cmd 都被释放了
-                return fullOutput.ToString();
+                stopwatch.Stop();
+                return new RemoteCommandResult
+                {
+                    Command = cleanCommand,
+                    ExitCode = -1,
+                    Stdout = fullOutput.ToString(),
+                    Stderr = string.Empty,
+                    TimedOut = false,
+                    Duration = stopwatch.Elapsed
+                };
             }
         }, cancellationToken);
     }
