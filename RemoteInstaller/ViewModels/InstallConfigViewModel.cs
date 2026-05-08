@@ -12,6 +12,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RemoteInstaller.Models;
 using RemoteInstaller.Services;
+using RemoteInstaller.Services.Operations;
 
 namespace RemoteInstaller.ViewModels;
 
@@ -2188,86 +2189,14 @@ public partial class InstallConfigViewModel : BaseViewModel
 
     private bool TryResolveRabbitMqLocalPackage(out string packagePath, out string hint)
     {
-        string? offlineFolder = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "rabbitmq-centos7",
-            OperatingSystemType.Ubuntu => "rabbitmq-ubuntu",
-            _ => null
-        };
+        var resolver = ScriptRootOverridesFactory is null
+            ? new DefaultPackageResolver()
+            : new DefaultPackageResolver(ScriptRootOverridesFactory);
 
-        if (string.IsNullOrEmpty(offlineFolder))
-        {
-            packagePath = string.Empty;
-            hint = "当前系统未配置 RabbitMQ 本地资源目录。";
-            return false;
-        }
-
-        string packagePattern = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "rabbitmq-server-*.el7*.rpm",
-            OperatingSystemType.Ubuntu => "rabbitmq-server*.deb",
-            _ => string.Empty
-        };
-
-        foreach (var root in GetRabbitMqScriptRoots(offlineFolder))
-        {
-            try
-            {
-                if (!Directory.Exists(root))
-                {
-                    continue;
-                }
-
-                var selectedPath = Directory.GetFiles(root, packagePattern, SearchOption.TopDirectoryOnly)
-                    .OrderByDescending(File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-
-                if (string.IsNullOrEmpty(selectedPath))
-                {
-                    continue;
-                }
-
-                if (_host.OsType == OperatingSystemType.Ubuntu)
-                {
-                    var dependencyDirectories = new[]
-                    {
-                        Path.Combine(root, "deps"),
-                        root
-                    };
-
-                    var dependencyFileNames = dependencyDirectories
-                        .Where(Directory.Exists)
-                        .SelectMany(dir => Directory.GetFiles(dir, "*.deb", SearchOption.TopDirectoryOnly))
-                        .Select(Path.GetFileName)
-                        .Where(name => !string.IsNullOrEmpty(name))
-                        .ToList();
-
-                    var requiredDebPrefixes = new[] { "erlang-base", "logrotate" };
-                    var missingDependencies = requiredDebPrefixes
-                        .Where(prefix => !dependencyFileNames.Any(name => name!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
-
-                    if (missingDependencies.Count > 0)
-                    {
-                        packagePath = string.Empty;
-                        hint = $"RabbitMQ Ubuntu 离线资源目录缺少依赖：{string.Join(", ", missingDependencies)}。请补齐后再点击刷新检测。";
-                        return false;
-                    }
-                }
-
-                packagePath = root;
-                hint = $"已从 Scripts 目录自动匹配 RabbitMQ 本地资源目录：{root}";
-                return true;
-            }
-            catch
-            {
-                // 忽略当前路径异常，继续尝试其他路径
-            }
-        }
-
-        packagePath = string.Empty;
-        hint = $"未在 Scripts/RabbitMQ/{offlineFolder} 中找到可用本地资源。";
-        return false;
+        var resolution = resolver.Resolve(_application, _host);
+        packagePath = resolution.Path;
+        hint = resolution.Hint;
+        return resolution.Found;
     }
 
     private bool TryResolveConsulLocalPackage(out string packagePath, out string hint)
@@ -2540,20 +2469,6 @@ public partial class InstallConfigViewModel : BaseViewModel
         };
 
         return mosquittoRoots.Distinct(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private IEnumerable<string> GetRabbitMqScriptRoots(string offlineFolder)
-    {
-        var rabbitMqRoots = new[]
-        {
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "RabbitMQ", offlineFolder),
-            Path.Combine(Directory.GetCurrentDirectory(), "RemoteInstaller", "Scripts", "RabbitMQ", offlineFolder),
-            Path.Combine(Directory.GetCurrentDirectory(), "Scripts", "RabbitMQ", offlineFolder),
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "Scripts", "RabbitMQ", offlineFolder),
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "RemoteInstaller", "Scripts", "RabbitMQ", offlineFolder)
-        };
-
-        return rabbitMqRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     private IEnumerable<string> GetRedisScriptRoots(string offlineFolder)
