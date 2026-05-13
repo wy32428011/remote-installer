@@ -22,6 +22,60 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+is_rabbitmq_command_line() {
+    local command_line="$1"
+    printf '%s' "$command_line" | grep -Eiq 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot'
+}
+
+find_rabbitmq_pids() {
+    local pid
+    local command_line
+
+    command_exists pgrep || return 1
+
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        if [ -n "$command_line" ] && is_rabbitmq_command_line "$command_line"; then
+            printf '%s\n' "$pid"
+        fi
+    done < <(pgrep -f '[b]eam\.smp|[e]rl' 2>/dev/null || true)
+}
+
+get_listener_result() {
+    local port="$1"
+
+    if command_exists ss; then
+        ss -tulnp 2>/dev/null | grep -E "[:.]${port}[[:space:]]" || true
+    elif command_exists netstat; then
+        netstat -tulnp 2>/dev/null | grep -E "[:.]${port}[[:space:]]" || true
+    fi
+}
+
+listener_is_rabbitmq_owned() {
+    local listener_result="$1"
+    local rabbitmq_pids="$2"
+    local pid
+
+    [ -n "$listener_result" ] || return 1
+
+    if printf '%s\n' "$listener_result" | grep -Eiq 'rabbitmq|rabbit'; then
+        return 0
+    fi
+
+    for pid in $rabbitmq_pids; do
+        if printf '%s\n' "$listener_result" | grep -Eq "(pid=${pid},|${pid}/)"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 echo ""
 echo "PROGRESS:Initializing:5"
 
@@ -48,7 +102,7 @@ fi
 # 强制停止进程
 echo "检查并停止 RabbitMQ 进程..."
 for i in {1..3}; do
-    beam_pids=$(pgrep -f "beam\.sm[p]" 2>/dev/null || true)
+    beam_pids="$(find_rabbitmq_pids || true)"
     if [ -z "$beam_pids" ]; then
         break
     fi
@@ -58,7 +112,7 @@ for i in {1..3}; do
 done
 
 # 最终确认
-beam_pids=$(pgrep -f "beam\.sm[p]" 2>/dev/null || true)
+beam_pids="$(find_rabbitmq_pids || true)"
 if [ -n "$beam_pids" ]; then
     echo "警告：仍有残留进程无法终止"
 else
@@ -78,8 +132,6 @@ if command -v dpkg &> /dev/null && dpkg -l 2>/dev/null | awk 'NR>5 {print $1, $2
     set +e
     DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge rabbitmq-server 'rabbitmq-*'
     APT_REMOVE_EXIT=$?
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
-    APT_AUTOREMOVE_EXIT=$?
 
     RC_PACKAGES=$(dpkg -l 2>/dev/null | awk '/^rc/ && $2 ~ /^rabbitmq/ {print $2}' || true)
     DPKG_PURGE_EXIT=0
@@ -89,7 +141,7 @@ if command -v dpkg &> /dev/null && dpkg -l 2>/dev/null | awk 'NR>5 {print $1, $2
     fi
     set -e
 
-    if [ $APT_REMOVE_EXIT -ne 0 ] || [ $APT_AUTOREMOVE_EXIT -ne 0 ] || [ $DPKG_PURGE_EXIT -ne 0 ]; then
+    if [ $APT_REMOVE_EXIT -ne 0 ] || [ $DPKG_PURGE_EXIT -ne 0 ]; then
         echo "警告：Debian/Ubuntu 卸载过程中存在异常，请检查上方日志"
     else
         echo "RabbitMQ 包已卸载"
@@ -258,20 +310,45 @@ if command -v systemctl &> /dev/null; then
         fi
     done
 
+    SYSTEMD_SERVICE_GLOBS=(
+        "/etc/systemd/system/*.wants/rabbitmq-server.service"
+        "/etc/systemd/system/*.wants/rabbitmq.service"
+        "/run/systemd/generator*/rabbitmq-server.service"
+        "/run/systemd/generator*/rabbitmq.service"
+    )
+
+    for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+        for service_file in $pattern; do
+            if [ -e "$service_file" ] || [ -L "$service_file" ]; then
+                rm -f "$service_file"
+                echo "已删除残留服务链接：$service_file"
+            fi
+        done
+    done
+
     systemctl daemon-reload 2>/dev/null || true
     echo "systemd 服务已清理"
 fi
 
 # 清理 init.d 服务
-if [ -f /etc/init.d/rabbitmq-server ]; then
-    rm -f /etc/init.d/rabbitmq-server
-    echo "已删除 init.d 服务"
-fi
+INIT_SCRIPTS=(
+    "/etc/init.d/rabbitmq-server"
+    "/etc/init.d/rabbitmq"
+)
 
-if [ -f /etc/init.d/rabbitmq ]; then
-    rm -f /etc/init.d/rabbitmq
-    echo "已删除 init.d 服务"
-fi
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    if [ -e "$init_script" ] || [ -L "$init_script" ]; then
+        rm -f "$init_script"
+        echo "已删除 init.d 服务：$init_script"
+    fi
+done
 
 # 清理 rc 链接
 find /etc/rc*.d -name "S*rabbitmq*" -delete 2>/dev/null || true
@@ -363,7 +440,7 @@ FAILED=0
 
 # 检查进程（最多重试3次）
 for retry in 1 2 3; do
-    beam_pids=$(pgrep -f "beam\.sm[p]" 2>/dev/null || true)
+    beam_pids="$(find_rabbitmq_pids || true)"
     if [ -z "$beam_pids" ]; then
         break
     fi
@@ -374,7 +451,7 @@ for retry in 1 2 3; do
     fi
 done
 
-beam_pids=$(pgrep -f "beam\.sm[p]" 2>/dev/null || true)
+beam_pids="$(find_rabbitmq_pids || true)"
 if [ -n "$beam_pids" ]; then
     echo -e "${RED}警告：仍有 RabbitMQ 进程运行${NC}"
     FAILED=1
@@ -384,7 +461,8 @@ fi
 
 # 检查服务
 if command -v systemctl &> /dev/null; then
-    if systemctl list-units --type=service 2>/dev/null | grep -qi rabbitmq; then
+    if systemctl list-units --all --type=service 2>/dev/null | grep -qi rabbitmq || \
+       systemctl list-unit-files 2>/dev/null | grep -qi '^rabbitmq'; then
         echo -e "${YELLOW}警告：仍有 RabbitMQ 服务配置${NC}"
         FAILED=1
     else
@@ -404,20 +482,18 @@ else
 fi
 
 # 检查端口 5672 和 15672
-if command -v ss &> /dev/null; then
-    if ss -tuln 2>/dev/null | grep -E ':(5672|15672)[[:space:]]' | grep -q .; then
-        echo -e "${RED}警告：RabbitMQ 端口（5672/15672）仍在监听${NC}"
+current_rabbitmq_pids="$(find_rabbitmq_pids || true)"
+port5672_result="$(get_listener_result 5672)"
+port15672_result="$(get_listener_result 15672)"
+if [ -n "$port5672_result" ] || [ -n "$port15672_result" ]; then
+    if listener_is_rabbitmq_owned "$port5672_result" "$current_rabbitmq_pids" || listener_is_rabbitmq_owned "$port15672_result" "$current_rabbitmq_pids"; then
+        echo -e "${RED}警告：RabbitMQ 端口（5672/15672）仍由 RabbitMQ 进程监听${NC}"
         FAILED=1
     else
-        echo -e "${GREEN}RabbitMQ 端口（5672/15672）：已释放${NC}"
+        echo -e "${YELLOW}RabbitMQ 默认端口被其他进程占用，不作为 RabbitMQ 残留${NC}"
     fi
-elif command -v netstat &> /dev/null; then
-    if netstat -tuln 2>/dev/null | grep -E ':(5672|15672)[[:space:]]' | grep -q .; then
-        echo -e "${RED}警告：RabbitMQ 端口（5672/15672）仍在监听${NC}"
-        FAILED=1
-    else
-        echo -e "${GREEN}RabbitMQ 端口（5672/15672）：已释放${NC}"
-    fi
+else
+    echo -e "${GREEN}RabbitMQ 端口（5672/15672）：已释放${NC}"
 fi
 
 # 输出机器可读的状态信息

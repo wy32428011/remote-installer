@@ -232,18 +232,20 @@
                     </Border>
 
                     <!-- 服务器列表 -->
-                    <ScrollViewer Grid.Row="3"
-                                  Style="{DynamicResource ScrollViewerStyle}"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  Padding="8">
+                    <Border Grid.Row="3"
+                            Padding="8">
                         <ListBox x:Name="ServerListBox"
                                  ItemsSource="{Binding FilteredHosts}"
                                  SelectedItem="{Binding SelectedHost}"
                                  SelectionChanged="ServerListBox_SelectionChanged"
                                  SelectionMode="Extended"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.CanContentScroll="True"
                                  VirtualizingPanel.IsVirtualizing="True"
-                                 VirtualizingPanel.VirtualizationMode="Recycling">
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 VirtualizingPanel.ScrollUnit="Pixel"
+                                 VirtualizingPanel.CacheLength="2,2">
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItemStyle}">
                                     <Setter Property="Margin" Value="0,0,0,6"/>
@@ -371,7 +373,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                    </ScrollViewer>
+                    </Border>
                 </Grid>
             </Border>
 
@@ -416,7 +418,7 @@
                                          Width="14"
                                          Height="14"
                                          Margin="0,0,5,0"
-                                         IsIndeterminate="True"/>
+                                         IsIndeterminate="{Binding IsRefreshingAppStatus}"/>
                             <TextBlock Text="{Binding RefreshStatusText}"
                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"
@@ -1214,16 +1216,18 @@
                                     </StackPanel>
                                 </Border>
 
-                                <ScrollViewer Style="{DynamicResource ScrollViewerStyle}"
-                                              VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled"
-                                              Padding="10"
-                                              Visibility="{Binding HasFilteredTasks, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Border Padding="10"
+                                        Visibility="{Binding HasFilteredTasks, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <ListBox ItemsSource="{Binding FilteredTasks}"
                                              SelectedItem="{Binding SelectedTask}"
                                              MouseDoubleClick="TaskListBox_MouseDoubleClick"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.CanContentScroll="True"
                                              VirtualizingPanel.IsVirtualizing="True"
-                                             VirtualizingPanel.VirtualizationMode="Recycling">
+                                             VirtualizingPanel.VirtualizationMode="Recycling"
+                                             VirtualizingPanel.ScrollUnit="Pixel"
+                                             VirtualizingPanel.CacheLength="2,2">
                                         <ListBox.ItemContainerStyle>
                                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource DarkListBoxItemStyle}">
                                                 <Setter Property="Margin" Value="0,0,0,8"/>
@@ -1361,7 +1365,7 @@
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
                                     </ListBox>
-                                </ScrollViewer>
+                                </Border>
                             </Grid>
                         </Grid>
                     </Border>
@@ -1397,27 +1401,38 @@
                                        Foreground="{DynamicResource PrimaryTextBrush}"/>
                         </Border>
 
-                        <ScrollViewer Grid.Row="1"
-                                      Style="{DynamicResource ScrollViewerStyle}"
-                                      VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      Padding="10">
-                            <ItemsControl ItemsSource="{Binding Logs}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding DisplayText}"
-                                                   FontFamily="Consolas"
-                                                   FontSize="11"
-                                                   Margin="0,2"
-                                                   LineHeight="16">
-                                            <TextBlock.Foreground>
-                                                <SolidColorBrush Color="{Binding Level, Converter={StaticResource LogLevelToColorConverter}}"/>
-                                            </TextBlock.Foreground>
-                                        </TextBlock>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <ListBox Grid.Row="1"
+                                 ItemsSource="{Binding Logs}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="10"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.CanContentScroll="True"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="Focusable" Value="False"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayText}"
+                                               FontFamily="Consolas"
+                                               FontSize="11"
+                                               Margin="0,2"
+                                               LineHeight="16">
+                                        <TextBlock.Foreground>
+                                            <SolidColorBrush Color="{Binding Level, Converter={StaticResource LogLevelToColorConverter}}"/>
+                                        </TextBlock.Foreground>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </Grid>
                 </Border>
             </Grid>
@@ -1465,6 +1480,46 @@
                                Margin="4,0,12,6"
                                Foreground="{DynamicResource SuccessBrush}"
                                FontSize="12"/>
+
+                    <materialDesign:PackIcon Kind="Information"
+                                             Width="14"
+                                             Height="14"
+                                             Foreground="{DynamicResource SecondaryTextBrush}"
+                                             VerticalAlignment="Center"
+                                             Margin="0,0,0,6"/>
+                    <TextBlock Text="&#x7248;&#x672C;&#xFF1A;"
+                               VerticalAlignment="Center"
+                               Margin="6,0,0,6"
+                               FontSize="12"/>
+                    <TextBlock Text="{Binding CurrentVersionDisplay}"
+                               FontWeight="SemiBold"
+                               Margin="4,0,12,6"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="12"/>
+
+                    <Button Style="{StaticResource MaterialDesignFlatButton}"
+                            Command="{Binding CheckForUpdatesCommand}"
+                            IsEnabled="{Binding CanCheckForUpdates}"
+                            Padding="8,3"
+                            Margin="0,0,12,6"
+                            ToolTip="{Binding UpdateIndicatorText}">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="Refresh"
+                                                     Width="14"
+                                                     Height="14"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock Text="&#x68C0;&#x6D4B;&#x66F4;&#x65B0;"
+                                       Margin="5,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Text="{Binding UpdateIndicatorText}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,6"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"/>
                 </WrapPanel>
 
                 <WrapPanel Margin="0,2,0,0">

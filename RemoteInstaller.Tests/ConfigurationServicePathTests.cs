@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using Xunit;
 
 namespace RemoteInstaller.Tests;
@@ -140,6 +141,76 @@ public class ConfigurationServicePathTests
         Assert.Contains("\"required\": false", appConfiguration);
         Assert.Contains("用户名（留空则启用匿名访问；启用认证时需与密码同时填写）", appConfiguration);
         Assert.Contains("密码（留空则启用匿名访问；启用认证时需与用户名同时填写）", appConfiguration);
+    }
+
+    [Fact]
+    public void AppConfiguration_UsesMachineReadableLinuxStatusScripts()
+    {
+        var projectRoot = GetProjectRoot();
+        using var document = JsonDocument.Parse(ReadProjectFile("Scripts", "app-configuration.json"));
+        var scriptFolders = Directory.GetDirectories(Path.Combine(projectRoot, "RemoteInstaller", "Scripts"))
+            .Where(directory => File.Exists(Path.Combine(directory, "check_status_linux.sh")))
+            .Select(directory => new DirectoryInfo(directory).Name)
+            .ToList();
+
+        foreach (var app in document.RootElement.GetProperty("applications").EnumerateArray())
+        {
+            var id = app.GetProperty("id").GetString() ?? string.Empty;
+            var name = app.TryGetProperty("name", out var nameProperty) ? nameProperty.GetString() ?? id : id;
+            var scriptFolder = scriptFolders.FirstOrDefault(folder => IsSameAppName(folder, id) || IsSameAppName(folder, name));
+            if (scriptFolder is null)
+            {
+                continue;
+            }
+
+            var linuxDetect = app
+                .GetProperty("scripts")
+                .GetProperty("detect")
+                .GetProperty("linux")
+                .GetString() ?? string.Empty;
+
+            Assert.Contains($"Scripts/{scriptFolder}/check_status_linux.sh", linuxDetect);
+        }
+    }
+
+    [Fact]
+    public void AppConfiguration_UsesBundledLinuxUninstallScriptsWhenAvailable()
+    {
+        var projectRoot = GetProjectRoot();
+        using var document = JsonDocument.Parse(ReadProjectFile("Scripts", "app-configuration.json"));
+        var scriptFolders = Directory.GetDirectories(Path.Combine(projectRoot, "RemoteInstaller", "Scripts"))
+            .Where(directory => File.Exists(Path.Combine(directory, "uninstall_linux.sh")))
+            .Select(directory => new DirectoryInfo(directory).Name)
+            .ToList();
+
+        foreach (var app in document.RootElement.GetProperty("applications").EnumerateArray())
+        {
+            var id = app.GetProperty("id").GetString() ?? string.Empty;
+            var name = app.TryGetProperty("name", out var nameProperty) ? nameProperty.GetString() ?? id : id;
+            var scriptFolder = scriptFolders.FirstOrDefault(folder => IsSameAppName(folder, id) || IsSameAppName(folder, name));
+            if (scriptFolder is null)
+            {
+                continue;
+            }
+
+            var linuxUninstall = app
+                .GetProperty("scripts")
+                .GetProperty("uninstall")
+                .GetProperty("linux")
+                .GetString() ?? string.Empty;
+
+            Assert.Contains($"Scripts/{scriptFolder}/uninstall_linux.sh", linuxUninstall);
+        }
+    }
+
+    private static bool IsSameAppName(string left, string right)
+    {
+        static string Normalize(string value) => new(value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+
+        return Normalize(left) == Normalize(right);
     }
 
     [Fact]

@@ -201,6 +201,7 @@ wait_for_service_ready() {
 
     if command -v systemctl >/dev/null 2>&1; then
         for i in $(seq 1 30); do
+            echo "PROGRESS:Starting:$((65 + i * 10 / 30))"
             if systemctl is-active --quiet "$service_name" 2>/dev/null; then
                 break
             fi
@@ -214,6 +215,7 @@ wait_for_service_ready() {
     fi
 
     for i in $(seq 1 30); do
+        echo "PROGRESS:Starting:$((65 + i * 10 / 30))"
         if is_port_listening "$PORT"; then
             return 0
         fi
@@ -406,7 +408,6 @@ prepare_debian_offline_dependencies() {
 
     echo "正在安装缺失的 Debian 离线依赖包..."
     dpkg --force-confdef --force-confold -i "${install_files[@]}"
-    dpkg --configure -a
 }
 
 install_debian_from_directory() {
@@ -458,7 +459,6 @@ install_debian_from_directory() {
     if [ ${#install_queue[@]} -gt 0 ]; then
         echo "按 MySQL 8.x 依赖顺序安装离线 DEB 包..."
         dpkg --force-confdef --force-confold -i "${install_queue[@]}"
-        dpkg --configure -a
     fi
 
     for pkg in "${deb_files[@]}"; do
@@ -477,8 +477,6 @@ install_debian_from_directory() {
     if [ ${#remaining_files[@]} -gt 0 ]; then
         dpkg --force-confdef --force-confold -i "${remaining_files[@]}"
     fi
-
-    dpkg --configure -a
 
     if [ -z "$(find_mysql_binary)" ]; then
         echo "错误：离线 DEB 安装完成后未找到 mysqld，请检查安装包是否完整且与目标系统兼容"
@@ -906,6 +904,7 @@ fi
 SUCCESS=false
 if [ -n "$MYSQLADMIN_CMD" ]; then
     for i in $(seq 1 20); do
+        echo "PROGRESS:Verifying:$((88 + i * 7 / 20))"
         if timeout 10s "$MYSQLADMIN_CMD" --connect-timeout=5 -uroot -p"$ROOT_PASSWORD" -P"$PORT" -h127.0.0.1 ping >/dev/null 2>&1; then
             SUCCESS=true
             break

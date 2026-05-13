@@ -30,6 +30,34 @@ public class MosquittoScriptTests
         return File.ReadAllText(path);
     }
 
+    private static string ExtractMethod(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"未找到方法签名：{signature}");
+
+        var braceStart = source.IndexOf('{', start);
+        Assert.True(braceStart >= 0, $"未找到方法体起始：{signature}");
+
+        var depth = 0;
+        for (var i = braceStart; i < source.Length; i++)
+        {
+            if (source[i] == '{')
+            {
+                depth++;
+            }
+            else if (source[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return source.Substring(start, i - start + 1);
+                }
+            }
+        }
+
+        throw new InvalidOperationException($"未找到方法体结束：{signature}");
+    }
+
     [Fact]
     public void InstallLinuxScript_RequiresExplicitOfflinePackagePath()
     {
@@ -83,9 +111,77 @@ public class MosquittoScriptTests
         Assert.Contains("systemctl restart \"$SERVICE_NAME\"", script);
         Assert.Contains("verify_installation() {", script);
         Assert.Contains("if ! systemctl is-active --quiet \"$SERVICE_NAME\"; then", script);
-        Assert.Contains("dpkg-query -W -f='${Status} ${Package}\\n' mosquitto", script);
+        Assert.Contains("is_deb_package_installed \"mosquitto\"", script);
         Assert.Contains("if ! is_port_listening \"$MQTT_PORT\"; then", script);
         Assert.DoesNotContain("WEBSOCKET_PORT", script);
+    }
+
+    [Fact]
+    public void InstallLinuxScript_PreflightsUbuntuOfflineDependencies()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "install_linux.sh");
+
+        Assert.Contains("has_deb_package()", script);
+        Assert.Contains("required_packages=(mosquitto libmosquitto1 libcjson1)", script);
+        Assert.Contains("required_packages+=(libmicrohttpd12t64)", script);
+        Assert.Contains("required_packages+=(libmicrohttpd12)", script);
+        Assert.Contains("required_packages+=(mosquitto-clients)", script);
+        Assert.Contains("! is_deb_package_installed \"$package_name\"", script);
+        Assert.Contains("Ubuntu Mosquitto 离线目录缺少依赖包", script);
+        Assert.Contains("print_ubuntu_package_status", script);
+    }
+
+    [Fact]
+    public void CheckStatusLinuxScript_DoesNotTreatConfigOnlyResidueAsInstalled()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "check_status_linux.sh");
+
+        Assert.Contains("CONFIG_ONLY_RESIDUE=\"false\"", script);
+        Assert.Contains("Mosquitto 配置文件存在，但未发现完整安装或 Mosquitto 运行进程，按残留配置处理", script);
+        Assert.Contains("CONFIG_ONLY_RESIDUE:$CONFIG_ONLY_RESIDUE", script);
+    }
+
+    [Fact]
+    public void CheckStatusLinuxScript_RequiresExactDpkgInstalledStatus()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "check_status_linux.sh");
+
+        Assert.Contains("is_deb_package_installed()", script);
+        Assert.Contains("[ \"$package_status\" = \"install ok installed\" ]", script);
+        Assert.Contains("Mosquitto dpkg 状态不是完整安装", script);
+        Assert.DoesNotContain("grep -q 'installed'", script);
+    }
+
+    [Fact]
+    public void InstallerService_CheckStatusLoadsCommandPrefixedDetectScriptReferences()
+    {
+        var installerService = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+        var method = ExtractMethod(installerService, "public async Task<ApplicationStatus> CheckStatusAsync");
+
+        Assert.Contains("TryResolveConfiguredScriptFilePath(script", method);
+        Assert.Contains("从配置引用加载检测脚本", method);
+    }
+
+    [Fact]
+    public void InstallerService_MosquittoFallbackDoesNotTreatClientUtilitiesOrConfigResidueAsInstalled()
+    {
+        var installerService = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+        var method = ExtractMethod(installerService, "private async Task<bool> IsInstalledAsync");
+
+        Assert.DoesNotContain("which mosquitto_passwd", method);
+        Assert.Contains("DEB_STATUS=$(dpkg-query -W -f='${Status}' mosquitto", method);
+        Assert.Contains("[ \"\"$DEB_STATUS\"\" = 'install ok installed' ]", method);
+        Assert.Contains("[ -z \"\"$DEB_STATUS\"\" ] && (which mosquitto", method);
+        Assert.Contains("Mosquitto 服务定义存在，但未发现完整安装或 Mosquitto 运行进程，按残留服务处理", method);
+    }
+
+    [Fact]
+    public void UninstallLinuxScript_RemovesMosquittoOfflineBundlePackages()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "uninstall_linux.sh");
+
+        Assert.Contains("mosquitto-clients", script);
+        Assert.Contains("libmosquitto", script);
     }
 
     [Fact]
@@ -181,7 +277,8 @@ public class MosquittoScriptTests
         Assert.Contains("mosquitto -h 2>&1", installerService);
         Assert.Contains("dpkg-query -W -f='${Status} ${Package}\\n' mosquitto", installerService);
         Assert.Contains("systemctl is-active --quiet mosquitto", installerService);
-        Assert.Contains("Get-ChildItem -Path 'C:\\Program Files\\mosquitto'", installerService);
+        Assert.Contains("PORT_LISTENING:false", installerService);
+        Assert.Contains(@"Get-ChildItem -Path 'C:\\Program Files\\mosquitto'", installerService);
     }
 
     [Fact]

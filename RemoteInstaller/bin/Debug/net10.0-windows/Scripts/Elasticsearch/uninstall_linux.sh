@@ -65,6 +65,13 @@ ES_EXTRA_PATHS=(
     "/usr/bin/${ES_SERVICE_NAME}"
     "/usr/local/bin/${ES_SERVICE_NAME}"
 )
+SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/elasticsearch.service"
+    "/run/systemd/generator*/elasticsearch.service"
+)
+INIT_SCRIPTS=(
+    "/etc/init.d/elasticsearch"
+)
 
 #=============================================================================
 # 1. 停止 Elasticsearch 服务
@@ -188,7 +195,6 @@ if [ -n "$ES_PKGS" ]; then
             DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$pkg" 2>/dev/null || dpkg -P "$pkg" 2>/dev/null || true
         fi
     done
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null || true
 else
     echo "  未发现 DEB 包"
 fi
@@ -222,6 +228,25 @@ echo "[3/6] 清理服务配置..."
 # 清理 systemd 与额外残留
 for path in "${ES_EXTRA_PATHS[@]}"; do
     rm -rf "$path" 2>/dev/null || true
+done
+
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for path in $pattern; do
+        if [ -e "$path" ] || [ -L "$path" ]; then
+            rm -f "$path" 2>/dev/null || true
+        fi
+    done
+done
+
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    rm -f "$init_script" 2>/dev/null || true
 done
 
 systemctl daemon-reload 2>/dev/null || true

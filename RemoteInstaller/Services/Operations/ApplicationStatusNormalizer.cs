@@ -82,7 +82,8 @@ public static class ApplicationStatusNormalizer
             }
             else if (item.Key.Equals("PORT", StringComparison.OrdinalIgnoreCase))
             {
-                portListening = !string.IsNullOrWhiteSpace(item.Value);
+                // PORT 只是脚本上报的端口配置值，不能等同于端口正在监听。
+                // 只有 PORT_LISTENING、进程或 active 服务这类事实证据才能判定为运行中。
             }
             else if (item.Key.Equals("PORT_LISTENING", StringComparison.OrdinalIgnoreCase))
             {
@@ -90,14 +91,12 @@ public static class ApplicationStatusNormalizer
             }
             else if (item.Key.Equals("MANAGEMENT_OPEN", StringComparison.OrdinalIgnoreCase) ||
                      item.Key.Equals("MANAGEMENT_HTTP_READY", StringComparison.OrdinalIgnoreCase) ||
-                     item.Key.Equals("REMOTE_ACCESS_AVAILABLE", StringComparison.OrdinalIgnoreCase))
-            {
-                portListening = portListening || ParseBool(item.Value);
-            }
-            else if (item.Key.Equals("AMQP_BIND_ALL", StringComparison.OrdinalIgnoreCase) ||
+                     item.Key.Equals("REMOTE_ACCESS_AVAILABLE", StringComparison.OrdinalIgnoreCase) ||
+                     item.Key.Equals("AMQP_BIND_ALL", StringComparison.OrdinalIgnoreCase) ||
                      item.Key.Equals("MGMT_BIND_ALL", StringComparison.OrdinalIgnoreCase))
             {
-                portListening = portListening || ParseBool(item.Value);
+                // 这些字段只描述 RabbitMQ 的访问能力，不能单独证明服务仍在运行。
+                // 运行态必须来自 RUNNING、PROCESS_FOUND、SERVICE_ACTIVE 或 PORT_LISTENING。
             }
             else if (item.Key.Equals("SERVICE_ONLY_STALE", StringComparison.OrdinalIgnoreCase) ||
                      item.Key.Equals("SERVICE_ONLY_RESIDUE", StringComparison.OrdinalIgnoreCase))

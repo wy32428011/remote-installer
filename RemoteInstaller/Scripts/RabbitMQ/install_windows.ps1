@@ -2,9 +2,6 @@
 # RabbitMQ Windows 安装脚本
 # =================================================================
 
-$OutputEncoding = [System.Text.Encoding]::UTF8
-Set-StrictMode -Version Latest
-
 # 参数
 param(
     [string]$PackagePath = "",
@@ -18,6 +15,9 @@ param(
     [switch]$EnableRemoteAccess = $true
 )
 
+$OutputEncoding = [System.Text.Encoding]::UTF8
+Set-StrictMode -Version Latest
+
 # 颜色输出函数
 function Write-Color {
     param([string]$Text, [string]$Color)
@@ -26,7 +26,7 @@ function Write-Color {
 
 function Write-Progress {
     param([string]$Stage, [int]$Percent)
-    Write-Host "PROGRESS:$Stage:$Percent"
+    Write-Host "PROGRESS:${Stage}:$Percent"
 }
 
 # 初始化

@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Linq;
 using System.Windows.Input;
 using System.Windows;
@@ -31,13 +32,13 @@ namespace RemoteInstaller.ViewModels
         private readonly AppConfigurationService? _appConfigurationService;
         private readonly ConfigurationService _configurationService;
         private readonly HostStatusRefreshCoordinator _hostStatusRefreshCoordinator;
+        private readonly HostApplicationStatusService _hostApplicationStatusService;
+        private readonly UpdateCheckService _updateCheckService;
         private int _postLoadInitialized;
         private string _refreshStatusText = "正在刷新应用状态...";
 
-        // 批量安装并发控制
-        private SemaphoreSlim? _batchInstallSemaphore;
+        // 批量卸载并发控制；批量安装必须全局串行，避免多台主机同时争用安装资源
         private SemaphoreSlim? _batchUninstallSemaphore;
-        private readonly object _semaphoreLock = new();
 
         // 批量操作取消控制
         private CancellationTokenSource? _batchInstallCts;
@@ -48,6 +49,12 @@ namespace RemoteInstaller.ViewModels
         private readonly System.Timers.Timer _filterDebounceTimer;
         private readonly object _filterLock = new();
         private const int FilterDebounceIntervalMs = 150;
+
+        // 任务列表刷新节流，避免安装日志/上传进度高频触发排序和过滤重建
+        private readonly System.Timers.Timer _taskUiRefreshTimer;
+        private readonly object _taskUiRefreshLock = new();
+        private const int TaskUiRefreshThrottleMs = 250;
+        private bool _isReorderingTasks;
 
         #region 属性
 
@@ -136,6 +143,24 @@ namespace RemoteInstaller.ViewModels
 
         [ObservableProperty]
         private string _repositoryUrl = "未配置";
+
+        [ObservableProperty]
+        private string _currentVersion = "0.0.0";
+
+        [ObservableProperty]
+        private string _latestVersion = string.Empty;
+
+        [ObservableProperty]
+        private string _updateStatusText = "点击检测更新";
+
+        [ObservableProperty]
+        private bool _isCheckingForUpdates;
+
+        [ObservableProperty]
+        private bool _hasUpdateAvailable;
+
+        [ObservableProperty]
+        private string _updateDownloadUrl = string.Empty;
 
         [ObservableProperty]
         private bool _isServerSelected;
@@ -246,6 +271,16 @@ namespace RemoteInstaller.ViewModels
             : "请选择一台服务器以继续操作";
 
         public string RefreshStatusText => _refreshStatusText;
+
+        public string CurrentVersionDisplay => $"v{CurrentVersion}";
+
+        public string LatestVersionDisplay => string.IsNullOrWhiteSpace(LatestVersion)
+            ? "未检测"
+            : $"v{LatestVersion}";
+
+        public string UpdateIndicatorText => IsCheckingForUpdates ? "正在检测更新..." : UpdateStatusText;
+
+        public bool CanCheckForUpdates => !IsCheckingForUpdates;
 
         /// <summary>
         /// 过滤后的服务器列表
@@ -370,6 +405,28 @@ namespace RemoteInstaller.ViewModels
         {
             OnPropertyChanged(nameof(IsTaskPanelExpanded));
             OnPropertyChanged(nameof(TaskPanelToggleTooltip));
+        }
+
+        partial void OnCurrentVersionChanged(string value)
+        {
+            OnPropertyChanged(nameof(CurrentVersionDisplay));
+        }
+
+        partial void OnLatestVersionChanged(string value)
+        {
+            OnPropertyChanged(nameof(LatestVersionDisplay));
+        }
+
+        partial void OnUpdateStatusTextChanged(string value)
+        {
+            OnPropertyChanged(nameof(UpdateIndicatorText));
+        }
+
+        partial void OnIsCheckingForUpdatesChanged(bool value)
+        {
+            OnPropertyChanged(nameof(UpdateIndicatorText));
+            OnPropertyChanged(nameof(CanCheckForUpdates));
+            CheckForUpdatesCommand.NotifyCanExecuteChanged();
         }
 
         private void NotifyBatchActionStateChanged()
@@ -728,6 +785,97 @@ namespace RemoteInstaller.ViewModels
         }
 
         /// <summary>
+        /// 检测客户端是否有新版本。
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
+        private async Task CheckForUpdates()
+        {
+            if (IsCheckingForUpdates)
+            {
+                return;
+            }
+
+            IsCheckingForUpdates = true;
+            UpdateStatusText = "正在检测更新...";
+
+            try
+            {
+                var repositoryUrl = _databaseService.GetSetting("RepositoryUrl", string.Empty);
+                var updateCheckUrl = _databaseService.GetSetting("UpdateCheckUrl", string.Empty);
+                var repositoryToken = _databaseService.GetSetting("RepositoryToken", string.Empty);
+
+                var result = await _updateCheckService.CheckForUpdatesAsync(
+                    repositoryUrl,
+                    updateCheckUrl,
+                    repositoryToken);
+
+                CurrentVersion = result.CurrentVersion;
+                LatestVersion = result.LatestVersion ?? string.Empty;
+                HasUpdateAvailable = result.IsUpdateAvailable;
+                UpdateDownloadUrl = result.DownloadUrl ?? string.Empty;
+                UpdateStatusText = result.StatusMessage;
+
+                AddLog(result.StatusMessage, result.IsUpdateAvailable ? LogLevel.Warning : LogLevel.Info);
+                ShowUpdateCheckResult(result);
+            }
+            catch (Exception ex)
+            {
+                HasUpdateAvailable = false;
+                UpdateStatusText = $"更新检测失败：{ex.Message}";
+                AddLog(UpdateStatusText, LogLevel.Error);
+                MessageBox.Show(UpdateStatusText, "版本检测", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsCheckingForUpdates = false;
+            }
+        }
+
+        private void ShowUpdateCheckResult(UpdateCheckResult result)
+        {
+            if (!result.IsUpdateAvailable)
+            {
+                MessageBox.Show(result.StatusMessage, "版本检测", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var message = result.StatusMessage;
+            if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
+            {
+                message += $"\n\n更新说明：\n{result.ReleaseNotes}";
+            }
+
+            if (string.IsNullOrWhiteSpace(result.DownloadUrl))
+            {
+                MessageBox.Show(message, "发现新版本", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            message += $"\n\n下载地址：{result.DownloadUrl}\n\n是否打开下载地址？";
+            var openDownload = MessageBox.Show(message, "发现新版本", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (openDownload == MessageBoxResult.Yes)
+            {
+                OpenUrl(result.DownloadUrl);
+            }
+        }
+
+        private void OpenUrl(string url)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                AddLog($"打开下载地址失败：{ex.Message}", LogLevel.Error);
+            }
+        }
+
+        /// <summary>
         /// 打开日志查看器命令
         /// </summary>
         [RelayCommand]
@@ -919,8 +1067,9 @@ namespace RemoteInstaller.ViewModels
             _batchInstallCts?.Cancel();
             _batchInstallCts = new CancellationTokenSource();
 
-            var totalTasks = selectedApps.Count * SelectedHosts.Count;
-            AddLog($"开始批量安装 {selectedApps.Count} 个应用到 {SelectedHosts.Count} 台服务器（每台主机内按应用顺序串行），共 {totalTasks} 个任务...", LogLevel.Info);
+            var selectedHosts = SelectedHosts.ToList();
+            var totalTasks = selectedApps.Count * selectedHosts.Count;
+            AddLog($"开始批量安装 {selectedApps.Count} 个应用到 {selectedHosts.Count} 台服务器（全局按队列逐个执行），共 {totalTasks} 个任务...", LogLevel.Info);
             IsBatchInstalling = true;
 
             var completedCount = 0;
@@ -928,54 +1077,42 @@ namespace RemoteInstaller.ViewModels
             var failedCount = 0;
             var canceledCount = 0;
 
-            // 初始化信号量 (根据设置中的并发数)
-            var maxConcurrentTasks = int.TryParse(_databaseService.GetSetting("MaxConcurrentTasks", "3"), out var val) ? val : 3;
-            _batchInstallSemaphore = new SemaphoreSlim(maxConcurrentTasks, maxConcurrentTasks);
-
             try
             {
                 var token = _batchInstallCts.Token;
 
-                var tasks = SelectedHosts.Select(async host =>
+                foreach (var host in selectedHosts)
                 {
-                    await _batchInstallSemaphore!.WaitAsync(token);
-                    try
+                    token.ThrowIfCancellationRequested();
+
+                    foreach (var app in selectedApps)
                     {
-                        foreach (var app in selectedApps)
+                        token.ThrowIfCancellationRequested();
+
+                        var result = await InstallApplicationToHost(app, host, token);
+                        completedCount++;
+
+                        switch (result)
                         {
-                            token.ThrowIfCancellationRequested();
-
-                            var result = await InstallApplicationToHost(app, host, token);
-                            Interlocked.Increment(ref completedCount);
-
-                            switch (result)
-                            {
-                                case BatchTaskResult.Success:
-                                    Interlocked.Increment(ref successCount);
-                                    break;
-                                case BatchTaskResult.Failed:
-                                    Interlocked.Increment(ref failedCount);
-                                    break;
-                                case BatchTaskResult.Canceled:
-                                    Interlocked.Increment(ref canceledCount);
-                                    break;
-                            }
+                            case BatchTaskResult.Success:
+                                successCount++;
+                                break;
+                            case BatchTaskResult.Failed:
+                                failedCount++;
+                                break;
+                            case BatchTaskResult.Canceled:
+                                canceledCount++;
+                                break;
                         }
                     }
-                    finally
-                    {
-                        _batchInstallSemaphore.Release();
-                    }
-                }).ToList();
-
-                await Task.WhenAll(tasks);
+                }
 
                 AddLog($"批量安装完成，总任务 {totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}", LogLevel.Success);
 
-                if (SelectedHost != null && SelectedHosts.Contains(SelectedHost))
+                if (SelectedHost != null && selectedHosts.Contains(SelectedHost))
                 {
                     InvalidateHostStatusCache(SelectedHost);
-                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostInstall, forceRefresh: true);
+                    await RefreshApplicationsStatusAfterMutationAsync(SelectedHost, selectedApps, token);
                 }
             }
             catch (OperationCanceledException)
@@ -989,7 +1126,6 @@ namespace RemoteInstaller.ViewModels
             finally
             {
                 IsBatchInstalling = false;
-                _batchInstallSemaphore?.Dispose();
                 _batchInstallCts?.Dispose();
                 _batchInstallCts = null;
             }
@@ -1095,7 +1231,7 @@ namespace RemoteInstaller.ViewModels
                 if (SelectedHost != null && SelectedHosts.Contains(SelectedHost))
                 {
                     InvalidateHostStatusCache(SelectedHost);
-                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostUninstall, forceRefresh: true);
+                    await RefreshApplicationsStatusAfterMutationAsync(SelectedHost, selectedApps, token);
                 }
             }
             catch (OperationCanceledException)
@@ -1376,7 +1512,7 @@ namespace RemoteInstaller.ViewModels
             taskViewModel.IsFailed = task.Status == Models.TaskStatus.Failed;
             taskViewModel.IsCanceled = task.Status == Models.TaskStatus.Cancelled;
             taskViewModel.MarkActivity();
-            ReorderTasks();
+            RequestTaskListRefresh(immediate: task.Status is Models.TaskStatus.Completed or Models.TaskStatus.Failed or Models.TaskStatus.Cancelled);
         }
 
         private IProgress<LogEntry> CreateTaskLogReporter(TaskViewModel taskViewModel)
@@ -1385,7 +1521,7 @@ namespace RemoteInstaller.ViewModels
             {
                 taskViewModel.AddLog(entry);
                 taskViewModel.MarkActivity();
-                ReorderTasks();
+                RequestTaskListRefresh();
             });
         }
 
@@ -1408,6 +1544,45 @@ namespace RemoteInstaller.ViewModels
             });
         }
 
+        private void RequestTaskListRefresh(bool immediate = false)
+        {
+            if (immediate)
+            {
+                lock (_taskUiRefreshLock)
+                {
+                    _taskUiRefreshTimer.Stop();
+                }
+
+                RunOnUiThread(FlushTaskListRefresh);
+                return;
+            }
+
+            lock (_taskUiRefreshLock)
+            {
+                if (!_taskUiRefreshTimer.Enabled)
+                {
+                    _taskUiRefreshTimer.Start();
+                }
+            }
+        }
+
+        private void FlushTaskListRefresh()
+        {
+            ReorderTasks();
+        }
+
+        private static void RunOnUiThread(Action action)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+            {
+                action();
+                return;
+            }
+
+            dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         private void ReorderTasks()
         {
             if (Tasks.Count <= 1)
@@ -1422,13 +1597,21 @@ namespace RemoteInstaller.ViewModels
                 .ToList();
 
             var selectedTask = SelectedTask;
-            for (var i = 0; i < orderedTasks.Count; i++)
+            _isReorderingTasks = true;
+            try
             {
-                var currentIndex = Tasks.IndexOf(orderedTasks[i]);
-                if (currentIndex >= 0 && currentIndex != i)
+                for (var i = 0; i < orderedTasks.Count; i++)
                 {
-                    Tasks.Move(currentIndex, i);
+                    var currentIndex = Tasks.IndexOf(orderedTasks[i]);
+                    if (currentIndex >= 0 && currentIndex != i)
+                    {
+                        Tasks.Move(currentIndex, i);
+                    }
                 }
+            }
+            finally
+            {
+                _isReorderingTasks = false;
             }
 
             if (selectedTask != null)
@@ -1576,14 +1759,25 @@ namespace RemoteInstaller.ViewModels
         /// <summary>
         /// 构造函数
         /// </summary>
-        public MainViewModel(SshService sshService, DatabaseService databaseService, ILogger logger, ConfigurationService configurationService, HostStatusRefreshCoordinator hostStatusRefreshCoordinator, AppConfigurationService? appConfigurationService = null)
+        public MainViewModel(
+            SshService sshService,
+            DatabaseService databaseService,
+            ILogger logger,
+            ConfigurationService configurationService,
+            HostStatusRefreshCoordinator hostStatusRefreshCoordinator,
+            AppConfigurationService? appConfigurationService = null,
+            UpdateCheckService? updateCheckService = null,
+            HostApplicationStatusService? hostApplicationStatusService = null)
         {
             _sshService = sshService;
             _databaseService = databaseService;
             _logger = logger;
             _configurationService = configurationService;
             _hostStatusRefreshCoordinator = hostStatusRefreshCoordinator;
+            _hostApplicationStatusService = hostApplicationStatusService ?? new HostApplicationStatusService();
             _appConfigurationService = appConfigurationService;
+            _updateCheckService = updateCheckService ?? new UpdateCheckService();
+            CurrentVersion = _updateCheckService.CurrentVersion;
 
             // 初始化过滤防抖 Timer
             _filterDebounceTimer = new System.Timers.Timer(FilterDebounceIntervalMs);
@@ -1601,13 +1795,24 @@ namespace RemoteInstaller.ViewModels
                 });
             };
 
+            _taskUiRefreshTimer = new System.Timers.Timer(TaskUiRefreshThrottleMs);
+            _taskUiRefreshTimer.AutoReset = false;
+            _taskUiRefreshTimer.Elapsed += (s, e) =>
+            {
+                _taskUiRefreshTimer.Stop();
+                RunOnUiThread(FlushTaskListRefresh);
+            };
+
             Tasks.CollectionChanged += (s, e) =>
             {
                 TaskCount = Tasks.Count;
-                ApplyTaskFilter();
-                OnPropertyChanged(nameof(TaskEmptyStateText));
-                OnPropertyChanged(nameof(HasFilteredTasks));
-                OnPropertyChanged(nameof(ShowTaskEmptyState));
+                if (!_isReorderingTasks)
+                {
+                    ApplyTaskFilter();
+                    OnPropertyChanged(nameof(TaskEmptyStateText));
+                    OnPropertyChanged(nameof(HasFilteredTasks));
+                    OnPropertyChanged(nameof(ShowTaskEmptyState));
+                }
             };
             SelectedHosts.CollectionChanged += SelectedHosts_CollectionChanged;
 
@@ -1959,6 +2164,16 @@ namespace RemoteInstaller.ViewModels
             }
         }
 
+        private SshService CreateIsolatedSshService()
+        {
+            return new SshService();
+        }
+
+        private InstallerService CreateIsolatedInstallerService()
+        {
+            return new InstallerService(CreateIsolatedSshService(), _logger, disposeSshService: true);
+        }
+
         /// <summary>
         /// 检测所有应用状态 - 兼容包装
         /// </summary>
@@ -1973,103 +2188,42 @@ namespace RemoteInstaller.ViewModels
 
         private async Task<HostStatusSnapshot> FetchHostStatusSnapshotAsync(HostViewModel hostViewModel, CancellationToken cancellationToken = default)
         {
+            var stopwatch = Stopwatch.StartNew();
             var host = GetHostFromViewModel(hostViewModel);
             if (host == null)
             {
                 throw new InvalidOperationException("无法获取主机信息");
             }
 
-            var installerService = new InstallerService(_sshService, _logger);
-            await _sshService.ConnectAsync(host, cancellationToken);
-
-            var appResults = new Dictionary<string, BuiltInAppStatusSnapshot>(StringComparer.OrdinalIgnoreCase);
-            var customResults = new Dictionary<string, CustomAppStatusSnapshot>(StringComparer.OrdinalIgnoreCase);
-            var semaphore = new SemaphoreSlim(3);
-
             try
             {
-                var appTasks = Applications.Select(async appCard =>
+                var builtInRequests = Applications.Select(appCard => new BuiltInApplicationStatusRequest
                 {
-                    await semaphore.WaitAsync(cancellationToken);
-                    try
+                    Id = appCard.Id,
+                    CheckStatusAsync = async token =>
                     {
-                        var status = await GetApplicationStatusAsync(host, appCard, installerService, cancellationToken);
-                        lock (appResults)
-                        {
-                            appResults[appCard.Id] = new BuiltInAppStatusSnapshot
-                            {
-                                IsInstalled = status.IsInstalled,
-                                IsRunning = status.IsRunning,
-                                InstalledVersion = status.InstalledVersion ?? "未知"
-                            };
-                        }
+                        using var installerService = CreateIsolatedInstallerService();
+                        return await GetApplicationStatusAsync(host, appCard, installerService, token);
                     }
-                    catch
-                    {
-                        lock (appResults)
-                        {
-                            appResults[appCard.Id] = new BuiltInAppStatusSnapshot
-                            {
-                                IsInstalled = false,
-                                IsRunning = false,
-                                InstalledVersion = "未知"
-                            };
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
+                }).ToList();
 
-                var customTasks = CustomApps.Select(async customApp =>
+                var customRequests = CustomApps.Select(customApp => new CustomApplicationStatusRequest
                 {
-                    await semaphore.WaitAsync(cancellationToken);
-                    try
-                    {
-                        var customStatus = await CheckSingleCustomAppStatusAsync(host, customApp, cancellationToken);
-                        lock (customResults)
-                        {
-                            customResults[customApp.Id] = new CustomAppStatusSnapshot
-                            {
-                                IsInstalled = customStatus.IsInstalled,
-                                IsRunning = customStatus.IsRunning,
-                                StatusText = customStatus.StatusText
-                            };
-                        }
-                    }
-                    catch
-                    {
-                        lock (customResults)
-                        {
-                            customResults[customApp.Id] = new CustomAppStatusSnapshot
-                            {
-                                IsInstalled = false,
-                                IsRunning = false,
-                                StatusText = "检测失败"
-                            };
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
+                    Id = customApp.Id,
+                    CheckStatusAsync = token => CheckSingleCustomAppStatusAsync(host, customApp, token)
+                }).ToList();
 
-                await Task.WhenAll(appTasks.Concat(customTasks));
+                return await _hostApplicationStatusService.FetchSnapshotAsync(
+                    hostViewModel.Id,
+                    builtInRequests,
+                    customRequests,
+                    cancellationToken);
             }
             finally
             {
-                semaphore.Dispose();
+                stopwatch.Stop();
+                _logger.Info($"{hostViewModel.Name} 全量应用状态快照耗时: {stopwatch.ElapsedMilliseconds}ms");
             }
-
-            return new HostStatusSnapshot
-            {
-                HostId = hostViewModel.Id,
-                CapturedAt = DateTime.UtcNow,
-                Applications = appResults,
-                CustomApplications = customResults
-            };
         }
 
         private void ApplyHostStatusSnapshot(HostViewModel hostViewModel, HostStatusSnapshot snapshot)
@@ -2123,12 +2277,81 @@ namespace RemoteInstaller.ViewModels
             }
         }
 
+        private void ApplyApplicationStatus(ApplicationCardViewModel appCard, ApplicationStatus status)
+        {
+            appCard.IsInstalled = status.IsInstalled;
+            appCard.IsRunning = status.IsRunning;
+            appCard.InstalledVersion = string.IsNullOrWhiteSpace(status.InstalledVersion)
+                ? "未知"
+                : status.InstalledVersion;
+        }
+
+        private async Task RefreshApplicationsStatusAfterMutationAsync(
+            HostViewModel hostViewModel,
+            IEnumerable<ApplicationCardViewModel> appCards,
+            CancellationToken cancellationToken = default)
+        {
+            foreach (var appCard in appCards
+                         .Where(app => app != null)
+                         .DistinctBy(app => app.Id)
+                         .ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await RefreshApplicationStatusAfterMutationAsync(hostViewModel, appCard, cancellationToken);
+            }
+        }
+
+        private async Task RefreshApplicationStatusAfterMutationAsync(
+            HostViewModel hostViewModel,
+            ApplicationCardViewModel appCard,
+            CancellationToken cancellationToken = default)
+        {
+            InvalidateHostStatusCache(hostViewModel);
+
+            var host = GetHostFromViewModel(hostViewModel);
+            if (host == null)
+            {
+                return;
+            }
+
+            _refreshStatusText = $"正在刷新 {appCard.Name} 状态...";
+            IsRefreshingAppStatus = true;
+            OnPropertyChanged(nameof(RefreshStatusText));
+
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                using var installerService = CreateIsolatedInstallerService();
+                var status = await GetApplicationStatusAsync(host, appCard, installerService, cancellationToken);
+                ApplyApplicationStatus(appCard, status);
+                hostViewModel.IsOnline = true;
+                AddLog($"{appCard.Name} 状态已更新（{stopwatch.ElapsedMilliseconds}ms）", LogLevel.Success);
+            }
+            catch (OperationCanceledException)
+            {
+                AddLog($"{appCard.Name} 状态刷新已取消", LogLevel.Warning);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AddLog($"{appCard.Name} 状态刷新失败：{ex.Message}", LogLevel.Error);
+            }
+            finally
+            {
+                stopwatch.Stop();
+                IsRefreshingAppStatus = false;
+                _refreshStatusText = "应用状态刷新完成";
+                OnPropertyChanged(nameof(RefreshStatusText));
+            }
+        }
+
         private async Task RequestHostStatusRefreshAsync(
             HostViewModel hostViewModel,
             HostStatusRefreshReason reason,
             bool forceRefresh = false,
             CancellationToken cancellationToken = default)
         {
+            var stopwatch = Stopwatch.StartNew();
             var hostId = hostViewModel.Id;
             var usedCache = false;
 
@@ -2171,6 +2394,8 @@ namespace RemoteInstaller.ViewModels
             }
             finally
             {
+                stopwatch.Stop();
+                _logger.Info($"{hostViewModel.Name} 状态刷新请求完成，原因: {reason}, 强制刷新: {forceRefresh}, 耗时: {stopwatch.ElapsedMilliseconds}ms");
                 IsRefreshingAppStatus = false;
                 _refreshStatusText = usedCache ? "显示缓存结果，后台刷新中..." : "正在刷新应用状态...";
                 OnPropertyChanged(nameof(RefreshStatusText));
@@ -2184,12 +2409,15 @@ namespace RemoteInstaller.ViewModels
         {
             try
             {
-                var isInstalled = await DirectoryExistsAsync(host, app.RemoteDirectory, cancellationToken);
+                using var sshService = CreateIsolatedSshService();
+                await sshService.ConnectAsync(host, cancellationToken);
+
+                var isInstalled = await DirectoryExistsAsync(sshService, host, app.RemoteDirectory, cancellationToken);
                 var isRunning = false;
 
                 if (isInstalled)
                 {
-                    isRunning = await IsRunningByPidFileAsync(host, app.PidFilePath, cancellationToken);
+                    isRunning = await IsRunningByPidFileAsync(sshService, host, app.PidFilePath, cancellationToken);
                 }
 
                 var statusText = isRunning
@@ -2216,7 +2444,7 @@ namespace RemoteInstaller.ViewModels
             _hostStatusRefreshCoordinator.Invalidate(hostViewModel.Id);
         }
 
-        private async Task<bool> DirectoryExistsAsync(RemoteHost host, string remoteDirectory, CancellationToken cancellationToken)
+        private async Task<bool> DirectoryExistsAsync(SshService sshService, RemoteHost host, string remoteDirectory, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(remoteDirectory))
             {
@@ -2229,11 +2457,11 @@ namespace RemoteInstaller.ViewModels
                 ? $"if exist \"{normalizedPath}\" (echo true) else (echo false)"
                 : $"if [ -d '{safePath}' ]; then echo true; else echo false; fi";
 
-            var output = await _sshService.ExecuteCommandAsync(command, cancellationToken: cancellationToken, throwOnError: false);
+            var output = await sshService.ExecuteCommandAsync(command, cancellationToken: cancellationToken, throwOnError: false);
             return output.Trim().Contains("true", StringComparison.OrdinalIgnoreCase);
         }
 
-        private async Task<bool> IsRunningByPidFileAsync(RemoteHost host, string pidFilePath, CancellationToken cancellationToken)
+        private async Task<bool> IsRunningByPidFileAsync(SshService sshService, RemoteHost host, string pidFilePath, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(pidFilePath))
             {
@@ -2249,7 +2477,7 @@ namespace RemoteInstaller.ViewModels
             var safePath = normalizedPath.Replace("'", "'\\''");
             var command = $"if [ -f '{safePath}' ]; then pid=$(cat '{safePath}' 2>/dev/null); if [ -n \"$pid\" ] && ps -p $pid > /dev/null 2>&1; then echo true; else echo false; fi; else echo false; fi";
 
-            var output = await _sshService.ExecuteCommandAsync(command, cancellationToken: cancellationToken, throwOnError: false);
+            var output = await sshService.ExecuteCommandAsync(command, cancellationToken: cancellationToken, throwOnError: false);
             return output.Trim().Contains("true", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -2292,7 +2520,7 @@ namespace RemoteInstaller.ViewModels
 
                 var logProgress = CreateTaskLogReporter(taskViewModel);
 
-                var installerService = new InstallerService(_sshService, _logger);
+                using var installerService = CreateIsolatedInstallerService();
                 var parameters = BuildBatchInstallParameters(appInfo);
                 var executionAppInfo = ResolveApplicationInfoForExecution(appInfo, appInfo.Version) ?? appInfo;
                 var localPackagePath = string.Empty;
@@ -2319,6 +2547,19 @@ namespace RemoteInstaller.ViewModels
                     executionAppInfo.LocalPackagePath = localPackagePath;
                     executionAppInfo.UseLocalPackage = true;
                     AddLog($"批量任务已匹配 MariaDB 本地资源：{localPackagePath}", LogLevel.Info);
+                }
+                else if (string.Equals(executionAppInfo.Id, "redis", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryResolveRedisBatchLocalPackage(executionAppInfo, host, out localPackagePath, out var redisHint))
+                    {
+                        executionAppInfo.LocalPackagePath = localPackagePath;
+                        executionAppInfo.UseLocalPackage = true;
+                        AddLog($"批量任务已匹配 Redis 本地资源：{localPackagePath}", LogLevel.Info);
+                    }
+                    else
+                    {
+                        AddLog($"批量任务未匹配 Redis 本地资源：{redisHint}，将尝试在线安装", LogLevel.Warning);
+                    }
                 }
 
                 AddLog($"正在开始批量任务：{app.Name} -> {host.Name}", LogLevel.Info);
@@ -2402,6 +2643,11 @@ namespace RemoteInstaller.ViewModels
             return InstallConfigViewModel.TryResolveMariaDbLocalPackage(appInfo.Version, host, out localPackagePath, out hint);
         }
 
+        private bool TryResolveRedisBatchLocalPackage(ApplicationInfo appInfo, RemoteHost host, out string localPackagePath, out string hint)
+        {
+            return InstallConfigViewModel.TryResolveRedisLocalPackage(appInfo.Version, host, out localPackagePath, out hint);
+        }
+
         private async Task<BatchTaskResult> UninstallApplicationFromHost(ApplicationCardViewModel app, HostViewModel hostViewModel, CancellationToken cancellationToken = default)
         {
             try
@@ -2412,7 +2658,7 @@ namespace RemoteInstaller.ViewModels
                     return BatchTaskResult.Failed;
                 }
 
-                var installerService = new InstallerService(_sshService, _logger);
+                using var installerService = CreateIsolatedInstallerService();
                 var appInfo = await ResolveApplicationInfoForUninstallAsync(app, host, installerService, cancellationToken);
                 if (appInfo == null)
                 {
@@ -2621,7 +2867,7 @@ namespace RemoteInstaller.ViewModels
             AddTask(taskViewModel);
             SelectedTask = taskViewModel;
 
-            var installerService = new InstallerService(_sshService, _logger);
+            using var installerService = CreateIsolatedInstallerService();
             var cts = new CancellationTokenSource();
             var progress = new Progress<InstallTask>(t =>
             {
@@ -2651,7 +2897,13 @@ namespace RemoteInstaller.ViewModels
             {
                 UpdateInstalledApplicationState(appInfo.Id, version, appCard);
                 AddLog($"✅ 安装成功：{appInfo.Name} v{version}", LogLevel.Success);
-                await RequestHostStatusRefreshAsync(selectedHostViewModel, HostStatusRefreshReason.PostInstall, forceRefresh: true);
+                var refreshedAppCard = appCard ?? Applications.FirstOrDefault(card =>
+                    string.Equals(card.Id, appInfo.Id, StringComparison.OrdinalIgnoreCase) ||
+                    (IsJdkVersionApplicationId(appInfo.Id) && IsUnifiedJdkApplicationId(card.Id)));
+                if (refreshedAppCard != null)
+                {
+                    await RefreshApplicationStatusAfterMutationAsync(selectedHostViewModel, refreshedAppCard, cts.Token);
+                }
                 MessageBox.Show($"安装成功！{appInfo.Name} 已安装到 {selectedHostViewModel.Name}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else if (taskResult.Status == Models.TaskStatus.Failed)
@@ -2696,12 +2948,10 @@ namespace RemoteInstaller.ViewModels
 
                 AddLog($"正在检测 {appCard.Name} 状态...", LogLevel.Info);
 
-                var installerService = new InstallerService(_sshService, _logger);
+                using var installerService = CreateIsolatedInstallerService();
                 var status = await GetApplicationStatusAsync(host, appCard, installerService);
 
-                appCard.IsInstalled = status.IsInstalled;
-                appCard.IsRunning = status.IsRunning;
-                appCard.InstalledVersion = status.InstalledVersion;
+                ApplyApplicationStatus(appCard, status);
                 
                 AddLog($"{appCard.Name} 状态已更新", LogLevel.Success);
             }
@@ -2819,7 +3069,7 @@ namespace RemoteInstaller.ViewModels
                     return;
                 }
 
-                var installerService = new InstallerService(_sshService, _logger);
+                using var installerService = CreateIsolatedInstallerService();
                 var appInfo = await ResolveApplicationInfoForUninstallAsync(app, host, installerService);
                 if (appInfo == null)
                 {
@@ -2871,7 +3121,7 @@ namespace RemoteInstaller.ViewModels
                 if (task.Status == RemoteInstaller.Models.TaskStatus.Completed)
                 {
                     AddLog($"{app.Name} 卸载成功", LogLevel.Success);
-                    await RequestHostStatusRefreshAsync(SelectedHost, HostStatusRefreshReason.PostUninstall, forceRefresh: true);
+                    await RefreshApplicationStatusAfterMutationAsync(SelectedHost, app);
                 }
                 else
                 {
@@ -3799,6 +4049,18 @@ namespace RemoteInstaller.ViewModels
             });
             Applications.Add(new ApplicationCardViewModel(this)
             {
+                Id = "Nacos",
+                Name = "Nacos",
+                Version = "2.4.3",
+                Versions = new List<string> { "2.4.3" },
+                Description = "动态服务发现、配置管理与服务管理平台",
+                Icon = "🧭",
+                Category = "中间件",
+                IsSupported = true,
+                OsType = "Linux"
+            });
+            Applications.Add(new ApplicationCardViewModel(this)
+            {
                 Id = "traefik",
                 Name = "Traefik",
                 Version = "3.6.13",
@@ -3960,7 +4222,7 @@ namespace RemoteInstaller.ViewModels
                     SupportCentOS = true,
                     SupportUbuntu = true,
                     CheckScriptLinux = "Scripts/Mosquitto/check_status_linux.sh",
-                    CheckScriptWindows = "Scripts\\Mosquitto\\check_status_windows.ps1",
+                    CheckScriptWindows = @"Scripts\Mosquitto\check_status_windows.ps1",
                     Parameters = new List<InstallParameter>
                     {
                         new InstallParameter { Key = "MQTT_PORT", Name = "MQTT 端口", Description = "MQTT TCP 服务端口", Type = ParameterType.Port, DefaultValue = "1883", Required = true, MinValue = 1, MaxValue = 65535 },
@@ -3989,6 +4251,29 @@ namespace RemoteInstaller.ViewModels
                         new InstallParameter { Key = "DATA_DIR", Name = "数据目录", Description = "Consul 数据目录路径", Type = ParameterType.Path, DefaultValue = "/var/lib/consul", Required = true },
                         new InstallParameter { Key = "NODE_NAME", Name = "节点名称", Description = "Consul 节点名称", Type = ParameterType.Text, DefaultValue = "consul-node", Required = true },
                         new InstallParameter { Key = "UI_ENABLED", Name = "启用 Web UI", Description = "是否启用 Consul Web UI", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
+                    }
+                },
+                "nacos" => new ApplicationInfo
+                {
+                    Id = "Nacos",
+                    Name = "Nacos",
+                    Version = "2.4.3",
+                    Versions = new List<string> { "2.4.3" },
+                    Description = "动态服务发现、配置管理与服务管理平台",
+                    Category = "中间件",
+                    SupportWindows = false,
+                    SupportCentOS = true,
+                    SupportUbuntu = true,
+                    CheckScriptLinux = "Scripts/Nacos/check_status_linux.sh",
+                    CheckScriptWindows = string.Empty,
+                    Parameters = new List<InstallParameter>
+                    {
+                        new InstallParameter { Key = "HTTP_PORT", Name = "HTTP 端口", Description = "Nacos HTTP 控制台端口", Type = ParameterType.Port, DefaultValue = "8848", Required = true, MinValue = 1, MaxValue = 65535 },
+                        new InstallParameter { Key = "RAFT_PORT", Name = "Raft 端口", Description = "Nacos Raft 通信端口", Type = ParameterType.Port, DefaultValue = "9848", Required = true, MinValue = 1, MaxValue = 65535 },
+                        new InstallParameter { Key = "GRPC_PORT", Name = "gRPC 端口", Description = "Nacos gRPC 通信端口", Type = ParameterType.Port, DefaultValue = "9849", Required = true, MinValue = 1, MaxValue = 65535 },
+                        new InstallParameter { Key = "MODE", Name = "运行模式", Description = "Nacos 运行模式", Type = ParameterType.Text, DefaultValue = "standalone", Required = true },
+                        new InstallParameter { Key = "USERNAME", Name = "用户名", Description = "Nacos 登录用户名", Type = ParameterType.Text, DefaultValue = "nacos", Required = true },
+                        new InstallParameter { Key = "PASSWORD", Name = "密码", Description = "Nacos 登录密码", Type = ParameterType.Password, DefaultValue = "nacos", Required = true }
                     }
                 },
                 "traefik" => new ApplicationInfo

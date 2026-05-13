@@ -70,6 +70,79 @@ public class RabbitMqScriptTests
     }
 
     [Fact]
+    public void UninstallLinuxScript_RemovesGeneratedAndSymlinkedRabbitMqSystemdUnits()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "uninstall_linux.sh");
+
+        Assert.Contains("SYSTEMD_SERVICE_GLOBS=(", script);
+        Assert.Contains("/etc/systemd/system/*.wants/rabbitmq-server.service", script);
+        Assert.Contains("/run/systemd/generator*/rabbitmq-server.service", script);
+        Assert.Contains("INIT_SCRIPTS=(", script);
+        Assert.Contains("/etc/init.d/rabbitmq-server", script);
+        Assert.Contains("update-rc.d -f \"$service_name\" remove", script);
+    }
+
+    [Fact]
+    public void CheckStatusLinuxScript_DoesNotTreatOrphanedRabbitMqServiceUnitAsInstalled()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "check_status_linux.sh");
+
+        Assert.Contains("package_installed=\"false\"", script);
+        Assert.Contains("service_only_stale=\"false\"", script);
+        Assert.Contains("RabbitMQ 服务定义存在，但未发现服务端二进制、完整包或 RabbitMQ 运行进程，按残留服务处理", script);
+        Assert.Contains("SERVICE_ONLY_STALE:$service_only_stale", script);
+    }
+
+    [Fact]
+    public void CheckStatusLinuxScript_DoesNotTreatGenericErlangProcessOrPortsAsRunning()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "check_status_linux.sh");
+
+        Assert.Contains("is_rabbitmq_command_line()", script);
+        Assert.Contains("端口被其他进程占用，不作为 RabbitMQ 运行证据", script);
+        Assert.Contains("PROCESS_FOUND:$process_found", script);
+        Assert.Contains("PORT_LISTENING:$port_listening", script);
+        Assert.DoesNotContain("pgrep -x beam.smp", script);
+        Assert.DoesNotContain("if [ \"$is_running\" = \"false\" ]; then\n        is_running=\"true\"", script);
+    }
+
+    [Fact]
+    public void UninstallLinuxScript_DoesNotTreatGenericErlangOrForeignPortsAsRabbitMqResidue()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "uninstall_linux.sh");
+
+        Assert.Contains("find_rabbitmq_pids()", script);
+        Assert.Contains("is_rabbitmq_command_line()", script);
+        Assert.Contains("端口被其他进程占用，不作为 RabbitMQ 残留", script);
+        Assert.DoesNotContain("pgrep -f \"beam\\.sm[p]\"", script);
+        Assert.DoesNotContain("警告：RabbitMQ 端口（5672/15672）仍在监听", script);
+    }
+
+    [Fact]
+    public void CheckStatusWindowsScript_DoesNotTreatErlangOrPortsAloneAsRabbitMq()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "check_status_windows.ps1");
+
+        Assert.Contains("Test-RabbitMqCommandLine", script);
+        Assert.Contains("端口被其他进程占用，不作为 RabbitMQ 运行证据", script);
+        Assert.Contains("PORT_LISTENING:$portListening", script);
+        Assert.DoesNotContain("C:\\Program Files\\erl*", script);
+        Assert.DoesNotContain("$isRunning = \"true\"", script);
+    }
+
+    [Fact]
+    public void InstallerService_RabbitMqFallbackUsesStrictRabbitMqEvidence()
+    {
+        var installerService = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+
+        Assert.Contains("dpkg-query -W -f='${Status}' rabbitmq-server", installerService);
+        Assert.Contains("test -x /usr/sbin/rabbitmq-server", installerService);
+        Assert.Contains("is_rabbitmq_command_line", installerService);
+        Assert.Contains("RabbitMQ 只认可服务端二进制或有效服务", installerService);
+        Assert.DoesNotContain("pgrep -x beam.smp", installerService);
+    }
+
+    [Fact]
     public void InstallLinuxScript_UbuntuOfflineMainPackageOnly_FailsFastWithDependencyMessage()
     {
         var script = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "install_linux.sh");

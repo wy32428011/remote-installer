@@ -56,13 +56,21 @@ remove_firewall_rules() {
 }
 
 remove_packages() {
-    if command_exists dpkg-query && dpkg-query -W -f='${Status}' mosquitto 2>/dev/null | grep -q 'installed'; then
-        DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge mosquitto >/dev/null 2>&1 || true
-        dpkg -P mosquitto >/dev/null 2>&1 || true
+    if command_exists dpkg-query; then
+        local deb_packages
+        deb_packages="$(dpkg-query -W -f='${Status} ${Package}\n' mosquitto mosquitto-clients 'libmosquitto*' 2>/dev/null | awk '($1 == "install" || $1 == "deinstall") && ($4 ~ /^(mosquitto|mosquitto-clients|libmosquitto)/) {print $4}' || true)"
+        if [ -n "$deb_packages" ]; then
+            DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge $deb_packages >/dev/null 2>&1 || true
+            dpkg -P $deb_packages >/dev/null 2>&1 || true
+        fi
     fi
 
-    if command_exists rpm && rpm -q mosquitto >/dev/null 2>&1; then
-        yum remove -y mosquitto >/dev/null 2>&1 || rpm -e mosquitto >/dev/null 2>&1 || true
+    if command_exists rpm; then
+        local rpm_packages
+        rpm_packages="$(rpm -qa 2>/dev/null | grep -Ei '^(mosquitto|libmosquitto)(-|$)' || true)"
+        if [ -n "$rpm_packages" ]; then
+            yum remove -y $rpm_packages >/dev/null 2>&1 || rpm -e $rpm_packages >/dev/null 2>&1 || true
+        fi
     fi
 }
 
@@ -84,6 +92,47 @@ remove_packages
 
 write_progress "CleaningFiles" 70
 rm -f "$REMOTE_CONFIG_FILE" "$PASSWORD_FILE"
+rm -rf /etc/mosquitto /var/lib/mosquitto /var/log/mosquitto 2>/dev/null || true
+
+SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/mosquitto.service"
+    "/run/systemd/generator*/mosquitto.service"
+)
+
+for service_file in \
+    "/etc/systemd/system/${SERVICE_NAME}.service" \
+    "/lib/systemd/system/${SERVICE_NAME}.service" \
+    "/usr/lib/systemd/system/${SERVICE_NAME}.service"; do
+    rm -f "$service_file" 2>/dev/null || true
+done
+
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for service_file in $pattern; do
+        if [ -e "$service_file" ] || [ -L "$service_file" ]; then
+            rm -f "$service_file" 2>/dev/null || true
+        fi
+    done
+done
+
+INIT_SCRIPTS=(
+    "/etc/init.d/mosquitto"
+)
+
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command_exists update-rc.d; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command_exists chkconfig; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    rm -f "$init_script" 2>/dev/null || true
+done
+
+if command_exists systemctl; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed "$SERVICE_NAME" >/dev/null 2>&1 || true
+fi
 
 write_progress "CleaningFirewall" 85
 remove_firewall_rules

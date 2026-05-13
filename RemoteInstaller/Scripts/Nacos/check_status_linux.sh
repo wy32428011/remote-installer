@@ -19,6 +19,12 @@ echo "========================================"
 is_installed="false"
 is_running="false"
 version="未知"
+service_only_stale="false"
+SERVICE_NAME="nacos"
+SERVICE_STATUS="not-found"
+SERVICE_FOUND=false
+STATUS_SCRIPT_PID=$$
+STATUS_SCRIPT_PPID=$PPID
 
 # 默认端口
 HTTP_PORT=8848
@@ -51,23 +57,40 @@ else
     echo -e "Nacos 已安装：${RED}否${NC}"
 fi
 
-# 如果未安装，直接输出结果
-if [ "$is_installed" = "false" ]; then
-    echo ""
-    echo "--- MACHINE READABLE ---"
-    echo "INSTALLED: false"
-    echo "VERSION: 未知"
-    echo "RUNNING: false"
-    echo "PORT: 8848,9848,9849"
-    echo "------------------------"
-    exit 0
-fi
-
 # 2. 检查运行进程
 echo -e "${YELLOW}2. 检查运行进程:${NC}"
-nacos_pid=$(pgrep -f "nacos.nacos" 2>/dev/null || pgrep -f "nacos-server.jar" 2>/dev/null)
+find_nacos_pids() {
+    local pids=""
+    local pid
+    local cmdline
+
+    for pid in $(pgrep -f "nacos\.nacos|nacos-server\.jar|/opt/nacos|/usr/local/nacos|/usr/share/nacos" 2>/dev/null || true); do
+        if [ "$pid" = "$STATUS_SCRIPT_PID" ] || [ "$pid" = "$STATUS_SCRIPT_PPID" ] || [ "$pid" = "$$" ]; then
+            continue
+        fi
+
+        if [ -r "/proc/$pid/cmdline" ]; then
+            cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+            if echo "$cmdline" | grep -Eq "REMOTE_INSTALLER_CHECK_STATUS_SCRIPT|check_status_linux\.sh"; then
+                continue
+            fi
+
+            if echo "$cmdline" | grep -Eqi "(nacos\.nacos|nacos-server\.jar|/opt/nacos|/usr/local/nacos|/usr/share/nacos)"; then
+                case " $pids " in
+                    *" $pid "*) ;;
+                    *) pids="$pids $pid" ;;
+                esac
+            fi
+        fi
+    done
+
+    echo "$pids"
+}
+
+nacos_pid=$(find_nacos_pids | awk '{print $1}')
 if [ -n "$nacos_pid" ]; then
     is_running="true"
+    is_installed="true"
     echo -e "Nacos 运行状态：${GREEN}运行中 (PID: $nacos_pid)${NC}"
     ps -p "$nacos_pid" -o pid,cmd --no-headers 2>/dev/null || true
 else
@@ -92,6 +115,7 @@ if [ -n "$http_result" ]; then
     echo -e "HTTP 端口 ($HTTP_PORT): ${GREEN}监听中${NC}"
     echo "$http_result"
     http_open=true
+    is_installed="true"
     if [ "$is_running" = "false" ]; then
         is_running="true"
     fi
@@ -154,12 +178,21 @@ fi
 echo -e "${YELLOW}5. systemd 服务状态:${NC}"
 if command -v systemctl &> /dev/null; then
     if systemctl is-active --quiet nacos 2>/dev/null; then
+        SERVICE_STATUS="active"
+        SERVICE_FOUND=true
         echo -e "服务状态：${GREEN}active (running)${NC}"
         is_running="true"
         is_installed="true"
-    elif systemctl list-units --all --type=service 2>/dev/null | grep -Eiwq 'nacos'; then
-        echo -e "服务状态：${YELLOW}已安装但未运行${NC}"
-        is_installed="true"
+    elif systemctl list-unit-files 2>/dev/null | grep -q '^nacos\.service' || \
+         systemctl list-units --all --type=service 2>/dev/null | grep -Eiwq 'nacos'; then
+        SERVICE_FOUND=true
+        SERVICE_STATUS=$(systemctl is-active nacos 2>/dev/null || echo "inactive")
+        if [ "$is_installed" = "true" ] || [ "$is_running" = "true" ] || [ "$http_open" = "true" ] || [ "$raft_open" = "true" ] || [ "$grpc_open" = "true" ]; then
+            echo -e "服务状态：${YELLOW}已安装但未运行 (${SERVICE_STATUS})${NC}"
+        else
+            service_only_stale="true"
+            echo -e "${YELLOW}Nacos 服务定义存在，但未发现安装目录、进程或端口，按残留服务处理${NC}"
+        fi
     else
         echo -e "服务状态：${BLUE}未配置 systemd 服务${NC}"
     fi
@@ -184,6 +217,9 @@ echo "INSTALLED: $is_installed"
 echo "VERSION: ${version:-未知}"
 echo "RUNNING: $is_running"
 echo "PORT: $HTTP_PORT,$RAFT_PORT,$GRPC_PORT"
+echo "SERVICE_NAME: ${SERVICE_NAME:-unknown}"
+echo "SERVICE_STATUS: ${SERVICE_STATUS:-unknown}"
+echo "SERVICE_ONLY_STALE: ${service_only_stale:-false}"
 echo "------------------------"
 
 # 最终状态摘要

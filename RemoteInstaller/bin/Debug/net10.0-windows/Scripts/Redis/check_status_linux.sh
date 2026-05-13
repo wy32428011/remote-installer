@@ -79,6 +79,18 @@ echo -e "${YELLOW}1. 检查安装情况:${NC}"
 redis_path=$(which redis-server 2>/dev/null || find /usr/bin /usr/sbin /usr/local/bin /opt/redis/bin /snap/bin -name redis-server 2>/dev/null | head -n 1)
 is_installed="false"
 version="未知"
+package_installed="false"
+service_only_stale="false"
+
+if command -v dpkg-query &> /dev/null; then
+    if dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' redis redis-server 2>/dev/null | awk '$1 ~ /^ii/ { found=1 } END { exit found ? 0 : 1 }'; then
+        package_installed="true"
+    fi
+elif command -v rpm &> /dev/null; then
+    if rpm -q redis redis-server >/dev/null 2>&1; then
+        package_installed="true"
+    fi
+fi
 
 if [ -n "$redis_path" ]; then
     is_installed="true"
@@ -87,14 +99,11 @@ if [ -n "$redis_path" ]; then
     v_out=$($redis_path --version 2>&1)
     echo "$v_out"
     version=$(echo "$v_out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+elif [ "$package_installed" = "true" ]; then
+    is_installed="true"
+    echo -e "Redis 已安装: ${GREEN}是 (通过软件包发现)${NC}"
 else
-    # 二进制文件未找到，但也检查 systemd 服务是否存在（包管理器可能安装到非标准路径）
-    if systemctl list-unit-files 2>/dev/null | grep -qE "redis|redis-server"; then
-        is_installed="true"
-        echo -e "Redis 已安装: ${GREEN}是 (通过 systemd 服务发现)${NC}"
-    else
-        echo -e "Redis 已安装: ${RED}否${NC}"
-    fi
+    echo -e "Redis 已安装: ${RED}否${NC}"
 fi
 
 # 2. 检查运行进程
@@ -110,20 +119,25 @@ else
 fi
 
 # 3. 检查端口监听
-check_port "$REDIS_PORT" "Redis" "redis"
+port_listening="false"
+if check_port "$REDIS_PORT" "Redis" "redis"; then
+    port_listening="true"
+    is_running="true"
+fi
 
 # 4. systemd 服务状态
 echo -e "${YELLOW}4. systemd 服务状态:${NC}"
 SERVICE_NAME=""
 SERVICE_STATUS="not-found"
+SERVICE_FOUND=false
 if command -v systemctl &> /dev/null; then
-    SERVICE_FOUND=false
     for svc in redis redis-server; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             SERVICE_NAME="$svc"
             SERVICE_STATUS="active"
             echo -e "Redis 服务 ($svc): ${GREEN}active (running)${NC}"
             is_running="true"
+            is_installed="true"
             SERVICE_FOUND=true
             break
         elif systemctl list-unit-files 2>/dev/null | grep -q "${svc}.service"; then
@@ -137,6 +151,11 @@ if command -v systemctl &> /dev/null; then
     if [ "$SERVICE_FOUND" = false ]; then
         echo -e "Redis 服务: ${RED}未发现 systemd 服务${NC}"
     fi
+fi
+
+if [ "$SERVICE_FOUND" = true ] && [ "$is_installed" != "true" ] && [ "$is_running" != "true" ] && [ "$port_listening" != "true" ]; then
+    service_only_stale="true"
+    echo -e "${YELLOW}Redis 服务定义存在，但未发现二进制、包、进程或端口，按残留服务处理${NC}"
 fi
 
 echo -e "${YELLOW}4.1 远程访问配置:${NC}"
@@ -170,8 +189,10 @@ echo "INSTALLED: $is_installed"
 echo "VERSION: ${version:-未知}"
 echo "RUNNING: $is_running"
 echo "PORT: $REDIS_PORT"
+echo "PACKAGE_INSTALLED: ${package_installed:-false}"
 echo "SERVICE_NAME: ${SERVICE_NAME:-unknown}"
 echo "SERVICE_STATUS: ${SERVICE_STATUS:-unknown}"
+echo "SERVICE_ONLY_STALE: ${service_only_stale:-false}"
 echo "BIND_ADDRESS: ${BIND_ADDRESS:-unknown}"
 echo "ALLOW_REMOTE_EFFECTIVE: ${ALLOW_REMOTE_EFFECTIVE:-false}"
 echo "------------------------"

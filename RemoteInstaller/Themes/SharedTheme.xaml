@@ -395,21 +395,26 @@
                             <Ellipse.RenderTransform>
                                 <RotateTransform x:Name="SpinnerRotate" Angle="0"/>
                             </Ellipse.RenderTransform>
-                            <Ellipse.Triggers>
-                                <EventTrigger RoutedEvent="Loaded">
-                                    <BeginStoryboard>
-                                        <Storyboard RepeatBehavior="Forever">
-                                            <DoubleAnimation Storyboard.TargetName="SpinnerRotate"
-                                                             Storyboard.TargetProperty="Angle"
-                                                             From="0"
-                                                             To="360"
-                                                             Duration="0:0:1.4"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </EventTrigger>
-                            </Ellipse.Triggers>
                         </Ellipse>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="SpinnerStoryboard">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="SpinnerRotate"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         From="0"
+                                                         To="360"
+                                                         Duration="0:0:1.4"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="SpinnerStoryboard"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

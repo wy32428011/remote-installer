@@ -138,7 +138,6 @@ if command -v systemctl &> /dev/null; then
     elif systemctl list-unit-files 2>/dev/null | grep -q '^nginx\.service'; then
         SERVICE_STATUS=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
         echo -e "Nginx 服务状态：${YELLOW}${SERVICE_STATUS}${NC}"
-        is_installed="true"
     else
         echo -e "Nginx 服务状态：${RED}未找到服务${NC}"
     fi
@@ -147,8 +146,7 @@ else
 fi
 
 if [ "$is_installed" = "false" ] && [ ${#CONFIG_FILES[@]} -gt 0 ]; then
-    is_installed="true"
-    echo -e "${YELLOW}注意：检测到配置文件，标记为已安装${NC}"
+    echo -e "${YELLOW}注意：检测到配置文件残留，但不单独判定为已安装${NC}"
 fi
 
 HTTP_READY="false"

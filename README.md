@@ -19,7 +19,7 @@
 - 主机管理：添加、编辑、删除、分组、连接测试
 - 应用市场：安装、卸载、状态检测、配置入口
 - 安装弹窗：公共安装配置窗口支持整体纵向滚动，便于查看长说明、离线资源信息与参数列表；JDK 已收敛为统一入口，应用市场安装时在弹窗中选择版本，独立的 JDK 上传入口则直接选择本地 JDK 文件夹并自动识别版本（当前统一 JDK 入口暂不支持批量安装，请使用单机安装流程）
-- 批量操作：批量检测、批量安装、批量卸载
+- 批量操作：批量检测、批量安装（全局串行逐个执行）、批量卸载
 - 任务与日志：任务进度、历史记录、日志查看
 - 远程运维：SSH 终端、基于 SFTP 的远程文件管理
 - 扩展能力：脚本管理、自定义应用部署
@@ -28,10 +28,14 @@
 
 > 说明：
 > 应用市场中的应用、版本和安装参数由当前程序配置驱动，实际以程序界面显示为准，不在 README 中维护固定清单。
+> Nacos 已恢复为内置应用市场配置和 UI 回退清单成员，状态脚本会参与应用状态刷新覆盖范围。
+> 批量安装会按队列全局串行执行，同一时间只安装一个“服务器 + 应用”任务，避免多台主机并行安装时争用 SSH、上传或本地离线资源；系统设置中的最大并发任务数不影响批量安装。
 >
 > 当前 MQTT 相关能力已切换为 **Mosquitto**，要求使用离线资源安装；参数仅保留 `MQTT Port`、`Username`、`Password`，不再包含 WebSocket 端口；用户名与密码可同时留空以启用匿名访问，但不能只填写其中一项。
 >
 > 当前仓库内已落盘的 Mosquitto 离线资源版本为：Windows `2.0.21`、Ubuntu 22 `2.0.22`、Ubuntu 24 `2.1.2`、CentOS 7 `1.6.10`。安装弹窗会按目标系统优先选择对应版本。
+>
+> Mosquitto 的 Ubuntu 离线目录必须带齐主包和依赖包。当前脚本会在安装前检查 `mosquitto`、`libmosquitto1`、`libcjson1`，Ubuntu 22 还会检查 `libmicrohttpd12`，Ubuntu 24 还会检查 `libmicrohttpd12t64`；启用账号密码时还需要 `mosquitto-clients`。如果 `dpkg` 留下半安装状态，状态检测必须看到 `install ok installed` 才会判定为已安装。
 
 ---
 
@@ -157,6 +161,9 @@ Scripts/                应用安装配置与脚本资源
 - 客户端是 Windows 桌面程序。
 - 目标主机可以是 Linux 或 Windows，但当前远程连接方式统一基于 SSH。
 - 详细的界面说明、操作步骤、FAQ、日志位置等内容已收敛到 [`用户手册.md`](./用户手册.md)。
+- 状态检测脚本的 `PORT` 字段只表示应用配置或默认端口，不再作为“正在运行”的证据；如需明确上报端口监听事实，应输出 `PORT_LISTENING:true|false`，运行态仍以 `RUNNING:true|false`、进程或 active 服务为准。若配置中的检测命令没有输出机器可读状态协议，程序会回退到内置检测逻辑，避免旧式命令被静默解析成未安装。
+- Mosquitto 在 Debian/Ubuntu 上只把 dpkg 精确状态 `install ok installed` 作为完整安装证据，`unpacked`、`half-configured` 等依赖缺失后的残留状态不会再被当作安装成功。
+- RabbitMQ 状态检测只认可 RabbitMQ 服务端二进制、`rabbitmq-server` 完整包、RabbitMQ 专属 Erlang 命令行进程、active 的 RabbitMQ 服务或 `rabbitmqctl status` 成功。单独的 Erlang 进程、默认端口被其他进程占用、`rabbitmqctl` 残留命令、inactive 服务定义和配置目录残留不会再被判定为已安装或运行中。
 
 ---
 

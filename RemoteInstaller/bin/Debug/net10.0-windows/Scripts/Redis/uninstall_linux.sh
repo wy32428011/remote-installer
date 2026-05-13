@@ -102,11 +102,10 @@ if [ "$OS" = "Debian" ]; then
     if [ -n "$INSTALLED_PKGS" ]; then
         echo "发现已安装的包: $INSTALLED_PKGS"
         if [ "$KEEP_DATA" = true ]; then
-            DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq $INSTALLED_PKGS 2>/dev/null || true
+            DEBIAN_FRONTEND=noninteractive apt-get remove -y $INSTALLED_PKGS || dpkg --remove --force-all $INSTALLED_PKGS || true
         else
-            DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $INSTALLED_PKGS 2>/dev/null || true
+            DEBIAN_FRONTEND=noninteractive apt-get purge -y $INSTALLED_PKGS || dpkg --purge --force-all $INSTALLED_PKGS || true
         fi
-        DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null || true
     else
         echo "未发现通过 apt 安装的 Redis 包"
     fi
@@ -114,7 +113,7 @@ elif [ "$OS" = "RedHat" ]; then
     INSTALLED_PKGS=$(rpm -qa 2>/dev/null | grep -iE 'redis' || true)
     if [ -n "$INSTALLED_PKGS" ]; then
         echo "发现已安装的包: $INSTALLED_PKGS"
-        yum remove -y $INSTALLED_PKGS 2>/dev/null || true
+        yum remove -y $INSTALLED_PKGS || true
     else
         echo "未发现通过 yum 安装的 Redis 包"
     fi
@@ -159,6 +158,44 @@ for file in "${SERVICE_FILES[@]}"; do
     if [ -f "$file" ]; then
         echo "  删除: $file"
         rm -f "$file"
+    fi
+done
+
+SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/redis.service"
+    "/etc/systemd/system/*.wants/redis-server.service"
+    "/etc/systemd/system/*.wants/redis-sentinel.service"
+    "/run/systemd/generator*/redis.service"
+    "/run/systemd/generator*/redis-server.service"
+    "/run/systemd/generator*/redis-sentinel.service"
+)
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for file in $pattern; do
+        if [ -e "$file" ] || [ -L "$file" ]; then
+            echo "  删除: $file"
+            rm -f "$file"
+        fi
+    done
+done
+
+# Debian/Ubuntu 可能通过 SysV init 脚本生成 redis-server.service
+echo "清理 SysV init 脚本..."
+INIT_SCRIPTS=(
+    "/etc/init.d/redis"
+    "/etc/init.d/redis-server"
+    "/etc/init.d/redis-sentinel"
+)
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    if [ -e "$init_script" ] || [ -L "$init_script" ]; then
+        echo "  删除: $init_script"
+        rm -f "$init_script"
     fi
 done
 

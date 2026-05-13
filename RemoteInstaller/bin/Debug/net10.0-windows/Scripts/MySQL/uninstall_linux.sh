@@ -97,8 +97,6 @@ if [ -f /etc/debian_version ]; then
             DEBIAN_FRONTEND=noninteractive apt-get remove -y $MYSQL_PKGS 2>/dev/null || true
         else
             DEBIAN_FRONTEND=noninteractive apt-get purge -y $MYSQL_PKGS 2>/dev/null || true
-            DEBIAN_FRONTEND=noninteractive apt-get autoremove -y 2>/dev/null || true
-            DEBIAN_FRONTEND=noninteractive apt-get autoclean 2>/dev/null || true
         fi
     fi
 elif [ -f /etc/redhat-release ]; then
@@ -149,15 +147,53 @@ fi
 for path in \
     /etc/systemd/system/mysqld.service \
     /etc/systemd/system/mysql.service \
+    /etc/systemd/system/mariadb.service \
     /etc/systemd/system/mysqld.service.d \
     /etc/systemd/system/mysql.service.d \
+    /etc/systemd/system/mariadb.service.d \
     /lib/systemd/system/mysqld.service \
     /lib/systemd/system/mysql.service \
+    /lib/systemd/system/mariadb.service \
     /usr/lib/systemd/system/mysqld.service \
-    /usr/lib/systemd/system/mysql.service; do
+    /usr/lib/systemd/system/mysql.service \
+    /usr/lib/systemd/system/mariadb.service; do
     if [ -e "$path" ]; then
         rm -rf "$path"
     fi
+done
+
+SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/mysql.service"
+    "/etc/systemd/system/*.wants/mysqld.service"
+    "/etc/systemd/system/*.wants/mariadb.service"
+    "/run/systemd/generator*/mysql.service"
+    "/run/systemd/generator*/mysqld.service"
+    "/run/systemd/generator*/mariadb.service"
+)
+
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for path in $pattern; do
+        if [ -e "$path" ] || [ -L "$path" ]; then
+            rm -f "$path"
+        fi
+    done
+done
+
+INIT_SCRIPTS=(
+    "/etc/init.d/mysql"
+    "/etc/init.d/mysqld"
+    "/etc/init.d/mariadb"
+)
+
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    rm -f "$init_script" 2>/dev/null || true
 done
 
 rm -f /usr/bin/mysql* /usr/sbin/mysqld /usr/local/bin/mysql* /usr/local/mysql/bin/mysql* 2>/dev/null || true

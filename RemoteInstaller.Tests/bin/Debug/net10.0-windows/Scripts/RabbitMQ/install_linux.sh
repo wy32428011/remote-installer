@@ -38,10 +38,44 @@ NODE_NAME="${NODE_NAME:-rabbit@localhost}"
 USERNAME="${USERNAME:-guest}"
 PASSWORD="${PASSWORD:-guest}"
 ENABLE_REMOTE_ACCESS="${ENABLE_REMOTE_ACCESS:-true}"
+PACKAGE_IS_FILE=false
+PACKAGE_IS_DIRECTORY=false
 IS_DEBIAN_OFFLINE=false
-if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ] && [[ "$PACKAGE_PATH" == *.deb ]]; then
-    IS_DEBIAN_OFFLINE=true
+
+if [ -n "$PACKAGE_PATH" ]; then
+    if [ -f "$PACKAGE_PATH" ]; then
+        PACKAGE_IS_FILE=true
+        if [[ "$PACKAGE_PATH" == *.deb ]]; then
+            IS_DEBIAN_OFFLINE=true
+        fi
+    elif [ -d "$PACKAGE_PATH" ]; then
+        PACKAGE_IS_DIRECTORY=true
+        if find "$PACKAGE_PATH" -maxdepth 1 -type f -name "rabbitmq-server*.deb" | grep -q .; then
+            IS_DEBIAN_OFFLINE=true
+        fi
+    else
+        fail "PACKAGE_PATH 不存在：$PACKAGE_PATH"
+    fi
 fi
+
+resolve_package_directory() {
+    local package_path=$1
+
+    if [ -d "$package_path" ]; then
+        echo "$package_path"
+    else
+        dirname "$package_path"
+    fi
+}
+
+get_package_search_directories() {
+    local package_dir=$1
+
+    echo "$package_dir"
+    if [ -d "$package_dir/deps" ]; then
+        echo "$package_dir/deps"
+    fi
+}
 
 ENABLE_REMOTE_ACCESS_NORMALIZED=$(printf "%s" "$ENABLE_REMOTE_ACCESS" | tr '[:upper:]' '[:lower:]')
 IS_REMOTE_ACCESS_ENABLED=true
@@ -134,22 +168,18 @@ echo "前置依赖安装完成"
 
 # 3. 检查是否使用离线包
 if [ "$OS_FAMILY" = "RedHat" ] && [ "${OS_VERSION}" = "7" ]; then
-    if [ -z "$PACKAGE_PATH" ] || [ ! -f "$PACKAGE_PATH" ]; then
-        fail "CentOS7 仅支持离线安装，请提供有效的 PACKAGE_PATH（rabbitmq-server*.rpm）"
-    fi
-
-    if [[ "$PACKAGE_PATH" != *.rpm ]]; then
-        fail "CentOS7 离线安装仅支持 RPM 包：$PACKAGE_PATH"
+    if [ -z "$PACKAGE_PATH" ] || { [ "$PACKAGE_IS_FILE" != true ] && [ "$PACKAGE_IS_DIRECTORY" != true ]; }; then
+        fail "CentOS7 仅支持离线安装，请提供有效的 PACKAGE_PATH（RabbitMQ 离线目录或 rabbitmq-server*.rpm）"
     fi
 fi
 
-if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
+if [ -n "$PACKAGE_PATH" ] && { [ "$PACKAGE_IS_FILE" = true ] || [ "$PACKAGE_IS_DIRECTORY" = true ]; }; then
     echo "PROGRESS:OfflineInstalling:30"
-    echo "使用离线安装包：$PACKAGE_PATH"
+    echo "使用离线安装资源：$PACKAGE_PATH"
 
-    if [[ "$PACKAGE_PATH" == *.deb ]]; then
-        echo "安装 DEB 离线包..."
-        PACKAGE_DIR=$(dirname "$PACKAGE_PATH")
+    if [ "$OS_FAMILY" = "Debian" ] && [ "$IS_DEBIAN_OFFLINE" = true ]; then
+        echo "安装 DEB 离线目录..."
+        PACKAGE_DIR=$(resolve_package_directory "$PACKAGE_PATH")
 
         DEB_FILES=()
         ERLANG_DEB_FILES=()
@@ -160,27 +190,30 @@ if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
         RABBITMQ_PACKAGE_NAME=""
         RABBITMQ_PACKAGE_VERSION=""
 
-        while IFS= read -r debFile; do
-            DEB_FILES+=("$debFile")
-            debName=$(basename "$debFile")
-            case "$debName" in
-                erlang-*.deb)
-                    ERLANG_DEB_FILES+=("$debFile")
-                    if [[ "$debName" == erlang-base*.deb ]] && [ -z "$ERLANG_BASE_PACKAGE_NAME" ]; then
-                        ERLANG_BASE_PACKAGE_NAME="$debName"
-                    fi
-                    ;;
-                rabbitmq-server*.deb)
-                    RABBITMQ_DEB_FILES+=("$debFile")
-                    if [ -z "$RABBITMQ_PACKAGE_NAME" ]; then
-                        RABBITMQ_PACKAGE_NAME="$debName"
-                    fi
-                    ;;
-                *)
-                    OTHER_DEB_FILES+=("$debFile")
-                    ;;
-            esac
-        done < <(find "$PACKAGE_DIR" -maxdepth 1 -type f -name "*.deb" | sort)
+        while IFS= read -r search_dir; do
+            while IFS= read -r debFile; do
+                [ -n "$debFile" ] || continue
+                DEB_FILES+=("$debFile")
+                debName=$(basename "$debFile")
+                case "$debName" in
+                    erlang-*.deb)
+                        ERLANG_DEB_FILES+=("$debFile")
+                        if [[ "$debName" == erlang-base*.deb ]] && [ -z "$ERLANG_BASE_PACKAGE_NAME" ]; then
+                            ERLANG_BASE_PACKAGE_NAME="$debName"
+                        fi
+                        ;;
+                    rabbitmq-server*.deb)
+                        RABBITMQ_DEB_FILES+=("$debFile")
+                        if [ -z "$RABBITMQ_PACKAGE_NAME" ]; then
+                            RABBITMQ_PACKAGE_NAME="$debName"
+                        fi
+                        ;;
+                    *)
+                        OTHER_DEB_FILES+=("$debFile")
+                        ;;
+                esac
+            done < <(find "$search_dir" -maxdepth 1 -type f -name "*.deb" | sort)
+        done < <(get_package_search_directories "$PACKAGE_DIR")
 
         if [ ${#DEB_FILES[@]} -le 1 ]; then
             fail "Ubuntu RabbitMQ 离线安装需要完整的 Erlang/依赖 .deb 包集合，当前目录仅检测到主包，无法保证服务和管理界面正常启动"
@@ -198,6 +231,10 @@ if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
             fail "Ubuntu RabbitMQ 离线安装缺少 erlang-base*.deb，无法校验 Erlang 版本兼容性"
         fi
 
+        if ! printf '%s\n' "${OTHER_DEB_FILES[@]}" | grep -Eq '/logrotate_.*\.deb$'; then
+            fail "Ubuntu RabbitMQ 离线安装缺少 logrotate*.deb，无法保证离线安装完整性"
+        fi
+
         ERLANG_BASE_VERSION=$(printf "%s" "$ERLANG_BASE_PACKAGE_NAME" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1 || true)
         RABBITMQ_PACKAGE_VERSION=$(printf "%s" "$RABBITMQ_PACKAGE_NAME" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
 
@@ -212,25 +249,21 @@ if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
         echo "先安装 Erlang 离线包..."
         DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${ERLANG_DEB_FILES[@]}"
         ERLANG_INSTALL_EXIT=$?
-        DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
 
         if [ ${#OTHER_DEB_FILES[@]} -gt 0 ]; then
             echo "安装其他离线依赖包（logrotate 等）..."
             DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${OTHER_DEB_FILES[@]}"
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
         fi
 
         echo "再安装 RabbitMQ 离线包..."
         DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${RABBITMQ_DEB_FILES[@]}"
         RABBITMQ_INSTALL_EXIT=$?
-        DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
 
         FULL_PASS_EXIT=0
         if [ $ERLANG_INSTALL_EXIT -ne 0 ] || [ $RABBITMQ_INSTALL_EXIT -ne 0 ]; then
             echo "分组安装未完全成功，最后统一安装全部离线包..."
             DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${DEB_FILES[@]}"
             FULL_PASS_EXIT=$?
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
         fi
         set -e
 
@@ -241,24 +274,20 @@ if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
         if ! dpkg -l 2>/dev/null | grep -i 'rabbitmq-server' | grep -q '^ii'; then
             fail "RabbitMQ 离线安装未完成：未检测到 rabbitmq-server 已安装"
         fi
-    elif [[ "$PACKAGE_PATH" == *.rpm ]]; then
-        echo "安装 RPM 包..."
+    elif [ "$OS_FAMILY" = "RedHat" ] && [ "${OS_VERSION}" = "7" ]; then
+        echo "安装 RPM 离线目录..."
+        PACKAGE_DIR=$(resolve_package_directory "$PACKAGE_PATH")
+        RABBITMQ_RPM=$(find "$PACKAGE_DIR" -maxdepth 1 -type f -name "rabbitmq-server-*.rpm" | head -n 1 || true)
+        ERLANG_RPM=$(find "$PACKAGE_DIR" -maxdepth 1 -type f -name "erlang-*.el7*.rpm" | head -n 1 || true)
 
-        if [ "$OS_FAMILY" = "RedHat" ] && [ "${OS_VERSION}" = "7" ]; then
-            PACKAGE_NAME=$(basename "$PACKAGE_PATH")
-            [[ "$PACKAGE_NAME" == rabbitmq-server-*.rpm ]] || fail "CentOS7 请提供 rabbitmq-server*.rpm 作为主安装包：$PACKAGE_NAME"
+        [ -n "$RABBITMQ_RPM" ] || fail "CentOS7 离线目录缺少 rabbitmq-server*.rpm 主包"
+        [ -n "$ERLANG_RPM" ] || fail "未找到 CentOS7 离线依赖包 erlang-*.el7*.rpm"
 
-            PACKAGE_DIR=$(dirname "$PACKAGE_PATH")
-            ERLANG_RPM=$(find "$PACKAGE_DIR" -maxdepth 1 -type f -name "erlang-*.el7*.rpm" | head -n 1 || true)
-
-            [ -n "$ERLANG_RPM" ] || fail "未找到 CentOS7 离线依赖包 erlang-*.el7*.rpm"
-
-            echo "先安装 Erlang 离线包：$ERLANG_RPM"
-            yum localinstall -y "$ERLANG_RPM"
-        fi
-
-        yum localinstall -y "$PACKAGE_PATH"
-    elif [[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$PACKAGE_PATH" == *.tar ]] || [[ "$PACKAGE_PATH" == *.tar.xz ]] || [[ "$PACKAGE_PATH" == *.tgz ]]; then
+        echo "先安装 Erlang 离线包：$ERLANG_RPM"
+        yum localinstall -y "$ERLANG_RPM"
+        echo "再安装 RabbitMQ 主包：$RABBITMQ_RPM"
+        yum localinstall -y "$RABBITMQ_RPM"
+    elif [ "$PACKAGE_IS_FILE" = true ] && ([[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$PACKAGE_PATH" == *.tar ]] || [[ "$PACKAGE_PATH" == *.tar.xz ]] || [[ "$PACKAGE_PATH" == *.tgz ]]); then
         echo "解压并安装 tar 包..."
         INSTALL_DIR="/opt/rabbitmq"
         mkdir -p "$INSTALL_DIR"
@@ -289,7 +318,7 @@ if [ -n "$PACKAGE_PATH" ] && [ -f "$PACKAGE_PATH" ]; then
 
         echo "离线安装完成"
     else
-        fail "不支持的离线包格式：$PACKAGE_PATH（支持 .deb/.rpm/.tar/.tar.gz/.tar.xz/.tgz）"
+        fail "不支持的离线包格式：$PACKAGE_PATH（支持目录型 .deb/.rpm 离线资源或单文件 .tar/.tar.gz/.tar.xz/.tgz）"
     fi
 else
     # 4. 在线安装 - 添加 Erlang 和 RabbitMQ 仓库
@@ -649,6 +678,7 @@ echo "等待 RabbitMQ 服务启动..."
 SUCCESS=false
 COUNT=0
 while [ $COUNT -lt 30 ]; do
+    echo "PROGRESS:WaitingForService:$((85 + COUNT * 2 / 30))"
     PORT_CHECK=""
     # 检查端口是否监听
     if command -v ss &> /dev/null; then
@@ -740,6 +770,7 @@ MGMT_BIND_ALL=false
 MANAGEMENT_HTTP_READY=false
 MGMT_COUNT=0
 while [ $MGMT_COUNT -lt 20 ]; do
+    echo "PROGRESS:CheckingManagementPort:$((87 + MGMT_COUNT * 2 / 20))"
     MGMT_PORT_CHECK=""
     if command -v ss &> /dev/null; then
         MGMT_PORT_CHECK=$(ss -tlnp 2>/dev/null | grep ":$MANAGEMENT_PORT" || true)

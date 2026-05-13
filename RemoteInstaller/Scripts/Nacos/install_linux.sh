@@ -190,6 +190,7 @@ write_color "8. 等待 Nacos 服务启动:" "Yellow"
 SUCCESS=false
 COUNT=0
 while [ $COUNT -lt 60 ]; do
+    echo "PROGRESS:Starting:$((80 + COUNT * 15 / 60))"
     # 检查端口
     if command -v ss &> /dev/null; then
         PORT_CHECK=$(ss -tlnp 2>/dev/null | grep ":$HTTP_PORT")

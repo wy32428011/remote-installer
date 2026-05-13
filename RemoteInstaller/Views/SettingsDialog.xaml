@@ -68,10 +68,19 @@
                                 </WrapPanel>
                             </StackPanel>
 
+                            <StackPanel Margin="0,0,0,8">
+                                <TextBlock Text="更新检测地址" Style="{StaticResource SettingLabelStyle}"/>
+                                <TextBlock Text="可选。为空时使用仓库地址 + /api/version" Style="{StaticResource SettingHintStyle}"/>
+                                <TextBox Text="{Binding UpdateCheckUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="https://example.com/version.json"
+                                         Style="{StaticResource SettingInputStyle}"/>
+                            </StackPanel>
+
                             <StackPanel>
                                 <TextBlock Text="认证令牌" Style="{StaticResource SettingLabelStyle}"/>
                                 <TextBlock Text="访问私有仓库时必填" Style="{StaticResource SettingHintStyle}"/>
-                                <TextBox materialDesign:HintAssist.Hint="可选"
+                                <TextBox Text="{Binding RepositoryToken, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="可选"
                                          Style="{StaticResource SettingInputStyle}"/>
                             </StackPanel>
                         </StackPanel>
@@ -155,8 +164,8 @@
                             Padding="10"
                             Margin="0,6,0,0">
                         <StackPanel>
-                            <TextBlock Text="最大并发" Style="{StaticResource SettingLabelStyle}"/>
-                            <TextBlock Text="同时执行的任务数 (1-20)" Style="{StaticResource SettingHintStyle}"/>
+                            <TextBlock Text="最大并发（检测/卸载）" Style="{StaticResource SettingLabelStyle}"/>
+                            <TextBlock Text="批量安装固定逐个执行，此项仅影响批量检测和批量卸载 (1-20)" Style="{StaticResource SettingHintStyle}"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>

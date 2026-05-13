@@ -525,7 +525,6 @@ install_debian_from_directory() {
 
     echo "开始直接安装最小必要 MariaDB DEB 包集合..."
     dpkg --force-confdef --force-confold -i "${install_queue[@]}"
-    dpkg --configure -a
 
     if is_mariadb_server_installed; then
         echo "MariaDB direct-deb 安装完成"

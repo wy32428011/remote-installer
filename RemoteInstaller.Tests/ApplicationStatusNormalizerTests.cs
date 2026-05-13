@@ -60,11 +60,11 @@ public class ApplicationStatusNormalizerTests
     }
 
     [Fact]
-    public void BuildEvidenceFromProtocolEvents_ReadsResidueAndRunningFlags()
+    public void BuildEvidenceFromProtocolEvents_DoesNotTreatPortValueAsRuntimeEvidence()
     {
         var events = ScriptProtocolParser.Parse(string.Join('\n', new[]
         {
-            "RUNNING:true",
+            "RUNNING:false",
             "PORT:6379",
             "SERVICE_ONLY_STALE:false",
             "CONFIG_ONLY_RESIDUE:false"
@@ -72,10 +72,46 @@ public class ApplicationStatusNormalizerTests
 
         var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
 
-        Assert.True(evidence.ProcessFound);
-        Assert.True(evidence.PortListening);
+        Assert.False(evidence.ProcessFound);
+        Assert.False(evidence.PortListening);
         Assert.False(evidence.ServiceOnlyResidue);
         Assert.False(evidence.ConfigOnlyResidue);
+    }
+
+    [Fact]
+    public void BuildEvidenceFromProtocolEvents_ReadsExplicitPortListeningFlag()
+    {
+        var events = ScriptProtocolParser.Parse(string.Join('\n', new[]
+        {
+            "RUNNING:false",
+            "PORT:6379",
+            "PORT_LISTENING:true"
+        }));
+
+        var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
+
+        Assert.False(evidence.ProcessFound);
+        Assert.True(evidence.PortListening);
+    }
+
+    [Fact]
+    public void BuildEvidenceFromProtocolEvents_DoesNotTreatRabbitMqAccessMetadataAsRuntimeEvidence()
+    {
+        var events = ScriptProtocolParser.Parse(string.Join('\n', new[]
+        {
+            "INSTALLED:false",
+            "RUNNING:false",
+            "MANAGEMENT_OPEN:true",
+            "MANAGEMENT_HTTP_READY:true",
+            "REMOTE_ACCESS_AVAILABLE:true",
+            "AMQP_BIND_ALL:true",
+            "MGMT_BIND_ALL:true"
+        }));
+
+        var evidence = ApplicationStatusNormalizer.BuildEvidence(events);
+
+        Assert.False(evidence.PortListening);
+        Assert.False(evidence.HasRuntimeEvidence);
     }
 
     [Fact]

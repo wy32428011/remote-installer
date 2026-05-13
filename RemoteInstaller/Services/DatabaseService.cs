@@ -245,8 +245,31 @@ public class DatabaseService : IDisposable
 
         EnsureHostColumns(connection);
         EnsureCustomAppsColumns(connection);
+        EnsurePerformanceIndexes(connection);
         SeedBuiltInCustomApps(connection);
         CleanupDeprecatedBuiltInCustomApps(connection);
+    }
+
+    private static void EnsurePerformanceIndexes(SQLiteConnection connection)
+    {
+        var indexStatements = new[]
+        {
+            "CREATE INDEX IF NOT EXISTS idx_logs_task_timestamp ON logs(task_id, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_task_level_timestamp ON logs(task_id, level, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_tasks_start_time ON tasks(start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_install_history_start_time ON install_history(start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_install_history_host_start_time ON install_history(host_id, start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_install_history_application_start_time ON install_history(application_id, start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_install_history_status_start_time ON install_history(status, start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_install_history_operation_start_time ON install_history(operation_type, start_time DESC)"
+        };
+
+        using var cmd = connection.CreateCommand();
+        foreach (var statement in indexStatements)
+        {
+            cmd.CommandText = statement;
+            cmd.ExecuteNonQuery();
+        }
     }
 
     /// <summary>

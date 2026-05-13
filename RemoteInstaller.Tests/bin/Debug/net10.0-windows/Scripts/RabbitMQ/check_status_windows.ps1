@@ -4,7 +4,6 @@
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-# 颜色模拟
 function Write-Color {
     param([string]$Text, [string]$Color)
     Write-Host $Text -ForegroundColor $Color
@@ -12,28 +11,78 @@ function Write-Color {
 
 function Write-Progress {
     param([string]$Stage, [int]$Percent)
-    Write-Host "PROGRESS:$Stage:$Percent"
+    Write-Host "PROGRESS:${Stage}:$Percent"
 }
 
-function Check-Port {
-    param([int]$Port, [string]$Name, [string]$ProcessPattern)
-    Write-Color "3. 检查端口监听 ($Port):" "Yellow"
-    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($listener) {
-        $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
-        if ($ProcessPattern -and $process) {
-            if ($process.Name -notmatch $ProcessPattern -and $process.MainModule.FileName -notmatch $ProcessPattern) {
-                Write-Color "$Name 端口监听：否 (端口 $Port 被 $($process.Name) 占用)" "Red"
-                return $false
-            }
+function Get-ServiceImagePath {
+    param([string]$ServiceName)
+
+    try {
+        $item = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName" -ErrorAction Stop
+        return [string]$item.ImagePath
+    } catch {
+        return ""
+    }
+}
+
+function Resolve-ExecutablePathFromImagePath {
+    param([string]$ImagePath)
+
+    if ([string]::IsNullOrWhiteSpace($ImagePath)) {
+        return ""
+    }
+
+    $trimmed = $ImagePath.Trim()
+    if ($trimmed.StartsWith('"')) {
+        $end = $trimmed.IndexOf('"', 1)
+        if ($end -gt 1) {
+            return $trimmed.Substring(1, $end - 1)
         }
-        Write-Color "$Name 端口监听：是" "Green"
-        $listener | Format-Table -Property LocalAddress, LocalPort, OwningProcess
-        return $true
-    } else {
-        Write-Color "$Name 端口监听：否 (端口未开放)" "Red"
+    }
+
+    return ($trimmed -replace '\s+.*$', '')
+}
+
+function Test-RabbitMqCommandLine {
+    param([string]$CommandLine)
+
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
         return $false
     }
+
+    return $CommandLine -match 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot'
+}
+
+function Get-RabbitMqProcesses {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.Name -match '^(erl|erl\.exe|beam\.smp|beam\.smp\.exe)$') -and
+            (Test-RabbitMqCommandLine $_.CommandLine)
+        }
+}
+
+function Test-RabbitMqPortOwner {
+    param([int]$Port, [int[]]$RabbitMqProcessIds)
+
+    $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    foreach ($listener in $listeners) {
+        if ($RabbitMqProcessIds -contains [int]$listener.OwningProcess) {
+            return $true
+        }
+
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
+        if ($owner -and (Test-RabbitMqCommandLine $owner.CommandLine)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-AnyPortListening {
+    param([int]$Port)
+
+    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)
 }
 
 Write-Progress "Initializing" 5
@@ -41,152 +90,119 @@ Write-Color "========================================" "Cyan"
 Write-Color "      RabbitMQ 状态检测" "Cyan"
 Write-Color "========================================" "Cyan"
 
-$isInstalled = "false"
-$isRunning = "false"
+$isInstalled = $false
+$isRunning = $false
 $version = "未知"
+$binaryFound = $false
+$serviceFound = $false
+$serviceActive = $false
+$processFound = $false
+$portListening = $false
+$serviceOnlyStale = $false
+$configOnlyResidue = $false
+$serviceName = "unknown"
+$serviceStatus = "not-found"
 $AMQP_PORT = 5672
 $MANAGEMENT_PORT = 15672
 
-# 1. 检查安装情况
 Write-Progress "CheckingInstallation" 10
-Write-Color "`n1. 检查安装情况:" "Yellow"
+Write-Color "`n1. 检查安装证据:" "Yellow"
 
-# 检查服务
-$rabbitmqService = Get-Service -Name "RabbitMQ*" -ErrorAction SilentlyContinue
-if ($rabbitmqService) {
-    Write-Color "RabbitMQ 服务存在：是" "Green"
-    $rabbitmqService | Format-Table -Property Name, Status, StartType -AutoSize
-    $isInstalled = "true"
+$serverCommands = @(
+    (Get-Command rabbitmq-server -ErrorAction SilentlyContinue),
+    (Get-Command rabbitmq-server.bat -ErrorAction SilentlyContinue)
+) | Where-Object { $_ }
+
+if ($serverCommands) {
+    $binaryFound = $true
+    Write-Color "RabbitMQ 服务端命令存在：是" "Green"
 }
 
-# 检查安装目录
-$commonInstallPaths = @(
-    "C:\Program Files\RabbitMQ Server",
-    "C:\Program Files (x86)\RabbitMQ Server",
-    "C:\RabbitMQ",
-    "C:\Program Files\erl*"
-)
+$serverBinaries = @()
+$serverBinaries += Get-ChildItem -Path "C:\Program Files\RabbitMQ Server" -Filter "rabbitmq-server.bat" -Recurse -ErrorAction SilentlyContinue
+$serverBinaries += Get-ChildItem -Path "C:\Program Files (x86)\RabbitMQ Server" -Filter "rabbitmq-server.bat" -Recurse -ErrorAction SilentlyContinue
+$serverBinaries += Get-ChildItem -Path "C:\RabbitMQ" -Filter "rabbitmq-server.bat" -Recurse -ErrorAction SilentlyContinue
 
-foreach ($path in $commonInstallPaths) {
-    if (Test-Path $path) {
-        Write-Color "安装目录存在：$path" "Green"
-        $isInstalled = "true"
-        break
-    }
+if ($serverBinaries) {
+    $binaryFound = $true
+    Write-Color "RabbitMQ 服务端文件存在：是" "Green"
 }
 
-# 检查命令是否存在
-$erlCommand = Get-Command erl -ErrorAction SilentlyContinue
-$rabbitmqctlCommand = Get-Command rabbitmqctl -ErrorAction SilentlyContinue
+$rabbitmqServices = Get-Service -Name "RabbitMQ*" -ErrorAction SilentlyContinue
+if ($rabbitmqServices) {
+    $serviceFound = $true
+    $service = $rabbitmqServices | Select-Object -First 1
+    $serviceName = $service.Name
+    $serviceStatus = [string]$service.Status
+    Write-Color "RabbitMQ 服务存在：$serviceName ($serviceStatus)" "Green"
 
-if ($erlCommand -or $rabbitmqctlCommand) {
-    Write-Color "RabbitMQ 命令存在：是" "Green"
-    if ($erlCommand) { Write-Color "  erl: $($erlCommand.Source)" "Gray" }
-    if ($rabbitmqctlCommand) { Write-Color "  rabbitmqctl: $($rabbitmqctlCommand.Source)" "Gray" }
-    $isInstalled = "true"
-}
+    foreach ($svc in $rabbitmqServices) {
+        $imagePath = Get-ServiceImagePath -ServiceName $svc.Name
+        $exePath = Resolve-ExecutablePathFromImagePath -ImagePath $imagePath
+        if ($exePath -and (Test-Path $exePath) -and ($imagePath -match 'rabbitmq')) {
+            $binaryFound = $true
+        }
 
-if (-not $isInstalled) {
-    Write-Color "RabbitMQ 已安装：否" "Red"
-}
-
-# 2. 检查进程
-Write-Progress "CheckingProcesses" 30
-Write-Color "`n2. 检查运行进程:" "Yellow"
-
-# RabbitMQ Windows 使用 Erlang VM，进程名通常是 erl.exe
-$erlProcesses = Get-Process -Name "erl" -ErrorAction SilentlyContinue
-if ($erlProcesses) {
-    Write-Color "Erlang VM 进程：发现" "Green"
-    $erlProcesses | Format-Table -Property Id, Name, Path -AutoSize
-
-    # 检查是否是 RabbitMQ 的 erl 进程
-    foreach ($proc in $erlProcesses) {
-        try {
-            $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.Id)").CommandLine
-            if ($cmdLine -and $cmdLine -like "*rabbit*") {
-                Write-Color "RabbitMQ 运行状态：运行中 (PID: $($proc.Id))" "Green"
-                $isRunning = "true"
-                break
-            }
-        } catch {
-            # 忽略访问拒绝
+        if ($svc.Status -eq "Running") {
+            $serviceActive = $true
         }
     }
-
-    if (-not $isRunning) {
-        Write-Color "Erlang 进程存在，但可能不是 RabbitMQ" "Yellow"
-    }
 } else {
-    Write-Color "Erlang VM 进程：未运行" "Red"
+    Write-Color "RabbitMQ 服务存在：否" "Yellow"
 }
 
-# 3. 检查端口
+$rabbitmqProcesses = @(Get-RabbitMqProcesses)
+if ($rabbitmqProcesses.Count -gt 0) {
+    $processFound = $true
+    Write-Color "RabbitMQ Erlang 进程：发现" "Green"
+    $rabbitmqProcesses | Select-Object ProcessId, Name, CommandLine | Format-Table -AutoSize
+} else {
+    Write-Color "RabbitMQ Erlang 进程：未发现" "Red"
+}
+
+$rabbitmqProcessIds = @($rabbitmqProcesses | ForEach-Object { [int]$_.ProcessId })
+
 Write-Progress "CheckingPorts" 50
-Write-Color "`n3. 检查端口监听:" "Yellow"
+Write-Color "`n2. 检查端口监听:" "Yellow"
+$amqpOpen = Test-AnyPortListening -Port $AMQP_PORT
+$managementOpen = Test-AnyPortListening -Port $MANAGEMENT_PORT
+$amqpOwnedByRabbit = Test-RabbitMqPortOwner -Port $AMQP_PORT -RabbitMqProcessIds $rabbitmqProcessIds
+$managementOwnedByRabbit = Test-RabbitMqPortOwner -Port $MANAGEMENT_PORT -RabbitMqProcessIds $rabbitmqProcessIds
 
-# 增强端口检查函数，显示监听地址
-function Check-PortWithBinding {
-    param([int]$Port, [string]$Name)
-    Write-Color "$Name 端口检查 ($Port):" "Yellow"
-    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($listener) {
-        $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
-        Write-Color "  端口监听：是" "Green"
-        Write-Color "  监听地址：$($listener.LocalAddress):$($listener.LocalPort)" "Gray"
-
-        # 检查是否监听在所有接口
-        $allInterfaces = @("0.0.0.0", "::", "::ffff:0.0.0.0")
-        if ($listener.LocalAddress -In $allInterfaces -or $listener.LocalAddress -eq "::") {
-            Write-Color "  远程访问：${Name} 允许远程访问" "Green"
-        } else {
-            Write-Color "  远程访问：${Name} 仅允许本地访问" "Yellow"
-        }
-        return $true
-    } else {
-        Write-Color "  端口监听：否" "Red"
-        return $false
-    }
-}
-
-$amqpOpen = Check-PortWithBinding $AMQP_PORT "AMQP"
-$mgmtOpen = Check-PortWithBinding $MANAGEMENT_PORT "Management"
-
-if ($amqpOpen -or $mgmtOpen) {
-    $isRunning = "true"
-    Write-Color "端口检测表明 RabbitMQ 运行中" "Green"
-}
-
-# 远程访问检查
-Write-Progress "CheckingRemoteAccess" 55
-Write-Color "`n4. 远程访问检查:" "Yellow"
-if ($amqpOpen -and $mgmtOpen) {
-    Write-Color "远程访问状态：可用" "Green"
+if ($amqpOpen) {
+    Write-Color "AMQP 端口 ($AMQP_PORT)：监听中" "Yellow"
 } else {
-    Write-Color "远程访问状态：不可用 (服务未完全运行)" "Red"
+    Write-Color "AMQP 端口 ($AMQP_PORT)：未监听" "Red"
 }
 
-# 5. 使用 rabbitmqctl 检查状态
-Write-Progress "CheckingRabbitmqStatus" 65
-Write-Color "`n5. RabbitMQ 状态检查:" "Yellow"
+if ($managementOpen) {
+    Write-Color "Management 端口 ($MANAGEMENT_PORT)：监听中" "Yellow"
+} else {
+    Write-Color "Management 端口 ($MANAGEMENT_PORT)：未监听" "Red"
+}
 
-if ($rabbitmqctlCommand) {
-    Write-Color "执行 rabbitmqctl status..." "Yellow"
+if ($amqpOwnedByRabbit -or $managementOwnedByRabbit) {
+    $portListening = $true
+    Write-Color "RabbitMQ 端口归属：端口由 RabbitMQ 进程监听" "Green"
+} elseif ($amqpOpen -or $managementOpen) {
+    Write-Color "RabbitMQ 端口归属：端口被其他进程占用，不作为 RabbitMQ 运行证据" "Yellow"
+}
+
+Write-Progress "CheckingRabbitmqStatus" 65
+Write-Color "`n3. RabbitMQ 状态检查:" "Yellow"
+$rabbitmqctl = Get-Command rabbitmqctl -ErrorAction SilentlyContinue
+if ($rabbitmqctl) {
     try {
         $statusOutput = & rabbitmqctl status 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Color "rabbitmqctl status: 正常" "Green"
-            $isRunning = "true"
-            $isInstalled = "true"
-
-            # 尝试获取版本
-            $versionMatch = $statusOutput -match 'RabbitMQ ([0-9]+\.[0-9]+\.[0-9]+)'
-            if ($versionMatch) {
+            $isRunning = $true
+            $binaryFound = $true
+            Write-Color "rabbitmqctl status：正常" "Green"
+            if ($statusOutput -match 'RabbitMQ ([0-9]+\.[0-9]+\.[0-9]+)') {
                 $version = $matches[1]
-                Write-Color "版本：$version" "Green"
             }
         } else {
-            Write-Color "rabbitmqctl status: 失败" "Red"
+            Write-Color "rabbitmqctl status：失败" "Red"
         }
     } catch {
         Write-Color "rabbitmqctl 执行失败：$_" "Red"
@@ -195,35 +211,61 @@ if ($rabbitmqctlCommand) {
     Write-Color "rabbitmqctl 不可用，跳过状态检查" "Yellow"
 }
 
-# 6. 检查服务状态
-Write-Progress "CheckingServiceStatus" 75
-Write-Color "`n6. Windows 服务状态:" "Yellow"
-
-if ($rabbitmqService) {
-    foreach ($service in $rabbitmqService) {
-        Write-Color "服务：$($service.Name)" "Gray"
-        Write-Color "  状态：$($service.Status)" "Gray"
-        Write-Color "  启动类型：$($service.StartType)" "Gray"
-
-        if ($service.Status -eq "Running") {
-            $isRunning = "true"
-            $isInstalled = "true"
-        }
-    }
-} else {
-    Write-Color "未找到 RabbitMQ 服务" "Yellow"
+if ($serviceActive -or $processFound) {
+    $isRunning = $true
 }
 
-# 输出机器可读状态
+if ($binaryFound -or $serviceActive -or $processFound -or $isRunning) {
+    $isInstalled = $true
+}
+
+if ($isInstalled -and $version -eq "未知") {
+    try {
+        $versionOutput = & rabbitmqctl version 2>&1
+        if ($versionOutput -match '([0-9]+\.[0-9]+\.[0-9]+)') {
+            $version = $matches[1]
+        }
+    } catch {
+        # 版本读取失败不影响状态检测。
+    }
+}
+
+if ($serviceFound -and -not $isInstalled -and -not $isRunning) {
+    $serviceOnlyStale = $true
+    Write-Color "RabbitMQ 服务定义存在，但未发现服务端二进制或 RabbitMQ 运行进程，按残留服务处理" "Yellow"
+}
+
+$configPaths = @(
+    "$env:APPDATA\RabbitMQ",
+    "C:\Program Files\RabbitMQ Server"
+)
+
+foreach ($path in $configPaths) {
+    if (Test-Path $path) {
+        if (-not $isInstalled -and -not $isRunning) {
+            $configOnlyResidue = $true
+        }
+        break
+    }
+}
+
 Write-Progress "OutputtingStatus" 95
 Write-Color "`n--- MACHINE READABLE ---" "Cyan"
-Write-Host "INSTALLED: $isInstalled"
-Write-Host "VERSION: $version"
-Write-Host "RUNNING: $isRunning"
-Write-Host "PORT: $AMQP_PORT,$MANAGEMENT_PORT"
+Write-Host "INSTALLED:$isInstalled"
+Write-Host "VERSION:$version"
+Write-Host "RUNNING:$isRunning"
+Write-Host "PORT:$AMQP_PORT,$MANAGEMENT_PORT"
+Write-Host "BINARY_FOUND:$binaryFound"
+Write-Host "PROCESS_FOUND:$processFound"
+Write-Host "SERVICE_FOUND:$serviceFound"
+Write-Host "SERVICE_ACTIVE:$serviceActive"
+Write-Host "SERVICE_NAME:$serviceName"
+Write-Host "SERVICE_STATUS:$serviceStatus"
+Write-Host "PORT_LISTENING:$portListening"
+Write-Host "SERVICE_ONLY_STALE:$serviceOnlyStale"
+Write-Host "CONFIG_ONLY_RESIDUE:$configOnlyResidue"
 Write-Host "------------------------"
 
-# 最终状态摘要
 Write-Color "`n最终状态:" "Yellow"
 if ($isInstalled) {
     if ($isRunning) {

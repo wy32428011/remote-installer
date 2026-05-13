@@ -375,28 +375,14 @@ public class RabbitMqOfflineSelectionTests
     [Fact]
     public void UbuntuRabbitMqOfflineDirectory_WithRequiredPackages_IsAutoSelectedAsDirectoryResource()
     {
-        var baseDirectory = AppContext.BaseDirectory;
-        var scriptsRoot = Path.Combine(baseDirectory, "Scripts", "RabbitMQ", "rabbitmq-ubuntu");
-        var backupRoot = scriptsRoot + ".test-backup";
-        var createdDirectory = false;
-        var movedOriginalDirectory = false;
+        var tempScriptsRoot = Path.Combine(Path.GetTempPath(), $"RemoteInstallerRabbitMqTests_{Guid.NewGuid():N}");
+        var scriptsRoot = Path.Combine(tempScriptsRoot, "RabbitMQ", "rabbitmq-ubuntu");
 
         try
         {
-            if (Directory.Exists(backupRoot))
-            {
-                Directory.Delete(backupRoot, true);
-            }
-
-            if (Directory.Exists(scriptsRoot))
-            {
-                Directory.Move(scriptsRoot, backupRoot);
-                movedOriginalDirectory = true;
-            }
-
+            InstallConfigViewModel.ScriptRootOverridesFactory = () => new[] { tempScriptsRoot };
             Directory.CreateDirectory(scriptsRoot);
             Directory.CreateDirectory(Path.Combine(scriptsRoot, "deps"));
-            createdDirectory = true;
             File.WriteAllText(Path.Combine(scriptsRoot, "rabbitmq-server_3.12.0-1_all.deb"), string.Empty);
             File.WriteAllText(Path.Combine(scriptsRoot, "erlang-base_26.2.5.13-1_amd64.deb"), string.Empty);
             File.WriteAllText(Path.Combine(scriptsRoot, "deps", "logrotate_3.19.0-1ubuntu1.1_amd64.deb"), string.Empty);
@@ -424,14 +410,10 @@ public class RabbitMqOfflineSelectionTests
         }
         finally
         {
-            if (createdDirectory && Directory.Exists(scriptsRoot))
+            InstallConfigViewModel.ScriptRootOverridesFactory = null;
+            if (Directory.Exists(tempScriptsRoot))
             {
-                Directory.Delete(scriptsRoot, true);
-            }
-
-            if (movedOriginalDirectory && Directory.Exists(backupRoot))
-            {
-                Directory.Move(backupRoot, scriptsRoot);
+                Directory.Delete(tempScriptsRoot, true);
             }
         }
     }
@@ -439,27 +421,13 @@ public class RabbitMqOfflineSelectionTests
     [Fact]
     public void UbuntuRabbitMqOfflineDirectory_WithoutRequiredSystemDependency_StaysLocalButDoesNotAutoSelectPackage()
     {
-        var baseDirectory = AppContext.BaseDirectory;
-        var scriptsRoot = Path.Combine(baseDirectory, "Scripts", "RabbitMQ", "rabbitmq-ubuntu");
-        var backupRoot = scriptsRoot + ".test-backup";
-        var createdDirectory = false;
-        var movedOriginalDirectory = false;
+        var tempScriptsRoot = Path.Combine(Path.GetTempPath(), $"RemoteInstallerRabbitMqTests_{Guid.NewGuid():N}");
+        var scriptsRoot = Path.Combine(tempScriptsRoot, "RabbitMQ", "rabbitmq-ubuntu");
 
         try
         {
-            if (Directory.Exists(backupRoot))
-            {
-                Directory.Delete(backupRoot, true);
-            }
-
-            if (Directory.Exists(scriptsRoot))
-            {
-                Directory.Move(scriptsRoot, backupRoot);
-                movedOriginalDirectory = true;
-            }
-
+            InstallConfigViewModel.ScriptRootOverridesFactory = () => new[] { tempScriptsRoot };
             Directory.CreateDirectory(scriptsRoot);
-            createdDirectory = true;
             File.WriteAllText(Path.Combine(scriptsRoot, "rabbitmq-server_3.12.0-1_all.deb"), string.Empty);
             File.WriteAllText(Path.Combine(scriptsRoot, "erlang-base_26.2.5.13-1_amd64.deb"), string.Empty);
 
@@ -485,14 +453,10 @@ public class RabbitMqOfflineSelectionTests
         }
         finally
         {
-            if (createdDirectory && Directory.Exists(scriptsRoot))
+            InstallConfigViewModel.ScriptRootOverridesFactory = null;
+            if (Directory.Exists(tempScriptsRoot))
             {
-                Directory.Delete(scriptsRoot, true);
-            }
-
-            if (movedOriginalDirectory && Directory.Exists(backupRoot))
-            {
-                Directory.Move(backupRoot, scriptsRoot);
+                Directory.Delete(tempScriptsRoot, true);
             }
         }
     }

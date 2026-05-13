@@ -249,25 +249,21 @@ if [ -n "$PACKAGE_PATH" ] && { [ "$PACKAGE_IS_FILE" = true ] || [ "$PACKAGE_IS_D
         echo "先安装 Erlang 离线包..."
         DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${ERLANG_DEB_FILES[@]}"
         ERLANG_INSTALL_EXIT=$?
-        DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
 
         if [ ${#OTHER_DEB_FILES[@]} -gt 0 ]; then
             echo "安装其他离线依赖包（logrotate 等）..."
             DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${OTHER_DEB_FILES[@]}"
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
         fi
 
         echo "再安装 RabbitMQ 离线包..."
         DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${RABBITMQ_DEB_FILES[@]}"
         RABBITMQ_INSTALL_EXIT=$?
-        DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
 
         FULL_PASS_EXIT=0
         if [ $ERLANG_INSTALL_EXIT -ne 0 ] || [ $RABBITMQ_INSTALL_EXIT -ne 0 ]; then
             echo "分组安装未完全成功，最后统一安装全部离线包..."
             DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${DEB_FILES[@]}"
             FULL_PASS_EXIT=$?
-            DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
         fi
         set -e
 
@@ -682,6 +678,7 @@ echo "等待 RabbitMQ 服务启动..."
 SUCCESS=false
 COUNT=0
 while [ $COUNT -lt 30 ]; do
+    echo "PROGRESS:WaitingForService:$((85 + COUNT * 2 / 30))"
     PORT_CHECK=""
     # 检查端口是否监听
     if command -v ss &> /dev/null; then
@@ -773,6 +770,7 @@ MGMT_BIND_ALL=false
 MANAGEMENT_HTTP_READY=false
 MGMT_COUNT=0
 while [ $MGMT_COUNT -lt 20 ]; do
+    echo "PROGRESS:CheckingManagementPort:$((87 + MGMT_COUNT * 2 / 20))"
     MGMT_PORT_CHECK=""
     if command -v ss &> /dev/null; then
         MGMT_PORT_CHECK=$(ss -tlnp 2>/dev/null | grep ":$MANAGEMENT_PORT" || true)

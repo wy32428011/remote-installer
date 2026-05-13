@@ -168,7 +168,6 @@ prepare_debian_offline_dependencies() {
 
     echo "正在安装缺失的 Redis Debian 离线依赖包..."
     DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${install_files[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
 }
 
 # 根目录只负责主包，依赖包由 prepare 阶段提前处理。
@@ -192,11 +191,9 @@ install_debian_from_directory() {
 
     echo "安装 redis-tools..."
     DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${redis_tools_debs[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
 
     echo "安装 redis-server..."
     DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${redis_server_debs[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
 }
 
 # 1. 安装 Redis
@@ -634,9 +631,21 @@ fi
 
 # 获取版本
 INSTALLED_VERSION=$(redis-server --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "未知")
+FINAL_RUNNING=false
+if [ "$VERIFY_SUCCESS" = true ] || pgrep -x redis-server >/dev/null 2>&1 || systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    FINAL_RUNNING=true
+fi
 
 echo "PROGRESS:Complete:100"
 echo "Redis 安装完成！"
+echo ""
+echo "--- MACHINE READABLE ---"
+echo "INSTALLED: true"
+echo "VERSION: ${INSTALLED_VERSION:-未知}"
+echo "RUNNING: $FINAL_RUNNING"
+echo "PORT: $PORT"
+echo "STAGE:SUCCESS"
+echo "------------------------"
 echo ""
 echo "--- 连接信息 ---"
 echo "端口: $PORT"

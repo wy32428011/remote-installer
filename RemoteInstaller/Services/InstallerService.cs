@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -15,21 +16,42 @@ namespace RemoteInstaller.Services;
 /// 安装服务
 /// 负责执行远程应用的安装、卸载和状态检测
 /// </summary>
-public class InstallerService
+public class InstallerService : IDisposable
 {
     private readonly SshService _sshService;
     private readonly ILogger _logger;
     private readonly DatabaseService _databaseService;
     private readonly FileLoggerService _fileLogger;
+    private readonly ScriptResolver _scriptResolver = new();
+    private readonly bool _disposeSshService;
+    private bool _disposed;
 
-    public InstallerService(SshService sshService, ILogger logger)
+    public InstallerService(SshService sshService, ILogger logger, bool disposeSshService = false)
     {
         _sshService = sshService;
         _logger = logger;
+        _disposeSshService = disposeSshService;
         _databaseService = new DatabaseService();
         _fileLogger = new FileLoggerService();
 
         _fileLogger.Info("InstallerService", $"InstallerService 初始化，SSH服务: {sshService.GetType().Name}");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _fileLogger.Dispose();
+        _databaseService.Dispose();
+
+        if (_disposeSshService)
+        {
+            _sshService.Dispose();
+        }
     }
 
     /// <summary>
@@ -82,6 +104,7 @@ public class InstallerService
             : string.Empty;
         parameters.Remove("REMOTE_UPLOAD_PATH");
 
+        var operationStopwatch = Stopwatch.StartNew();
         string? remoteWorkDir = null;
         try
         {
@@ -409,6 +432,8 @@ public class InstallerService
                 }
             }
             
+            operationStopwatch.Stop();
+            _fileLogger.Info("InstallAsync", $"安装任务结束，状态: {task.Status}, 耗时: {operationStopwatch.ElapsedMilliseconds}ms");
             logCollector.Dispose();
         }
 
@@ -453,6 +478,7 @@ public class InstallerService
         _fileLogger.Info("UninstallAsync", $"应用: {app.Name} v{app.Version} (ID: {app.Id})");
         _fileLogger.Info("UninstallAsync", $"保留数据: {keepData}");
         _fileLogger.Info("UninstallAsync", $"操作系统: {host.OsType}");
+        var operationStopwatch = Stopwatch.StartNew();
 
         var task = new InstallTask
         {
@@ -508,8 +534,18 @@ public class InstallerService
             else
             {
                 // 如果没有找到对应的脚本文件，尝试使用 ApplicationInfo 中的默认脚本
-                scriptContent = app.GetUninstallScript(host.OsType);
-                _fileLogger.Info("UninstallAsync", $"使用内置卸载脚本，长度: {scriptContent.Length} 字符");
+                var configuredScript = app.GetUninstallScript(host.OsType);
+                var configuredScriptPath = _scriptResolver.TryResolveConfiguredScriptFilePath(configuredScript, host.OsType);
+                if (!string.IsNullOrEmpty(configuredScriptPath) && File.Exists(configuredScriptPath))
+                {
+                    scriptContent = await File.ReadAllTextAsync(configuredScriptPath, cancellationToken);
+                    _fileLogger.Info("UninstallAsync", $"从配置引用加载卸载脚本: {configuredScriptPath}，长度: {scriptContent.Length} 字符");
+                }
+                else
+                {
+                    scriptContent = configuredScript;
+                    _fileLogger.Info("UninstallAsync", $"使用内置卸载脚本，长度: {scriptContent.Length} 字符");
+                }
             }
 
             if (!string.IsNullOrEmpty(scriptContent))
@@ -724,6 +760,8 @@ public class InstallerService
             progressReporter?.Report(task);
             logCollector.Dispose();
 
+            operationStopwatch.Stop();
+            _fileLogger.Info("UninstallAsync", $"卸载任务结束，状态: {task.Status}, 耗时: {operationStopwatch.ElapsedMilliseconds}ms");
             _fileLogger.Info("UninstallAsync", "========== 卸载任务结束 ==========");
         }
 
@@ -738,6 +776,7 @@ public class InstallerService
         ApplicationInfo app,
         CancellationToken cancellationToken = default)
     {
+        var operationStopwatch = Stopwatch.StartNew();
         // 确保已连接（内部会检查是否已连接）
         await _sshService.ConnectAsync(host, cancellationToken);
 
@@ -771,12 +810,30 @@ public class InstallerService
                     {
                         if (File.Exists(path))
                         {
-                            checkCommand = await File.ReadAllTextAsync(path, cancellationToken);
+                            var scriptContent = await File.ReadAllTextAsync(path, cancellationToken);
+                            checkCommand = host.OsType != OperatingSystemType.Windows &&
+                                           path.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)
+                                ? ScriptResolver.BuildLinuxShellScriptCommand(scriptContent)
+                                : scriptContent;
                             _fileLogger.Info("CheckStatusAsync", $"从文件加载检测脚本: {path}");
                             break;
                         }
                     }
                     catch { /* 忽略单个路径错误 */ }
+                }
+
+                if (checkCommand == null)
+                {
+                    var configuredScriptPath = _scriptResolver.TryResolveConfiguredScriptFilePath(script, host.OsType);
+                    if (!string.IsNullOrEmpty(configuredScriptPath) && File.Exists(configuredScriptPath))
+                    {
+                        var scriptContent = await File.ReadAllTextAsync(configuredScriptPath, cancellationToken);
+                        checkCommand = host.OsType != OperatingSystemType.Windows &&
+                                       configuredScriptPath.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)
+                            ? ScriptResolver.BuildLinuxShellScriptCommand(scriptContent)
+                            : scriptContent;
+                        _fileLogger.Info("CheckStatusAsync", $"从配置引用加载检测脚本: {configuredScriptPath}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -803,48 +860,90 @@ public class InstallerService
 
         if (string.IsNullOrEmpty(checkCommand))
         {
-            // 使用优化的组合检查脚本，一次 SSH 调用获取所有信息
-            var combinedScript = GetCombinedCheckScript(host, app);
-            if (combinedScript != null)
-            {
-                try
-                {
-                    var output = await _sshService.ExecuteCommandAsync(combinedScript, cancellationToken: cancellationToken);
-                    ParseCombinedCheckOutput(output, status);
-                }
-                catch
-                {
-                    // 组合脚本失败时回退到分别检查
-                    status.IsInstalled = await IsInstalledAsync(host, app, cancellationToken);
-                    if (status.IsInstalled)
-                    {
-                        status.InstalledVersion = await GetVersionAsync(host, app, cancellationToken);
-                        status.IsRunning = await IsRunningAsync(host, app, cancellationToken, status);
-                    }
-                }
-            }
-            else
-            {
-                // 默认检查逻辑
-                _fileLogger.Info("CheckStatusAsync", "使用默认检测逻辑");
-                status.IsInstalled = await IsInstalledAsync(host, app, cancellationToken);
-                if (status.IsInstalled)
-                {
-                    status.InstalledVersion = await GetVersionAsync(host, app, cancellationToken);
-                    status.IsRunning = await IsRunningAsync(host, app, cancellationToken, status);
-                }
-                _fileLogger.Info("CheckStatusAsync", $"默认检测结果: INSTALLED={status.IsInstalled}, VERSION={status.InstalledVersion}, RUNNING={status.IsRunning}");
-            }
+            await PopulateDefaultStatusAsync(host, app, status, cancellationToken);
         }
         else
         {
             var output = await _sshService.ExecuteCommandAsync(checkCommand, cancellationToken: cancellationToken);
             _fileLogger.Info("CheckStatusAsync", $"检测命令输出:\n{output}");
             ParseCheckOutput(output, status);
+
+            if (!HasMachineReadableStatusOutput(output))
+            {
+                _fileLogger.Warning("CheckStatusAsync", "检测命令未输出机器可读状态协议，回退到内置检测逻辑");
+                await PopulateDefaultStatusAsync(host, app, status, cancellationToken);
+            }
         }
 
+        ApplicationStatusNormalizer.Normalize(status, new ApplicationStatusEvidence
+        {
+            BinaryFound = status.IsInstalled,
+            ProcessFound = status.IsRunning
+        });
+        operationStopwatch.Stop();
+        _fileLogger.Info("CheckStatusAsync", $"{app.Name} 状态检测耗时: {operationStopwatch.ElapsedMilliseconds}ms");
         _fileLogger.Info("CheckStatusAsync", $"最终检测结果: INSTALLED={status.IsInstalled}, RUNNING={status.IsRunning}, VERSION={status.InstalledVersion}");
         return status;
+    }
+
+    private async Task PopulateDefaultStatusAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        ApplicationStatus status,
+        CancellationToken cancellationToken)
+    {
+        status.IsInstalled = false;
+        status.IsRunning = false;
+        status.InstalledVersion = "未知";
+        status.Port = string.Empty;
+
+        // 使用组合检查脚本，一次 SSH 调用获取安装、版本和运行状态。
+        var combinedScript = GetCombinedCheckScript(host, app);
+        if (combinedScript != null)
+        {
+            try
+            {
+                var output = await _sshService.ExecuteCommandAsync(combinedScript, cancellationToken: cancellationToken);
+                ParseCombinedCheckOutput(output, status);
+                return;
+            }
+            catch
+            {
+                // 组合脚本失败时回退到分别检查，避免单点脚本问题导致 UI 显示未安装。
+            }
+        }
+
+        _fileLogger.Info("CheckStatusAsync", "使用默认检测逻辑");
+        status.IsInstalled = await IsInstalledAsync(host, app, cancellationToken);
+        if (status.IsInstalled)
+        {
+            status.InstalledVersion = await GetVersionAsync(host, app, cancellationToken);
+            status.IsRunning = await IsRunningAsync(host, app, cancellationToken, status);
+        }
+
+        _fileLogger.Info("CheckStatusAsync", $"默认检测结果: INSTALLED={status.IsInstalled}, VERSION={status.InstalledVersion}, RUNNING={status.IsRunning}");
+    }
+
+    private static bool HasMachineReadableStatusOutput(string output)
+    {
+        return ScriptProtocolParser.Parse(output)
+            .Any(item => item.Kind == ScriptProtocolEventKind.Status &&
+                         IsMachineReadableStatusKey(item.Key));
+    }
+
+    private static bool IsMachineReadableStatusKey(string key)
+    {
+        return key.Equals("INSTALLED", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("BINARY_FOUND", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("PACKAGE_INSTALLED", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("SERVICE_ACTIVE", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("PROCESS_FOUND", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("PORT_LISTENING", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("SERVICE_ONLY_STALE", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("SERVICE_ONLY_RESIDUE", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("CONFIG_ONLY_RESIDUE", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("UNINSTALLED", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -932,22 +1031,20 @@ if ($isInstalled) {
 Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
 
                 "rabbitmq" => @"
-$isInstalled=$false; $version='未知'; $isRunning=$false
-if (Get-Command rabbitmq-server -ErrorAction SilentlyContinue) { $isInstalled=$true }
-if (Test-Path 'C:\Program Files\RabbitMQ Server\rabbitmq_server*\sbin\rabbitmq-server.bat') { $isInstalled=$true }
+$isInstalled=$false; $version='未知'; $isRunning=$false; $binaryFound=$false; $processFound=$false; $serviceFound=$false; $serviceActive=$false; $portListening=$false
+function Test-RabbitMqCommandLine([string]$CommandLine) { if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $false }; return $CommandLine -match 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot' }
+if (Get-Command rabbitmq-server -ErrorAction SilentlyContinue) { $binaryFound=$true }
+if (Test-Path 'C:\Program Files\RabbitMQ Server\rabbitmq_server*\sbin\rabbitmq-server.bat') { $binaryFound=$true }
 $svc = Get-Service -Name 'RabbitMQ*' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($svc) { $isInstalled=$true }
+if ($svc) { $serviceFound=$true; if ($svc.Status -eq 'Running') { $serviceActive=$true } }
+$rabbitProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { ($_.Name -match '^(erl|erl\.exe|beam\.smp|beam\.smp\.exe)$') -and (Test-RabbitMqCommandLine $_.CommandLine) } | Select-Object -First 1
+if ($rabbitProc) { $processFound=$true }
+if ($serviceActive -or $processFound) { $isRunning=$true }
+if ($binaryFound -or $serviceActive -or $processFound) { $isInstalled=$true }
 if ($isInstalled) {
     $v = rabbitmqctl version 2>&1; if ($v -match '(\d+\.\d+\.\d+)') { $version = $matches[1] }
-    $proc = Get-CimInstance Win32_Process -Filter ""Name='erl.exe'"" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*rabbit*' }
-    if ($proc) { $isRunning=$true }
-    $port5672 = Get-NetTCPConnection -LocalPort 5672 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($port5672) { $isRunning=$true }
-    $port15672 = Get-NetTCPConnection -LocalPort 15672 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($port15672) { $isRunning=$true }
-    if ($svc -and $svc.Status -eq 'Running') { $isRunning=$true }
 }
-Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""",
+Write-Output ""INSTALLED:$isInstalled""; Write-Output ""VERSION:$version""; Write-Output ""RUNNING:$isRunning""; Write-Output ""BINARY_FOUND:$binaryFound""; Write-Output ""PROCESS_FOUND:$processFound""; Write-Output ""SERVICE_FOUND:$serviceFound""; Write-Output ""SERVICE_ACTIVE:$serviceActive""; Write-Output ""PORT_LISTENING:$portListening""",
 
                 _ => null
             };
@@ -1069,22 +1166,26 @@ fi
 echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
 
 "rabbitmq" => @"
-INSTALLED=false; VERSION=""未知""; RUNNING=false;
-# 检查安装状态
-if which rabbitmq-server >/dev/null 2>&1 || which rabbitmqctl >/dev/null 2>&1; then INSTALLED=true; fi
-if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'rabbitmq-server' | grep -qvE 'not-found|masked'; then INSTALLED=true; fi
-if dpkg -l 2>/dev/null | grep -i 'rabbitmq-server' | grep -q '^ii'; then INSTALLED=true; fi
-if rpm -qa 2>/dev/null | grep -q 'rabbitmq-server'; then INSTALLED=true; fi
-# 获取版本
-if [ ""$INSTALLED"" = true ]; then
-    VER_OUT=$(rabbitmqctl version 2>/dev/null || echo '')
-    VERSION=$(echo ""$VER_OUT"" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-    if [ -z ""$VERSION"" ]; then VERSION=""未知""; fi
-    # 检查运行状态
-    if pgrep -x beam.smp >/dev/null 2>&1 || pgrep -f ""[b]eam.smp"" >/dev/null 2>&1; then RUNNING=true; fi
-    if systemctl is-active --quiet rabbitmq-server 2>/dev/null; then RUNNING=true; fi
+INSTALLED=false; VERSION=""未知""; RUNNING=false; PACKAGE_INSTALLED=false; BINARY_FOUND=false; PROCESS_FOUND=false; SERVICE_FOUND=false; SERVICE_ACTIVE=false; PORT_LISTENING=false
+is_rabbitmq_command_line() { printf '%s' ""$1"" | grep -Eiq 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot'; }
+if command -v dpkg-query >/dev/null 2>&1 && [ ""$(dpkg-query -W -f='${Status}' rabbitmq-server 2>/dev/null || true)"" = ""install ok installed"" ]; then PACKAGE_INSTALLED=true; fi
+if command -v rpm >/dev/null 2>&1 && rpm -q rabbitmq-server >/dev/null 2>&1; then PACKAGE_INSTALLED=true; fi
+if command -v rabbitmq-server >/dev/null 2>&1 || [ -x /usr/sbin/rabbitmq-server ] || [ -x /usr/lib/rabbitmq/bin/rabbitmq-server ] || [ -x /opt/rabbitmq/sbin/rabbitmq-server ] || [ -x /usr/local/bin/rabbitmq-server ]; then BINARY_FOUND=true; fi
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet rabbitmq-server 2>/dev/null || systemctl is-active --quiet rabbitmq 2>/dev/null; then SERVICE_FOUND=true; SERVICE_ACTIVE=true; fi
+    if [ ""$SERVICE_FOUND"" != true ] && (systemctl list-unit-files 2>/dev/null | grep -Eq '^(rabbitmq-server|rabbitmq)\.service' || systemctl list-units --all --type=service 2>/dev/null | grep -Eq '^\s*(rabbitmq-server|rabbitmq)\.service'); then SERVICE_FOUND=true; fi
 fi
-echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""",
+if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+        CMD=$(ps -p ""$pid"" -o args= 2>/dev/null || true)
+        if [ -n ""$CMD"" ] && is_rabbitmq_command_line ""$CMD""; then PROCESS_FOUND=true; break; fi
+    done < <(pgrep -f '[b]eam\.smp|[e]rl' 2>/dev/null || true)
+fi
+if command -v rabbitmqctl >/dev/null 2>&1 && rabbitmqctl status >/dev/null 2>&1; then PROCESS_FOUND=true; fi
+if [ ""$SERVICE_ACTIVE"" = true ] || [ ""$PROCESS_FOUND"" = true ]; then RUNNING=true; fi
+if [ ""$PACKAGE_INSTALLED"" = true ] || [ ""$BINARY_FOUND"" = true ] || [ ""$SERVICE_ACTIVE"" = true ] || [ ""$PROCESS_FOUND"" = true ]; then INSTALLED=true; fi
+if [ ""$INSTALLED"" = true ]; then VERSION=$(rabbitmqctl version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1); VERSION=${VERSION:-未知}; fi
+echo ""INSTALLED:$INSTALLED""; echo ""VERSION:$VERSION""; echo ""RUNNING:$RUNNING""; echo ""PACKAGE_INSTALLED:$PACKAGE_INSTALLED""; echo ""BINARY_FOUND:$BINARY_FOUND""; echo ""PROCESS_FOUND:$PROCESS_FOUND""; echo ""SERVICE_FOUND:$SERVICE_FOUND""; echo ""SERVICE_ACTIVE:$SERVICE_ACTIVE""; echo ""PORT_LISTENING:$PORT_LISTENING""",
 
 _ => null
         };
@@ -1141,6 +1242,21 @@ _ => null
                          }}
                     }}
                 }}
+                # RabbitMQ 只认可服务端二进制或有效服务，不能把 Erlang/端口/rabbitmqctl 残留当作安装证据
+                if ('{appName}' -eq 'rabbitmq') {{
+                    $rabbitServices = Get-Service 'RabbitMQ*' -ErrorAction SilentlyContinue
+                    foreach ($s in $rabbitServices) {{
+                         $bp = (Get-ItemProperty -Path ""HKLM:\SYSTEM\CurrentControlSet\Services\$($s.Name)"" -ErrorAction SilentlyContinue).ImagePath
+                         if ($bp -and $bp -match 'rabbitmq') {{
+                            $p = $bp -replace '^""', '' -replace '"" .*$', '' -replace ' .*$', ''
+                            if (Test-Path $p) {{ echo 'installed'; exit 0 }}
+                         }}
+                    }}
+                    if (Get-Command 'rabbitmq-server' -ErrorAction SilentlyContinue) {{ echo 'installed'; exit 0 }}
+                    if (Get-ChildItem -Path 'C:\Program Files\RabbitMQ Server','C:\Program Files (x86)\RabbitMQ Server','C:\RabbitMQ' -Filter 'rabbitmq-server.bat' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1) {{ echo 'installed'; exit 0 }}
+                    echo 'not_installed'
+                    exit 0
+                }}
                 # 检查命令是否存在
                 if (Get-Command '{executableName}' -ErrorAction SilentlyContinue) {{ echo 'installed'; exit 0 }}
                 # 检查特定可执行文件路径
@@ -1187,18 +1303,29 @@ _ => null
                     
                 case "rabbitmq":
                     checkCommand = @"
-                        if which rabbitmq-server >/dev/null 2>&1 || which rabbitmqctl >/dev/null 2>&1 || test -f /usr/sbin/rabbitmq-server; then
+                        SERVICE_FOUND=false
+                        if command -v dpkg-query >/dev/null 2>&1 && [ ""$(dpkg-query -W -f='${Status}' rabbitmq-server 2>/dev/null || true)"" = 'install ok installed' ]; then
                             echo 'installed'
                             exit 0
                         fi
-                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'rabbitmq-server' | grep -qvE 'not-found|masked'; then
+                        if command -v rpm >/dev/null 2>&1 && rpm -q rabbitmq-server >/dev/null 2>&1; then
                             echo 'installed'
                             exit 0
                         fi
-                        if dpkg -l 2>/dev/null | grep -i 'rabbitmq-server' | grep -q '^ii' || \
-                           rpm -qa 2>/dev/null | grep -q 'rabbitmq-server'; then
+                        if which rabbitmq-server >/dev/null 2>&1 || test -x /usr/sbin/rabbitmq-server || test -x /usr/lib/rabbitmq/bin/rabbitmq-server || test -x /opt/rabbitmq/sbin/rabbitmq-server || test -x /usr/local/bin/rabbitmq-server; then
                             echo 'installed'
                             exit 0
+                        fi
+                        if systemctl is-active --quiet rabbitmq-server 2>/dev/null || systemctl is-active --quiet rabbitmq 2>/dev/null; then
+                            echo 'installed'
+                            exit 0
+                        fi
+                        if systemctl list-unit-files 2>/dev/null | grep -Eq '^(rabbitmq-server|rabbitmq)\.service' || \
+                           systemctl list-units --all --type=service 2>/dev/null | grep -Eq '^\s*(rabbitmq-server|rabbitmq)\.service'; then
+                            SERVICE_FOUND=true
+                        fi
+                        if [ ""$SERVICE_FOUND"" = true ]; then
+                            echo 'RabbitMQ 服务定义存在，但未发现服务端二进制、完整包或 RabbitMQ 运行进程，按残留服务处理'
                         fi
                         echo 'not_installed'
                     ";
@@ -1206,11 +1333,21 @@ _ => null
 
                 case "mosquitto":
                     checkCommand = @"
-                        if which mosquitto >/dev/null 2>&1 || which mosquitto_passwd >/dev/null 2>&1 || test -f /usr/sbin/mosquitto || test -f /usr/bin/mosquitto; then
+                        SERVICE_FOUND=false
+                        CONFIG_FOUND=false
+                        DEB_STATUS=''
+                        if command -v dpkg-query >/dev/null 2>&1; then
+                            DEB_STATUS=$(dpkg-query -W -f='${Status}' mosquitto 2>/dev/null || true)
+                            if [ ""$DEB_STATUS"" = 'install ok installed' ]; then
+                                echo 'installed'
+                                exit 0
+                            fi
+                        fi
+                        if [ -z ""$DEB_STATUS"" ] && (which mosquitto >/dev/null 2>&1 || test -f /usr/sbin/mosquitto || test -f /usr/bin/mosquitto); then
                             echo 'installed'
                             exit 0
                         fi
-                        if systemctl list-units --all --type=service 2>/dev/null | grep -Eiw 'mosquitto(\.service)?' | grep -qvE 'not-found|masked'; then
+                        if systemctl is-active --quiet mosquitto 2>/dev/null; then
                             echo 'installed'
                             exit 0
                         fi
@@ -1219,9 +1356,21 @@ _ => null
                             echo 'installed'
                             exit 0
                         fi
+                        if [ -n ""$DEB_STATUS"" ]; then
+                            echo ""Mosquitto dpkg 状态不是完整安装：$DEB_STATUS""
+                        fi
+                        if [ -f /etc/systemd/system/mosquitto.service ] || [ -f /lib/systemd/system/mosquitto.service ] || [ -f /usr/lib/systemd/system/mosquitto.service ] || \
+                           systemctl list-unit-files 2>/dev/null | grep -q '^mosquitto\.service'; then
+                            SERVICE_FOUND=true
+                        fi
                         if [ -f /etc/mosquitto/mosquitto.conf ] || [ -f /etc/mosquitto/conf.d/remote-installer.conf ]; then
-                            echo 'installed'
-                            exit 0
+                            CONFIG_FOUND=true
+                        fi
+                        if [ ""$SERVICE_FOUND"" = true ]; then
+                            echo 'Mosquitto 服务定义存在，但未发现完整安装或 Mosquitto 运行进程，按残留服务处理'
+                        fi
+                        if [ ""$CONFIG_FOUND"" = true ]; then
+                            echo 'Mosquitto 配置文件存在，但未发现完整安装或 Mosquitto 运行进程，按残留配置处理'
                         fi
                         echo 'not_installed'
                     ";
@@ -1423,6 +1572,19 @@ _ => null
                 if ('{appName}' -eq 'nginx') {{
                     if (Get-Service 'Nginx*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
                 }}
+                # RabbitMQ 运行态必须来自 RabbitMQ 服务、RabbitMQ 命令行进程或 rabbitmqctl status
+                if ('{appName}' -eq 'rabbitmq') {{
+                    if (Get-Service 'RabbitMQ*' -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Running' }}) {{ echo 'running'; exit 0 }}
+                    $rabbitProc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ ($_.Name -match '^(erl|erl\.exe|beam\.smp|beam\.smp\.exe)$') -and ($_.CommandLine -match 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot') }} | Select-Object -First 1
+                    if ($rabbitProc) {{ echo 'running'; exit 0 }}
+                    $rabbitmqctl = Get-Command rabbitmqctl -ErrorAction SilentlyContinue
+                    if ($rabbitmqctl) {{
+                        & rabbitmqctl status *> $null
+                        if ($LASTEXITCODE -eq 0) {{ echo 'running'; exit 0 }}
+                    }}
+                    echo 'not_running'
+                    exit 0
+                }}
                 # 3. 备选进程检查 (tasklist / command line)
                 if (tasklist /FI ""IMAGENAME eq {processName}.exe"" | findstr {processName}) {{ echo 'running'; exit 0 }}
                 echo 'not_running'
@@ -1479,9 +1641,23 @@ _ => null
                     
                 case "rabbitmq":
                     checkCommand = @"
-                        if pgrep -x beam.smp >/dev/null 2>&1 || pgrep -f ""[b]eam.smp"" >/dev/null 2>&1 || rabbitmqctl status >/dev/null 2>&1 || systemctl is-active --quiet rabbitmq-server 2>/dev/null; then
+                        is_rabbitmq_command_line() { printf '%s' ""$1"" | grep -Eiq 'rabbitmq|rabbit@|rabbit_prelaunch|rabbitmq_server|rabbit_boot'; }
+                        if systemctl is-active --quiet rabbitmq-server 2>/dev/null || systemctl is-active --quiet rabbitmq 2>/dev/null; then
                             echo 'running'
                             exit 0
+                        fi
+                        if rabbitmqctl status >/dev/null 2>&1; then
+                            echo 'running'
+                            exit 0
+                        fi
+                        if command -v pgrep >/dev/null 2>&1; then
+                            while IFS= read -r pid; do
+                                CMD=$(ps -p ""$pid"" -o args= 2>/dev/null || true)
+                                if [ -n ""$CMD"" ] && is_rabbitmq_command_line ""$CMD""; then
+                                    echo 'running'
+                                    exit 0
+                                fi
+                            done < <(pgrep -f '[b]eam\.smp|[e]rl' 2>/dev/null || true)
                         fi
                         echo 'not_running'
                     ";
@@ -1500,14 +1676,20 @@ _ => null
                                 fi
                             fi
                         done
-                        if pgrep -x mosquitto >/dev/null 2>&1 || pgrep -f '[m]osquitto' >/dev/null 2>&1 || \
-                           systemctl is-active --quiet mosquitto 2>/dev/null || \
-                           ss -tulnp 2>/dev/null | grep -qE "":$MQTT_PORT[[:space:]]"" || \
+                        PORT_LISTENING=false
+                        if ss -tulnp 2>/dev/null | grep -qE "":$MQTT_PORT[[:space:]]"" || \
                            netstat -tulnp 2>/dev/null | grep -qE "":$MQTT_PORT[[:space:]]""; then
+                            PORT_LISTENING=true
+                        fi
+                        if pgrep -x mosquitto >/dev/null 2>&1 || pgrep -f '[m]osquitto' >/dev/null 2>&1 || \
+                           systemctl is-active --quiet mosquitto 2>/dev/null; then
                             echo 'running'
                             echo ""PORT:$MQTT_PORT""
+                            echo ""PORT_LISTENING:$PORT_LISTENING""
                             exit 0
                         fi
+                        echo ""PORT:$MQTT_PORT""
+                        echo 'PORT_LISTENING:false'
                         echo 'not_running'
                     ";
                     break;
@@ -1808,13 +1990,7 @@ _ => null
                         output => logCollector.ProcessOutput(output),
                         cancellationToken: cancellationToken,
                         throwOnError: true);
-                    
-                    await _sshService.ExecuteCommandAsync(
-                        "apt-get install -f -y",
-                        output => logCollector.ProcessOutput(output),
-                        cancellationToken: cancellationToken,
-                        throwOnError: true);
-                    
+
                     _logger.Info($"已安装 DEB 包（使用 dpkg）");
                 }
                 catch (Exception dpkgEx)

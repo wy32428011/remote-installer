@@ -27,6 +27,9 @@ namespace RemoteInstaller.ViewModels
         [ObservableProperty]
         private string _repositoryToken = string.Empty;
 
+        [ObservableProperty]
+        private string _updateCheckUrl = string.Empty;
+
         #endregion
 
         #region 代理设置属性
@@ -341,6 +344,7 @@ namespace RemoteInstaller.ViewModels
                 {
                     RepositoryUrl = RepositoryUrl,
                     RepositoryToken = RepositoryToken,
+                    UpdateCheckUrl = UpdateCheckUrl,
                     UseProxy = UseProxy,
                     ProxyType = ProxyType,
                     ProxyHost = ProxyHost,
@@ -425,6 +429,7 @@ namespace RemoteInstaller.ViewModels
                 // 从数据库读取设置
                 RepositoryUrl = _databaseService.GetSetting("RepositoryUrl", string.Empty);
                 RepositoryToken = _databaseService.GetSetting("RepositoryToken", string.Empty);
+                UpdateCheckUrl = _databaseService.GetSetting("UpdateCheckUrl", string.Empty);
                 UseProxy = bool.TryParse(_databaseService.GetSetting("UseProxy", "false"), out var useProxy) && useProxy;
                 ProxyType = (ProxyType)(int.TryParse(_databaseService.GetSetting("ProxyType", "0"), out var proxyType) ? proxyType : 0);
                 ProxyHost = _databaseService.GetSetting("ProxyHost", string.Empty);
@@ -468,6 +473,7 @@ namespace RemoteInstaller.ViewModels
             {
                 _databaseService.SaveSetting("RepositoryUrl", settings.RepositoryUrl);
                 _databaseService.SaveSetting("RepositoryToken", settings.RepositoryToken);
+                _databaseService.SaveSetting("UpdateCheckUrl", settings.UpdateCheckUrl);
                 _databaseService.SaveSetting("UseProxy", settings.UseProxy.ToString());
                 _databaseService.SaveSetting("ProxyType", ((int)settings.ProxyType).ToString());
                 _databaseService.SaveSetting("ProxyHost", settings.ProxyHost);
@@ -513,7 +519,7 @@ namespace RemoteInstaller.ViewModels
                 return false;
             }
 
-            // 验证并发任务数
+            // 验证批量检测和批量卸载使用的并发任务数
             if (MaxConcurrentTasks < 1 || MaxConcurrentTasks > 20)
             {
                 MessageBox.Show("最大并发任务数必须在 1-20 之间", "验证错误",

@@ -18,6 +18,9 @@ get_port_process_output() {
 IS_INSTALLED=false
 IS_RUNNING=false
 VERSION="未知"
+service_only_stale="false"
+SERVICE_FOUND=false
+CONFIG_ONLY_RESIDUE=false
 
 if command -v consul >/dev/null 2>&1; then
     IS_INSTALLED=true
@@ -25,11 +28,11 @@ if command -v consul >/dev/null 2>&1; then
 fi
 
 if [ -f /etc/systemd/system/${SERVICE_NAME}.service ] || [ -f /lib/systemd/system/${SERVICE_NAME}.service ] || [ -f /usr/lib/systemd/system/${SERVICE_NAME}.service ]; then
-    IS_INSTALLED=true
+    SERVICE_FOUND=true
 fi
 
 if [ -d /etc/consul.d ] || [ -d "$DATA_DIR" ]; then
-    IS_INSTALLED=true
+    CONFIG_ONLY_RESIDUE=true
 fi
 
 if systemctl is-active --quiet ${SERVICE_NAME} 2>/dev/null; then
@@ -53,9 +56,19 @@ if echo "$DNS_OUTPUT" | grep -qi 'consul'; then
     IS_INSTALLED=true
 fi
 
+if [ "$SERVICE_FOUND" = true ] && [ "$IS_INSTALLED" != true ] && [ "$IS_RUNNING" != true ]; then
+    service_only_stale="true"
+    echo "Consul 服务定义存在，但未发现二进制、安装目录、进程或端口，按残留服务处理"
+fi
+
+if [ "$CONFIG_ONLY_RESIDUE" = true ] && [ "$IS_INSTALLED" != true ] && [ "$IS_RUNNING" != true ]; then
+    echo "Consul 配置或数据目录存在，但未发现二进制、进程或端口，按残留配置处理"
+fi
+
 echo "--- MACHINE READABLE ---"
 echo "INSTALLED: ${IS_INSTALLED}"
 echo "VERSION: ${VERSION:-未知}"
 echo "RUNNING: ${IS_RUNNING}"
 echo "PORT: ${HTTP_PORT},${DNS_PORT}"
+echo "SERVICE_ONLY_STALE: ${service_only_stale:-false}"
 echo "------------------------"

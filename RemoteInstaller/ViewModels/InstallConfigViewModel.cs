@@ -889,59 +889,262 @@ public partial class InstallConfigViewModel : BaseViewModel
 
     private bool TryResolveRedisLocalPackage(out string packagePath, out string hint)
     {
-        string? offlineFolder = _host.OsType switch
-        {
-            OperatingSystemType.CentOS => "redis-centos7",
-            OperatingSystemType.Ubuntu => "redis-ubuntu",
-            _ => null
-        };
+        return TryResolveRedisLocalPackage(_application.Version, _host, out packagePath, out hint);
+    }
 
-        if (string.IsNullOrEmpty(offlineFolder))
+    public static bool TryResolveRedisLocalPackage(string version, RemoteHost host, out string packagePath, out string hint)
+    {
+        if (!TryGetCompatibleRedisOfflineFolders(host, out var offlineFolders, out hint))
         {
             packagePath = string.Empty;
-            hint = "当前系统未配置 Redis 本地资源目录。";
             return false;
         }
 
-        string packagePattern = _host.OsType switch
+        string? validationHint = null;
+        var packagePatterns = GetRedisMainPackagePatterns(host.OsType);
+
+        foreach (var offlineFolder in offlineFolders)
         {
-            OperatingSystemType.CentOS => "redis-*.rpm",
-            OperatingSystemType.Ubuntu => "redis-server*.deb",
-            _ => string.Empty
-        };
-
-        foreach (var root in GetRedisScriptRoots(offlineFolder))
-        {
-            try
+            foreach (var root in GetRedisScriptRoots(offlineFolder))
             {
-                if (!Directory.Exists(root))
+                try
                 {
-                    continue;
+                    if (!Directory.Exists(root))
+                    {
+                        continue;
+                    }
+
+                    if (!TryValidateRedisOfflineDirectory(root, host, out var currentHint))
+                    {
+                        validationHint ??= currentHint;
+                        continue;
+                    }
+
+                    var selectedPath = packagePatterns
+                        .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.TopDirectoryOnly))
+                        .OrderByDescending(path => IsVersionMatch(path, version))
+                        .ThenByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
+
+                    if (string.IsNullOrEmpty(selectedPath))
+                    {
+                        continue;
+                    }
+
+                    packagePath = root;
+                    hint = $"已从 Scripts 目录自动匹配 Redis 本地资源目录：{root}";
+                    return true;
                 }
-
-                var selectedPath = Directory.GetFiles(root, packagePattern, SearchOption.TopDirectoryOnly)
-                    .OrderByDescending(path => IsVersionMatch(path, _application.Version))
-                    .ThenByDescending(File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-
-                if (string.IsNullOrEmpty(selectedPath))
+                catch
                 {
-                    continue;
+                    // 忽略当前路径异常，继续尝试其他路径
                 }
-
-                packagePath = root;
-                hint = $"已从 Scripts 目录自动匹配 Redis 本地资源目录：{root}";
-                return true;
-            }
-            catch
-            {
-                // 忽略当前路径异常，继续尝试其他路径
             }
         }
 
         packagePath = string.Empty;
-        hint = $"未在 Scripts/Redis/{offlineFolder} 中找到可用本地资源。";
+        hint = validationHint ?? $"未在 Scripts/Redis/{string.Join(" 或 ", offlineFolders)} 中找到 {GetRedisOfflinePlatformDisplayName(host)} 可用本地资源。";
         return false;
+    }
+
+    private static bool TryGetCompatibleRedisOfflineFolders(RemoteHost host, out IReadOnlyList<string> offlineFolders, out string hint)
+    {
+        offlineFolders = Array.Empty<string>();
+
+        if (host.OsType == OperatingSystemType.Ubuntu)
+        {
+            if (!TryGetMajorVersion(host.OsVersion, out var ubuntuMajor))
+            {
+                hint = "未检测到 Ubuntu 版本，无法自动选择 Redis 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (ubuntuMajor == 22)
+            {
+                offlineFolders = new[] { Path.Combine("redis-ubuntu", "22") };
+                hint = string.Empty;
+                return true;
+            }
+
+            if (ubuntuMajor == 24)
+            {
+                offlineFolders = new[] { Path.Combine("redis-ubuntu", "24"), "redis-ubuntu" };
+                hint = string.Empty;
+                return true;
+            }
+
+            hint = $"当前 Ubuntu {host.OsVersion} 与本地 Redis 离线资源不兼容，仅支持 Ubuntu 22.04 和 Ubuntu 24.04。";
+            return false;
+        }
+
+        if (host.OsType == OperatingSystemType.CentOS)
+        {
+            if (!TryGetMajorVersion(host.OsVersion, out var centOsMajor))
+            {
+                hint = "未检测到 CentOS/EL 版本，无法自动选择 Redis 离线目录，请先完成连接测试。";
+                return false;
+            }
+
+            if (centOsMajor != 7)
+            {
+                hint = $"当前 CentOS/EL {host.OsVersion} 与本地 Redis 离线资源不兼容，仅支持 EL7/CentOS 7。";
+                return false;
+            }
+
+            offlineFolders = new[] { "redis-centos7" };
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 Redis 本地资源目录。";
+        return false;
+    }
+
+    private static bool TryValidateRedisOfflinePath(string path, RemoteHost host, out string hint)
+    {
+        if (Directory.Exists(path))
+        {
+            return TryValidateRedisOfflineDirectory(path, host, out hint);
+        }
+
+        if (!File.Exists(path))
+        {
+            hint = $"Scripts 对应目录中的本地资源不存在：{path}";
+            return false;
+        }
+
+        var parentDirectory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(parentDirectory) || !Directory.Exists(parentDirectory))
+        {
+            hint = $"无法定位 Redis 本地资源所属目录：{path}";
+            return false;
+        }
+
+        return TryValidateRedisOfflineDirectory(parentDirectory, host, out hint);
+    }
+
+    private bool TryValidateRedisOfflinePath(string path, out string hint)
+    {
+        return TryValidateRedisOfflinePath(path, _host, out hint);
+    }
+
+    private static bool TryValidateRedisOfflineDirectory(string root, RemoteHost host, out string hint)
+    {
+        if (!TryValidateRedisOfflineDirectoryCompatibility(root, host, out hint))
+        {
+            return false;
+        }
+
+        if (host.OsType == OperatingSystemType.Ubuntu)
+        {
+            var serverPackageExists = Directory.GetFiles(root, "redis-server*.deb", SearchOption.TopDirectoryOnly).Any();
+            if (!serverPackageExists)
+            {
+                hint = $"{GetRedisOfflinePlatformDisplayName(host)} 离线资源目录缺少主包：redis-server*.deb。请补齐后再点击刷新检测。";
+                return false;
+            }
+
+            var toolsPackageExists = Directory.GetFiles(root, "redis-tools*.deb", SearchOption.TopDirectoryOnly).Any();
+            if (!toolsPackageExists)
+            {
+                hint = $"{GetRedisOfflinePlatformDisplayName(host)} 离线资源目录缺少工具包：redis-tools*.deb。请补齐后再点击刷新检测。";
+                return false;
+            }
+
+            hint = string.Empty;
+            return true;
+        }
+
+        if (host.OsType == OperatingSystemType.CentOS)
+        {
+            var rpmPackageExists = Directory.GetFiles(root, "redis-*.rpm", SearchOption.TopDirectoryOnly).Any();
+            if (!rpmPackageExists)
+            {
+                hint = $"{GetRedisOfflinePlatformDisplayName(host)} 离线资源目录缺少主包：redis-*.rpm。请补齐后再点击刷新检测。";
+                return false;
+            }
+
+            hint = string.Empty;
+            return true;
+        }
+
+        hint = "当前系统未配置 Redis 本地资源目录。";
+        return false;
+    }
+
+    private static bool TryValidateRedisOfflineDirectoryCompatibility(string root, RemoteHost host, out string hint)
+    {
+        hint = string.Empty;
+
+        if (host.OsType != OperatingSystemType.Ubuntu)
+        {
+            return true;
+        }
+
+        if (!TryGetMajorVersion(host.OsVersion, out var ubuntuMajor))
+        {
+            hint = "未检测到 Ubuntu 版本，无法验证 Redis 离线目录，请先完成连接测试。";
+            return false;
+        }
+
+        var segments = root
+            .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        var redisUbuntuIndex = Array.FindLastIndex(segments, segment =>
+            string.Equals(segment, "redis-ubuntu", StringComparison.OrdinalIgnoreCase));
+
+        if (redisUbuntuIndex < 0)
+        {
+            return true;
+        }
+
+        if (redisUbuntuIndex + 1 < segments.Length &&
+            int.TryParse(segments[redisUbuntuIndex + 1], out var directoryUbuntuMajor))
+        {
+            if (directoryUbuntuMajor == ubuntuMajor)
+            {
+                return true;
+            }
+
+            hint = $"Redis Ubuntu {ubuntuMajor} 需要使用 Scripts/Redis/redis-ubuntu/{ubuntuMajor} 离线目录，当前选择的是 redis-ubuntu/{directoryUbuntuMajor}：{root}";
+            return false;
+        }
+
+        if (ubuntuMajor == 24)
+        {
+            return true;
+        }
+
+        hint = $"Redis Ubuntu {ubuntuMajor} 需要使用 Scripts/Redis/redis-ubuntu/{ubuntuMajor} 离线目录；当前 legacy redis-ubuntu 目录内置的是 Ubuntu 24.04 包：{root}";
+        return false;
+    }
+
+    private static string[] GetRedisMainPackagePatterns(OperatingSystemType osType)
+    {
+        return osType switch
+        {
+            OperatingSystemType.CentOS => new[] { "redis-*.rpm" },
+            OperatingSystemType.Ubuntu => new[] { "redis-server*.deb" },
+            _ => Array.Empty<string>()
+        };
+    }
+
+    private static string GetRedisOfflinePlatformDisplayName(RemoteHost host)
+    {
+        if (host.OsType == OperatingSystemType.Ubuntu)
+        {
+            return TryGetMajorVersion(host.OsVersion, out var ubuntuMajor)
+                ? $"Redis Ubuntu {ubuntuMajor}"
+                : "Redis Ubuntu";
+        }
+
+        if (host.OsType == OperatingSystemType.CentOS)
+        {
+            return TryGetMajorVersion(host.OsVersion, out var centOsMajor)
+                ? $"Redis CentOS {centOsMajor}"
+                : "Redis CentOS";
+        }
+
+        return "Redis";
     }
 
     private bool TryResolveNginxLocalPackage(out string packagePath, out string hint)
@@ -2029,7 +2232,7 @@ public partial class InstallConfigViewModel : BaseViewModel
 
             if (availableArchitectures.Count > 1)
             {
-                hint = $"{GetMosquittoOfflinePlatformDisplayName()} 离线目录中检测到多种 CPU 架构：{string.Join("、", availableArchitectures)}。请先重新测试连接获取 CPU 架构后再刷新检测。";
+                hint = $"{GetMosquittoOfflinePlatformDisplayName()} 离线目录中检测到多种 CPU 架构：{string.Join("、", availableArchitectures)}。CPU 架构未知，请先重新测试连接获取 CPU 架构后再刷新检测。";
                 return false;
             }
         }
@@ -2471,8 +2674,15 @@ public partial class InstallConfigViewModel : BaseViewModel
         return mosquittoRoots.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
-    private IEnumerable<string> GetRedisScriptRoots(string offlineFolder)
+    private static IEnumerable<string> GetRedisScriptRoots(string offlineFolder)
     {
+        if (ScriptRootOverridesFactory is not null)
+        {
+            return ScriptRootOverridesFactory()
+                .Select(root => Path.Combine(root, "Redis", offlineFolder))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
         var redisRoots = new[]
         {
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "Redis", offlineFolder),
@@ -2732,9 +2942,13 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// </summary>
     private void NotifyCanExecuteChanged()
     {
-        if (CanConfirmCore())
+        if (CanConfirmCore(out var errorMessage))
         {
             ClearError();
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            SetError(errorMessage);
         }
 
         OnPropertyChanged(nameof(CanConfirm));
@@ -2829,7 +3043,7 @@ public partial class InstallConfigViewModel : BaseViewModel
     /// <summary>
     /// 验证参数
     /// </summary>
-    private bool TryValidateParameters(out string? errorMessage)
+    private bool TryValidateParameters(out string? errorMessage, bool requireMosquittoLocalPackage = true)
     {
         errorMessage = null;
 
@@ -2888,6 +3102,12 @@ public partial class InstallConfigViewModel : BaseViewModel
                     return false;
                 }
 
+                if (IsRedis && !TryGetCompatibleRedisOfflineFolders(_host, out _, out var redisCompatibilityHint))
+                {
+                    errorMessage = redisCompatibilityHint;
+                    return false;
+                }
+
                 if (IsMosquitto && !TryGetCompatibleMosquittoOfflineFolder(out _, out var mosquittoCompatibilityHint))
                 {
                     errorMessage = mosquittoCompatibilityHint;
@@ -2908,11 +3128,14 @@ public partial class InstallConfigViewModel : BaseViewModel
                         return false;
                     }
 
-                    errorMessage = LocalResourceHint;
-                    return false;
+                    if (!IsMosquitto || requireMosquittoLocalPackage)
+                    {
+                        errorMessage = LocalResourceHint;
+                        return false;
+                    }
                 }
 
-                if (!File.Exists(LocalPackagePath) && !Directory.Exists(LocalPackagePath))
+                if (!string.IsNullOrWhiteSpace(LocalPackagePath) && !File.Exists(LocalPackagePath) && !Directory.Exists(LocalPackagePath))
                 {
                     errorMessage = $"Scripts 对应目录中的本地资源不存在：{LocalPackagePath}";
                     return false;
@@ -2930,7 +3153,13 @@ public partial class InstallConfigViewModel : BaseViewModel
                     return false;
                 }
 
-                if (IsMosquitto && !TryValidateMosquittoOfflinePath(LocalPackagePath, out var mosquittoDirectoryHint))
+                if (IsRedis && !TryValidateRedisOfflinePath(LocalPackagePath, out var redisDirectoryHint))
+                {
+                    errorMessage = redisDirectoryHint;
+                    return false;
+                }
+
+                if (IsMosquitto && !string.IsNullOrWhiteSpace(LocalPackagePath) && !TryValidateMosquittoOfflinePath(LocalPackagePath, out var mosquittoDirectoryHint))
                 {
                     errorMessage = mosquittoDirectoryHint;
                     return false;
@@ -2997,7 +3226,13 @@ public partial class InstallConfigViewModel : BaseViewModel
 
     private bool CanConfirmCore()
     {
-        return !IsBusy && TryValidateParameters(out _);
+        return CanConfirmCore(out _);
+    }
+
+    private bool CanConfirmCore(out string? errorMessage)
+    {
+        errorMessage = null;
+        return !IsBusy && TryValidateParameters(out errorMessage, requireMosquittoLocalPackage: false);
     }
 
     /// <summary>

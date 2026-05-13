@@ -148,8 +148,6 @@ if [ -f /etc/debian_version ]; then
             DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || dpkg -P $ACTIVE_DEB_PACKAGES 2>/dev/null || true
         else
             DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $ACTIVE_DEB_PACKAGES 2>/dev/null || dpkg -P $ACTIVE_DEB_PACKAGES 2>/dev/null || true
-            DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null || true
-            DEBIAN_FRONTEND=noninteractive apt-get autoclean -qq 2>/dev/null || true
         fi
     else
         echo "未检测到已安装的 Nginx DEB 包"
@@ -236,6 +234,16 @@ declare -a SERVICE_PATHS=(
     "/etc/tmpfiles.d/nginx.conf"
 )
 
+declare -a SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/nginx.service"
+    "/run/systemd/generator*/nginx.service"
+)
+
+declare -a INIT_SCRIPTS=(
+    "/etc/init.d/nginx"
+    "/etc/rc.d/init.d/nginx"
+)
+
 declare -a RUNTIME_PATHS=(
     "/var/run/nginx.pid"
     "/run/nginx.pid"
@@ -289,6 +297,29 @@ for path in "${SERVICE_PATHS[@]}"; do
     if [ -e "$path" ]; then
         echo "  删除：$path"
         rm -rf "$path"
+    fi
+done
+
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for path in $pattern; do
+        if [ -e "$path" ] || [ -L "$path" ]; then
+            echo "  删除：$path"
+            rm -f "$path"
+        fi
+    done
+done
+
+for init_script in "${INIT_SCRIPTS[@]}"; do
+    service_name=$(basename "$init_script")
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d -f "$service_name" remove 2>/dev/null || true
+    fi
+    if command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --del "$service_name" 2>/dev/null || true
+    fi
+    if [ -e "$init_script" ] || [ -L "$init_script" ]; then
+        echo "  删除：$init_script"
+        rm -f "$init_script"
     fi
 done
 

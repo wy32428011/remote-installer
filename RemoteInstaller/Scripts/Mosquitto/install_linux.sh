@@ -140,6 +140,54 @@ package_matches_arch() {
     esac
 }
 
+deb_package_matches_name() {
+    local package_file="$1"
+    local package_name="$2"
+    local file_name
+    file_name="$(basename "$package_file" | tr '[:upper:]' '[:lower:]')"
+    package_name="$(printf '%s' "$package_name" | tr '[:upper:]' '[:lower:]')"
+
+    case "$file_name" in
+        "${package_name}_"*.deb|"${package_name}.deb")
+            return 0
+            ;;
+    esac
+
+    [[ "$file_name" == "$package_name"-[0-9]*.deb ]]
+}
+
+has_deb_package() {
+    local package_name="$1"
+    local package_file
+
+    for package_file in "${ROOT_DEBS[@]}"; do
+        if deb_package_matches_name "$package_file" "$package_name"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+is_deb_package_installed() {
+    local package_name="$1"
+    local package_status
+
+    command_exists dpkg-query || return 1
+    package_status="$(dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null || true)"
+    [ "$package_status" = "install ok installed" ]
+}
+
+print_ubuntu_package_status() {
+    echo "Ubuntu Mosquitto 相关包状态："
+    if command_exists dpkg-query; then
+        dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' \
+            mosquitto mosquitto-clients libmosquitto1 libcjson1 libmicrohttpd12 libmicrohttpd12t64 2>/dev/null || true
+    else
+        echo "dpkg-query 不可用，无法输出包状态"
+    fi
+}
+
 get_os_info() {
     local os_release="/etc/os-release"
     [ -f "$os_release" ] || fail "未找到 /etc/os-release，无法识别操作系统"
@@ -187,13 +235,47 @@ collect_packages() {
 
 validate_ubuntu_packages() {
     collect_packages
+    local required_packages=(mosquitto libmosquitto1 libcjson1)
+    local missing_packages=()
+    local package_name
+    local missing_text=""
 
     if [ ${#ROOT_DEBS[@]} -eq 0 ]; then
         fail "Ubuntu Mosquitto 离线目录中未找到任何 .deb 包"
     fi
 
-    if ! printf '%s\n' "${ROOT_DEBS[@]}" | grep -Eq '/mosquitto[-_].*\.deb$'; then
+    case "$PLATFORM" in
+        ubuntu24)
+            required_packages+=(libmicrohttpd12t64)
+            ;;
+        ubuntu22)
+            required_packages+=(libmicrohttpd12)
+            ;;
+    esac
+
+    if [ -n "$USERNAME" ] && ! command_exists mosquitto_passwd; then
+        required_packages+=(mosquitto-clients)
+    fi
+
+    if ! has_deb_package "mosquitto"; then
         fail "Ubuntu Mosquitto 离线目录缺少与目标架构匹配的 mosquitto-*.deb / mosquitto_*.deb 主包"
+    fi
+
+    for package_name in "${required_packages[@]}"; do
+        if ! has_deb_package "$package_name" && ! is_deb_package_installed "$package_name"; then
+            missing_packages+=("$package_name")
+        fi
+    done
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        for package_name in "${missing_packages[@]}"; do
+            if [ -n "$missing_text" ]; then
+                missing_text+=", "
+            fi
+            missing_text+="$package_name"
+        done
+
+        fail "Ubuntu Mosquitto 离线目录缺少依赖包：$missing_text。请将这些 .deb 依赖放到 PACKAGE_PATH 指向的目录后重试"
     fi
 }
 
@@ -215,11 +297,12 @@ install_ubuntu_packages() {
     echo "使用 Ubuntu Mosquitto 离线目录：$PACKAGE_DIR"
 
     if ! dpkg -i "${ROOT_DEBS[@]}"; then
-        dpkg --configure -a || true
+        print_ubuntu_package_status
         fail "Ubuntu Mosquitto 离线安装失败，请检查离线目录中的依赖包是否完整且版本匹配"
     fi
 
-    if ! dpkg-query -W -f='${Status} ${Package}\n' mosquitto 2>/dev/null | grep -Eq '^install ok installed mosquitto$'; then
+    if ! is_deb_package_installed "mosquitto"; then
+        print_ubuntu_package_status
         fail "Ubuntu 离线安装后未检测到 Mosquitto 包"
     fi
 }
@@ -300,7 +383,7 @@ get_version() {
     fi
 
     if [ -z "$version" ]; then
-        if command_exists dpkg-query && dpkg-query -W -f='${Status}' mosquitto 2>/dev/null | grep -q 'installed'; then
+        if is_deb_package_installed "mosquitto"; then
             version="$(dpkg-query -W -f='${Version}' mosquitto 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
         elif command_exists rpm && rpm -q mosquitto >/dev/null 2>&1; then
             version="$(rpm -q --queryformat '%{VERSION}' mosquitto 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"

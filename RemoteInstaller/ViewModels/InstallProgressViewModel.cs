@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -18,7 +19,14 @@ namespace RemoteInstaller.ViewModels
     {
         private readonly MainViewModel _mainViewModel;
         private readonly Views.Dialogs.InstallProgressDialog _dialog;
+        private readonly System.Timers.Timer _logRefreshTimer;
+        private readonly object _logRefreshLock = new();
         private TaskViewModel? _boundTask;
+        private ObservableCollection<LogViewModel>? _pendingTaskLogs;
+        private readonly List<LogViewModel> _pendingLogEntriesToAdd = new();
+        private int _pendingLogEntriesToRemoveFromStart;
+        private bool _requiresFullLogReload;
+        private const int LogRefreshThrottleMs = 100;
 
         private static readonly IReadOnlyList<(string Title, string Description)> StageDefinitions = new[]
         {
@@ -85,7 +93,18 @@ namespace RemoteInstaller.ViewModels
         {
             _mainViewModel = mainViewModel;
             _dialog = dialog;
-            _dialog.Closed += (_, _) => DetachTask();
+            _logRefreshTimer = new System.Timers.Timer(LogRefreshThrottleMs);
+            _logRefreshTimer.AutoReset = false;
+            _logRefreshTimer.Elapsed += (_, _) =>
+            {
+                _logRefreshTimer.Stop();
+                RunOnUiThread(FlushLogEntriesRefresh);
+            };
+            _dialog.Closed += (_, _) =>
+            {
+                StopLogEntriesRefresh();
+                DetachTask();
+            };
             InitializeStages();
         }
 
@@ -315,6 +334,7 @@ namespace RemoteInstaller.ViewModels
 
         private void DetachTask()
         {
+            StopLogEntriesRefresh();
             if (_boundTask == null)
             {
                 return;
@@ -370,28 +390,18 @@ namespace RemoteInstaller.ViewModels
                 return;
             }
 
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                LogEntries.Clear();
-                foreach (var log in taskLogs)
-                {
-                    LogEntries.Add(new LogViewModel
-                    {
-                        Message = log.Message,
-                        Level = log.Level,
-                        Timestamp = log.Timestamp
-                    });
-                }
-
-                TrimLogs();
-                ScrollToEndIfNeeded();
-            });
+            RequestLogEntriesRefresh(taskLogs, e);
         }
 
         private void ReloadLogs(TaskViewModel task)
         {
+            ReloadLogs(task.LogEntries);
+        }
+
+        private void ReloadLogs(IEnumerable<LogViewModel> logs)
+        {
             LogEntries.Clear();
-            foreach (var log in task.LogEntries)
+            foreach (var log in logs)
             {
                 LogEntries.Add(new LogViewModel
                 {
@@ -403,6 +413,144 @@ namespace RemoteInstaller.ViewModels
 
             TrimLogs();
             ScrollToEndIfNeeded();
+        }
+
+        private void RequestLogEntriesRefresh(ObservableCollection<LogViewModel> taskLogs, NotifyCollectionChangedEventArgs e)
+        {
+            lock (_logRefreshLock)
+            {
+                _pendingTaskLogs = taskLogs;
+
+                if (!_requiresFullLogReload)
+                {
+                    QueuePendingLogChange(e);
+                }
+
+                if (!_logRefreshTimer.Enabled)
+                {
+                    _logRefreshTimer.Start();
+                }
+            }
+        }
+
+        private void FlushLogEntriesRefresh()
+        {
+            ObservableCollection<LogViewModel>? taskLogs;
+            List<LogViewModel> entriesToAdd;
+            int entriesToRemoveFromStart;
+            bool requiresFullReload;
+            lock (_logRefreshLock)
+            {
+                taskLogs = _pendingTaskLogs;
+                _pendingTaskLogs = null;
+                entriesToAdd = _pendingLogEntriesToAdd.ToList();
+                _pendingLogEntriesToAdd.Clear();
+                entriesToRemoveFromStart = _pendingLogEntriesToRemoveFromStart;
+                _pendingLogEntriesToRemoveFromStart = 0;
+                requiresFullReload = _requiresFullLogReload;
+                _requiresFullLogReload = false;
+            }
+
+            if (taskLogs == null)
+            {
+                return;
+            }
+
+            if (requiresFullReload)
+            {
+                ReloadLogs(taskLogs);
+                return;
+            }
+
+            ApplyPendingLogChanges(entriesToRemoveFromStart, entriesToAdd);
+        }
+
+        private void QueuePendingLogChange(NotifyCollectionChangedEventArgs e)
+        {
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Add:
+                    if (e.NewItems == null)
+                    {
+                        RequestFullLogReload();
+                        return;
+                    }
+
+                    foreach (var item in e.NewItems)
+                    {
+                        if (item is LogViewModel log)
+                        {
+                            _pendingLogEntriesToAdd.Add(CloneLog(log));
+                        }
+                    }
+                    break;
+
+                case NotifyCollectionChangedAction.Remove:
+                    if (e.OldItems == null || e.OldStartingIndex != 0)
+                    {
+                        RequestFullLogReload();
+                        return;
+                    }
+
+                    _pendingLogEntriesToRemoveFromStart += e.OldItems.Count;
+                    break;
+
+                default:
+                    RequestFullLogReload();
+                    break;
+            }
+        }
+
+        private void RequestFullLogReload()
+        {
+            _requiresFullLogReload = true;
+            _pendingLogEntriesToAdd.Clear();
+            _pendingLogEntriesToRemoveFromStart = 0;
+        }
+
+        private void ApplyPendingLogChanges(int entriesToRemoveFromStart, IReadOnlyList<LogViewModel> entriesToAdd)
+        {
+            var changed = entriesToRemoveFromStart > 0 || entriesToAdd.Count > 0;
+
+            for (var i = 0; i < entriesToRemoveFromStart && LogEntries.Count > 0; i++)
+            {
+                LogEntries.RemoveAt(0);
+            }
+
+            foreach (var log in entriesToAdd)
+            {
+                LogEntries.Add(CloneLog(log));
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            TrimLogs();
+            ScrollToEndIfNeeded();
+        }
+
+        private static LogViewModel CloneLog(LogViewModel log)
+        {
+            return new LogViewModel
+            {
+                Message = log.Message,
+                Level = log.Level,
+                Timestamp = log.Timestamp
+            };
+        }
+
+        private void StopLogEntriesRefresh()
+        {
+            lock (_logRefreshLock)
+            {
+                _logRefreshTimer.Stop();
+                _pendingTaskLogs = null;
+                _pendingLogEntriesToAdd.Clear();
+                _pendingLogEntriesToRemoveFromStart = 0;
+                _requiresFullLogReload = false;
+            }
         }
 
         private void UpdateFromTask(TaskViewModel task)
@@ -462,12 +610,27 @@ namespace RemoteInstaller.ViewModels
         {
             if (AutoScroll && _dialog != null)
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                RunOnUiThread(() =>
                 {
-                    var scrollViewer = _dialog.FindName("LogScrollViewer") as System.Windows.Controls.ScrollViewer;
-                    scrollViewer?.ScrollToEnd();
+                    var logListBox = _dialog.FindName("LogListBox") as System.Windows.Controls.ListBox;
+                    if (logListBox != null && LogEntries.Count > 0)
+                    {
+                        logListBox.ScrollIntoView(LogEntries[^1]);
+                    }
                 });
             }
+        }
+
+        private static void RunOnUiThread(Action action)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+            {
+                action();
+                return;
+            }
+
+            dispatcher.InvokeAsync(action, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void InitializeStages()

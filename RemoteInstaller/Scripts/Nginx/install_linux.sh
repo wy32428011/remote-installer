@@ -170,7 +170,6 @@ prepare_debian_offline_dependencies() {
 
     echo "正在安装缺失的 Nginx Debian 离线依赖包..."
     DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold -i "${install_files[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a
 }
 
 install_debian_offline() {
@@ -223,18 +222,15 @@ install_debian_offline() {
     if [ ${#dependency_debs[@]} -gt 0 ]; then
         echo "先安装依赖 .deb 包..."
         DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${dependency_debs[@]}"
-        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
     fi
 
     if [ ${#common_debs[@]} -gt 0 ]; then
         echo "安装 nginx-common .deb 包..."
         DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${common_debs[@]}"
-        DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
     fi
 
     echo "安装 Nginx 主 .deb 包..."
     DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" -i "${main_debs[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg "${dpkg_opts[@]}" --configure -a
 
     if ! is_debian_nginx_installed; then
         echo "错误：Nginx Debian 离线安装失败，请检查离线包依赖是否完整"

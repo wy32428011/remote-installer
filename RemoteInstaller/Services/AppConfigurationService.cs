@@ -320,7 +320,7 @@ public class AppConfigurationService : IDisposable
             ["nginx"] = ("Web \u670d\u52a1", "\u9ad8\u6027\u80fd HTTP \u548c\u53cd\u5411\u4ee3\u7406\u670d\u52a1\u5668", "\U0001F310"),
             ["elasticsearch"] = ("\u6570\u636e\u5e93", "\u5206\u5e03\u5f0f RESTful \u641c\u7d22\u548c\u5206\u6790\u5f15\u64ce", "\U0001F50D"),
             ["rabbitmq"] = ("\u4e2d\u95f4\u4ef6", "\u5f00\u6e90\u6d88\u606f\u4ee3\u7406\u8f6f\u4ef6", "\U0001F430"),
-            ["mosquitto"] = ("\u4e2d\u95f4\u4ef6", "\u8f7b\u91cf\u7ea7 MQTT \u6d88\u606f\u4ee3\u7406\uff0c\u652f\u6301\u79bb\u7ebf\u5b89\u88c5\u4e0e\u57fa\u7840\u8ba4\u8bc1", "\U0001F4E1"),
+            ["mosquitto"] = ("中间件", "轻量级 MQTT 消息代理，支持离线安装与基础认证", "📡"),
             ["consul"] = ("\u4e2d\u95f4\u4ef6", "\u670d\u52a1\u53d1\u73b0\u3001KV \u5b58\u50a8\u548c\u5065\u5eb7\u68c0\u67e5\u5e73\u53f0", "\U0001F9ED"),
             ["traefik"] = ("Web \u670d\u52a1", "\u4e91\u539f\u751f\u53cd\u5411\u4ee3\u7406\u4e0e\u8fb9\u7f18\u7f51\u5173", "\U0001F6E3\uFE0F")
         };
@@ -368,7 +368,7 @@ public class AppConfigurationService : IDisposable
             },
             ["mosquitto"] = new(StringComparer.OrdinalIgnoreCase)
             {
-                ["MQTT Port"] = "MQTT TCP \u7aef\u53e3",
+                ["MQTT Port"] = "MQTT TCP 端口",
                 ["Username"] = "\u7528\u6237\u540d",
                 ["Password"] = "\u5bc6\u7801"
             },
@@ -441,3 +441,5 @@ public class AppConfigurationService : IDisposable
         GC.SuppressFinalize(this);
     }
 }
+
+

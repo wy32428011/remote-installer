@@ -9,12 +9,39 @@ HTTPS_PORT="${HTTPS_PORT:-443}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/traefik}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/traefik}"
-ENABLE_DASHBOARD="${ENABLE_DASHBOARD:-true}"
+ENABLE_DASHBOARD="${ENABLE_DASHBOARD:-false}"
 PACKAGE_PATH="${PACKAGE_PATH:-}"
 SERVICE_NAME="traefik"
 
 write_progress() {
     echo "PROGRESS:$1:$2"
+}
+
+validate_port() {
+    local name=$1
+    local value=$2
+    if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+        echo "错误：$name 必须是 1-65535 之间的数字端口"
+        exit 1
+    fi
+}
+
+validate_path() {
+    local name=$1
+    local value=$2
+    if ! [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+        echo "错误：$name 必须是安全的 Linux 绝对路径"
+        exit 1
+    fi
+}
+
+validate_boolean() {
+    local name=$1
+    local value=$2
+    if [ "$value" != "true" ] && [ "$value" != "false" ]; then
+        echo "错误：$name 只能是 true 或 false"
+        exit 1
+    fi
 }
 
 is_port_listening() {
@@ -51,6 +78,13 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+validate_port "HTTP_PORT" "$HTTP_PORT"
+validate_port "HTTPS_PORT" "$HTTPS_PORT"
+validate_port "DASHBOARD_PORT" "$DASHBOARD_PORT"
+validate_path "INSTALL_DIR" "$INSTALL_DIR"
+validate_path "CONFIG_DIR" "$CONFIG_DIR"
+validate_boolean "ENABLE_DASHBOARD" "$ENABLE_DASHBOARD"
+
 PACKAGE_FILE="$(find_traefik_package || true)"
 if [ -z "$PACKAGE_FILE" ] || [ ! -f "$PACKAGE_FILE" ]; then
     echo "错误：未找到 Traefik 离线安装包，请确认 PACKAGE_PATH 中包含 traefik_v*_linux_amd64.tar.gz"
@@ -72,38 +106,40 @@ if ! id traefik >/dev/null 2>&1; then
 fi
 
 mkdir -p "$INSTALL_DIR/data"
-chown -R traefik:traefik "$INSTALL_DIR" "$CONFIG_DIR"
+chown -R traefik:traefik "$INSTALL_DIR"
+chown root:root "$CONFIG_DIR"
+chmod 755 "$CONFIG_DIR"
 
 write_progress "Configuring" 45
-cat > "$CONFIG_DIR/traefik.toml" <<EOF
-[entryPoints]
-  [entryPoints.web]
-    address = ":${HTTP_PORT}"
-  [entryPoints.websecure]
-    address = ":${HTTPS_PORT}"
-  [entryPoints.traefik]
-    address = ":${DASHBOARD_PORT}"
-
-[providers]
-  [providers.file]
-    filename = "$CONFIG_DIR/dynamic.toml"
-    watch = true
-
-[log]
-  level = "INFO"
+cat > "$CONFIG_DIR/traefik.yml" <<EOF
+entryPoints:
+  web:
+    address: ":${HTTP_PORT}"
+  websecure:
+    address: ":${HTTPS_PORT}"
+  traefik:
+    address: ":${DASHBOARD_PORT}"
+providers:
+  file:
+    filename: "$CONFIG_DIR/dynamic.yml"
+    watch: true
+log:
+  level: INFO
 EOF
 
 if [ "$ENABLE_DASHBOARD" = "true" ]; then
-cat >> "$CONFIG_DIR/traefik.toml" <<EOF
-
-[api]
-  dashboard = true
-  insecure = true
+cat >> "$CONFIG_DIR/traefik.yml" <<EOF
+api:
+  dashboard: true
+  insecure: true
 EOF
 fi
 
-cat > "$CONFIG_DIR/dynamic.toml" <<'EOF'
+cat > "$CONFIG_DIR/dynamic.yml" <<'EOF'
 # reserved for dynamic configuration
+http:
+  routers: {}
+  services: {}
 EOF
 
 cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -118,7 +154,7 @@ Group=traefik
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/usr/local/bin/traefik --configfile=$CONFIG_DIR/traefik.toml
+ExecStart=/usr/local/bin/traefik --configfile=$CONFIG_DIR/traefik.yml
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -130,20 +166,26 @@ EOF
 if command -v firewall-cmd >/dev/null 2>&1; then
     firewall-cmd --permanent --add-port=${HTTP_PORT}/tcp 2>/dev/null || true
     firewall-cmd --permanent --add-port=${HTTPS_PORT}/tcp 2>/dev/null || true
-    firewall-cmd --permanent --add-port=${DASHBOARD_PORT}/tcp 2>/dev/null || true
+    if [ "$ENABLE_DASHBOARD" = "true" ]; then
+        firewall-cmd --permanent --add-port=${DASHBOARD_PORT}/tcp 2>/dev/null || true
+    fi
     firewall-cmd --reload 2>/dev/null || true
 fi
 
 if command -v ufw >/dev/null 2>&1; then
     ufw allow ${HTTP_PORT}/tcp 2>/dev/null || true
     ufw allow ${HTTPS_PORT}/tcp 2>/dev/null || true
-    ufw allow ${DASHBOARD_PORT}/tcp 2>/dev/null || true
+    if [ "$ENABLE_DASHBOARD" = "true" ]; then
+        ufw allow ${DASHBOARD_PORT}/tcp 2>/dev/null || true
+    fi
 fi
 
 if command -v iptables >/dev/null 2>&1; then
     iptables -C INPUT -p tcp --dport ${HTTP_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${HTTP_PORT} -j ACCEPT 2>/dev/null || true
     iptables -C INPUT -p tcp --dport ${HTTPS_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${HTTPS_PORT} -j ACCEPT 2>/dev/null || true
-    iptables -C INPUT -p tcp --dport ${DASHBOARD_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${DASHBOARD_PORT} -j ACCEPT 2>/dev/null || true
+    if [ "$ENABLE_DASHBOARD" = "true" ]; then
+        iptables -C INPUT -p tcp --dport ${DASHBOARD_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${DASHBOARD_PORT} -j ACCEPT 2>/dev/null || true
+    fi
 fi
 
 write_progress "Starting" 75

@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # 参数定义
-# PACKAGE_PATH: 远程安装包路径
+# PACKAGE_PATH: 远程安装包路径（文件或目录）
 # HTTP_PORT: 端口号 (默认 9200)
 # CLUSTER_NAME: 集群名称 (默认 my-cluster)
 # NODE_NAME: 节点名称 (默认 node-1)
 # MEMORY_LIMIT: 内存大小 (默认 2g)
+
+ELASTICSEARCH_OFFLINE_VERSION="8.5.3"
 
 # 日志设置
 LOG_FILE="install.log"
@@ -25,15 +27,303 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 检查参数
+PACKAGE_IS_FILE=false
+PACKAGE_IS_DIRECTORY=false
+
+fail() {
+    echo "错误：$1"
+    exit 1
+}
+
 if [ -z "$PACKAGE_PATH" ]; then
-    echo "警告：未指定 PACKAGE_PATH 环境变量，尝试自动查找安装包..."
-    PACKAGE_PATH=$(ls *.tar.gz 2>/dev/null | head -n 1 || ls *.tar 2>/dev/null | head -n 1 || ls *.deb 2>/dev/null | head -n 1 || ls *.rpm 2>/dev/null | head -n 1 || echo "")
-    if [ -z "$PACKAGE_PATH" ]; then
-        echo "错误：未指定 PACKAGE_PATH 环境变量，且在工作目录 $(pwd) 下未发现安装包"
+    fail "Elasticsearch Linux 安装仅支持显式提供 PACKAGE_PATH，本脚本不会自动猜测当前目录中的安装包。请通过 PACKAGE_PATH 提供离线目录、.deb/.rpm 主包所在目录或 .tar 归档文件。"
+fi
+
+if [ -f "$PACKAGE_PATH" ]; then
+    PACKAGE_IS_FILE=true
+elif [ -d "$PACKAGE_PATH" ]; then
+    PACKAGE_IS_DIRECTORY=true
+else
+    fail "PACKAGE_PATH 不存在：$PACKAGE_PATH"
+fi
+
+resolve_debian_main_package() {
+    local package_root=$1
+    find "$package_root" -maxdepth 1 -type f -name "elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.deb" | sort | head -n 1
+}
+
+resolve_redhat_main_package() {
+    local package_root=$1
+    find "$package_root" -maxdepth 1 -type f -name "elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.rpm" | sort | head -n 1
+}
+
+resolve_debian_dependency_dir() {
+    local package_root=$1
+
+    if [ -d "$package_root/deps" ]; then
+        echo "$package_root/deps"
+        return 0
+    fi
+
+    echo "$package_root"
+}
+
+get_redhat_offline_package_directories() {
+    local package_root=$1
+
+    if [ -d "$package_root/deps" ]; then
+        echo "$package_root/deps"
+    fi
+
+    echo "$package_root"
+}
+
+get_debian_offline_dependency_packages() {
+    if [ "$OS_TYPE" != "debian" ]; then
+        return 0
+    fi
+
+    cat <<EOF
+bash
+lsb-base
+libc6
+adduser
+coreutils
+EOF
+}
+
+is_debian_package_installed() {
+    local package_name=$1
+    dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q 'install ok installed'
+}
+
+find_debian_dependency_file() {
+    local dependency_dir=$1
+    local package_name=$2
+    local file
+
+    for file in "$dependency_dir"/"${package_name}"_*.deb "$dependency_dir"/"${package_name}"-*.deb; do
+        if [ -f "$file" ]; then
+            echo "$file"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+prepare_debian_offline_dependencies() {
+    local package_root=$1
+    local dependency_dir
+    local dependency_name
+    local dependency_file
+    local -a missing_packages=()
+    local -a install_files=()
+
+    dependency_dir=$(resolve_debian_dependency_dir "$package_root")
+
+    while IFS= read -r dependency_name; do
+        if [ -z "$dependency_name" ]; then
+            continue
+        fi
+
+        if is_debian_package_installed "$dependency_name"; then
+            echo "离线依赖已安装，跳过：$dependency_name"
+            continue
+        fi
+
+        if ! dependency_file=$(find_debian_dependency_file "$dependency_dir" "$dependency_name"); then
+            missing_packages+=("$dependency_name")
+            continue
+        fi
+
+        install_files+=("$dependency_file")
+    done < <(get_debian_offline_dependency_packages)
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        echo "错误：离线目录缺少以下 Elasticsearch Debian 依赖包："
+        printf '%s\n' "${missing_packages[@]}"
+        echo "请将对应 .deb 文件放入目录：$dependency_dir"
         exit 1
     fi
-    echo "自动发现安装包: $PACKAGE_PATH"
-fi
+
+    if [ ${#install_files[@]} -eq 0 ]; then
+        echo "Elasticsearch 离线依赖已满足，无需额外安装。"
+        return 0
+    fi
+
+    echo "正在安装缺失的 Elasticsearch Debian 离线依赖包..."
+    DPKG_OPTS="--force-confdef --force-confold"
+    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${install_files[@]}"
+}
+
+collect_redhat_rpm_files() {
+    local package_root=$1
+    local package_dir
+    local rpm_file
+
+    while IFS= read -r package_dir; do
+        for rpm_file in "$package_dir"/*.rpm; do
+            if [ -f "$rpm_file" ]; then
+                echo "$rpm_file"
+            fi
+        done
+    done < <(get_redhat_offline_package_directories "$package_root")
+}
+
+normalize_rpm_capability() {
+    local capability=${1:-}
+    printf '%s\n' "$capability" | awk 'NF { $1=$1; print }'
+}
+
+is_ignored_rpm_requirement() {
+    local requirement=${1:-}
+
+    case "$requirement" in
+        ""|rpmlib\(*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+collect_local_rpm_capabilities() {
+    local output_file=$1
+    shift
+    local rpm_file
+    local provides_output
+
+    : > "$output_file"
+
+    for rpm_file in "$@"; do
+        provides_output=$(rpm -qp --provides "$rpm_file" 2>/dev/null) || {
+            echo "错误：读取 RPM 提供能力失败：$rpm_file"
+            exit 1
+        }
+        printf '%s\n' "$provides_output" >> "$output_file"
+    done
+
+    awk 'NF { $1=$1; print }' "$output_file" | sort -u > "${output_file}.normalized"
+    mv -f "${output_file}.normalized" "$output_file"
+}
+
+local_rpm_capabilities_satisfy_requirement() {
+    local requirement=$1
+    local provides_file=$2
+    local requirement_name=${requirement%% *}
+    local provided_capability
+
+    while IFS= read -r provided_capability; do
+        if [ "$provided_capability" = "$requirement" ]; then
+            return 0
+        fi
+
+        if [ "$requirement_name" = "$requirement" ] && { [ "$provided_capability" = "$requirement_name" ] || [[ "$provided_capability" == "$requirement_name "* ]]; }; then
+            return 0
+        fi
+    done < "$provides_file"
+
+    return 1
+}
+
+system_satisfies_rpm_requirement() {
+    local requirement=$1
+    local requirement_name=${requirement%% *}
+
+    rpm -q --whatprovides "$requirement" >/dev/null 2>&1 && return 0
+    [ "$requirement_name" = "$requirement" ] || return 1
+    rpm -q --whatprovides "$requirement_name" >/dev/null 2>&1
+}
+
+run_redhat_localinstall_test() {
+    if command -v dnf >/dev/null 2>&1; then
+        dnf --disablerepo='*' --setopt=tsflags=test localinstall -y "$@"
+    else
+        yum --disablerepo='*' --setopt=tsflags=test localinstall -y "$@"
+    fi
+}
+
+run_redhat_localinstall() {
+    if command -v dnf >/dev/null 2>&1; then
+        dnf --disablerepo='*' localinstall -y "$@"
+    else
+        yum --disablerepo='*' localinstall -y "$@"
+    fi
+}
+
+validate_redhat_offline_transaction() {
+    local output_file
+    output_file=$(mktemp)
+
+    if ! run_redhat_localinstall_test "$@" > "$output_file" 2>&1; then
+        echo "错误：严格离线模式事务预检失败，请检查以下输出："
+        cat "$output_file"
+        rm -f "$output_file"
+        exit 1
+    fi
+
+    rm -f "$output_file"
+}
+
+validate_redhat_offline_dependencies() {
+    local package_root=$1
+    local provides_file
+    local missing_file
+    local requirements_output
+    local requirement
+    local normalized_requirement
+    local rpm_file
+    local -a rpm_files=()
+
+    mapfile -t rpm_files < <(collect_redhat_rpm_files "$package_root")
+
+    if [ ${#rpm_files[@]} -eq 0 ]; then
+        fail "离线目录中未找到 .rpm 文件：$package_root"
+    fi
+
+    provides_file=$(mktemp)
+    missing_file=$(mktemp)
+
+    collect_local_rpm_capabilities "$provides_file" "${rpm_files[@]}"
+
+    for rpm_file in "${rpm_files[@]}"; do
+        requirements_output=$(rpm -qpR "$rpm_file" 2>/dev/null) || {
+            rm -f "$provides_file" "$missing_file"
+            echo "错误：读取 RPM 依赖能力失败：$rpm_file"
+            exit 1
+        }
+
+        while IFS= read -r requirement; do
+            normalized_requirement=$(normalize_rpm_capability "$requirement")
+
+            if is_ignored_rpm_requirement "$normalized_requirement"; then
+                continue
+            fi
+
+            if local_rpm_capabilities_satisfy_requirement "$normalized_requirement" "$provides_file"; then
+                continue
+            fi
+
+            if system_satisfies_rpm_requirement "$normalized_requirement"; then
+                continue
+            fi
+
+            printf '%s\n' "$normalized_requirement" >> "$missing_file"
+        done <<< "$requirements_output"
+    done
+
+    if [ -s "$missing_file" ]; then
+        sort -u -o "$missing_file" "$missing_file"
+        echo "错误：严格离线模式下，离线目录缺少以下 RPM 依赖能力："
+        cat "$missing_file"
+        echo "请将满足以上能力的 EL7 RPM 一并放入目录：$package_root"
+        rm -f "$provides_file" "$missing_file"
+        exit 1
+    fi
+
+    rm -f "$provides_file" "$missing_file"
+}
 
 HTTP_PORT=${HTTP_PORT:-9200}
 CLUSTER_NAME=${CLUSTER_NAME:-my-cluster}
@@ -133,7 +423,7 @@ chown -R elasticsearch:elasticsearch "$ES_RUN_DIR" 2>/dev/null || true
 echo "PROGRESS:Installing:20"
 INSTALL_TYPE=""
 
-if [[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$PACKAGE_PATH" == *.tar ]]; then
+if [ "$PACKAGE_IS_FILE" = true ] && ([[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$PACKAGE_PATH" == *.tar ]]); then
     # tar.gz 或 tar 包 - 手动解压安装
     echo "检测到压缩包格式，开始解压安装..."
     INSTALL_TYPE="tar"
@@ -171,11 +461,22 @@ if [[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$PACKAGE_PATH" == *.tar ]]; then
     JVM_OPTIONS_FILE="$ES_INSTALL_DIR/config/jvm.options"
     ES_BIN="$ES_INSTALL_DIR/bin/elasticsearch"
 
-elif [[ "$PACKAGE_PATH" == *.deb ]]; then
-    echo "检测到 DEB 包..."
+elif [ "$OS_TYPE" = "debian" ] && { [ "$PACKAGE_IS_DIRECTORY" = true ] || { [ "$PACKAGE_IS_FILE" = true ] && [[ "$PACKAGE_PATH" == *.deb ]]; }; }; then
+    echo "检测到 DEB 离线资源目录..."
     INSTALL_TYPE="deb"
 
-    # 等待锁释放
+    PACKAGE_ROOT="$PACKAGE_PATH"
+    if [ "$PACKAGE_IS_FILE" = true ]; then
+        PACKAGE_ROOT=$(dirname "$PACKAGE_PATH")
+    fi
+
+    DEB_MAIN_PACKAGE=$(resolve_debian_main_package "$PACKAGE_ROOT")
+    if [ -z "$DEB_MAIN_PACKAGE" ] || [ ! -f "$DEB_MAIN_PACKAGE" ]; then
+        fail "离线目录中未找到 elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.deb 主包：$PACKAGE_ROOT"
+    fi
+
+    prepare_debian_offline_dependencies "$PACKAGE_ROOT"
+
     for i in {1..10}; do
         if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
             echo "等待其他包管理进程结束... ($i/10)"
@@ -185,41 +486,56 @@ elif [[ "$PACKAGE_PATH" == *.deb ]]; then
         fi
     done
 
-    # 安装 deb 包，显示所有输出以便调试
-    echo "正在安装 DEB 包..."
+    echo "再安装 Elasticsearch 主包：$DEB_MAIN_PACKAGE"
     DPKG_OPTS="--force-confdef --force-confold"
-    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "$PACKAGE_PATH" 2>&1 || \
-        DEBIAN_FRONTEND=noninteractive apt-get install -f -y -qq \
-            -o Dpkg::Options::="--force-confdef" \
-            -o Dpkg::Options::="--force-confold" 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "$DEB_MAIN_PACKAGE"
     sync
 
-    # 确认安装成功
-    if ! dpkg -l | grep -q "elasticsearch"; then
-        echo "错误：deb 包安装失败，请检查上面的输出"
+    if ! dpkg -l | grep -q "^ii[[:space:]]\+elasticsearch[[:space:]]"; then
+        fail "Elasticsearch 离线 DEB 安装未完成：未检测到 elasticsearch 已安装"
     fi
 
     CONFIG_FILE="/etc/elasticsearch/elasticsearch.yml"
     JVM_OPTIONS_FILE="/etc/elasticsearch/jvm.options"
     ES_BIN="/usr/share/elasticsearch/bin/elasticsearch"
 
-    # 确保配置文件有正确权限
     if [ -f "$CONFIG_FILE" ]; then
         chown root:elasticsearch "$CONFIG_FILE" 2>/dev/null || true
         chmod 660 "$CONFIG_FILE" 2>/dev/null || true
     fi
 
-elif [[ "$PACKAGE_PATH" == *.rpm ]]; then
-    echo "检测到 RPM 包..."
+elif [ "$OS_TYPE" = "rhel" ] && { [ "$PACKAGE_IS_DIRECTORY" = true ] || { [ "$PACKAGE_IS_FILE" = true ] && [[ "$PACKAGE_PATH" == *.rpm ]]; }; }; then
+    echo "检测到 RPM 离线资源目录..."
     INSTALL_TYPE="rpm"
 
-    if command -v dnf &> /dev/null; then
-        dnf install -y "$PACKAGE_PATH" 2>/dev/null || rpm -ivh "$PACKAGE_PATH" 2>/dev/null || yum localinstall -y "$PACKAGE_PATH" 2>/dev/null || true
-    else
-        rpm -ivh "$PACKAGE_PATH" 2>/dev/null || yum localinstall -y "$PACKAGE_PATH" 2>/dev/null || true
+    PACKAGE_ROOT="$PACKAGE_PATH"
+    if [ "$PACKAGE_IS_FILE" = true ]; then
+        PACKAGE_ROOT=$(dirname "$PACKAGE_PATH")
     fi
+
+    RPM_MAIN_PACKAGE=$(resolve_redhat_main_package "$PACKAGE_ROOT")
+    if [ -z "$RPM_MAIN_PACKAGE" ] || [ ! -f "$RPM_MAIN_PACKAGE" ]; then
+        fail "离线目录中未找到 elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.rpm 主包：$PACKAGE_ROOT"
+    fi
+
+    mapfile -t RPM_FILES < <(collect_redhat_rpm_files "$PACKAGE_ROOT")
+    if [ ${#RPM_FILES[@]} -eq 0 ]; then
+        fail "离线目录中未找到 .rpm 文件：$PACKAGE_ROOT"
+    fi
+
+    echo "检测到 EL7/CentOS7 离线目录，启用严格离线模式..."
+    echo "正在校验离线 RPM 依赖能力..."
+    validate_redhat_offline_dependencies "$PACKAGE_ROOT"
+    echo "正在执行离线事务预检..."
+    validate_redhat_offline_transaction "${RPM_FILES[@]}"
+
+    echo "当前 localinstall 已禁用全部外部 repo。"
+    run_redhat_localinstall "${RPM_FILES[@]}"
     sync
+
+    if ! rpm -q elasticsearch >/dev/null 2>&1; then
+        fail "Elasticsearch 离线 RPM 安装未完成：未检测到 elasticsearch 已安装"
+    fi
 
     CONFIG_FILE="/etc/elasticsearch/elasticsearch.yml"
     JVM_OPTIONS_FILE="/etc/elasticsearch/jvm.options"
@@ -227,7 +543,7 @@ elif [[ "$PACKAGE_PATH" == *.rpm ]]; then
 
 else
     echo "错误：不支持的安装包格式: $PACKAGE_PATH"
-    echo "支持格式: .tar.gz, .tar, .deb, .rpm"
+    echo "支持格式: 目录型 .deb/.rpm 离线资源，或单文件 .tar.gz/.tar"
     exit 1
 fi
 
@@ -528,6 +844,7 @@ echo "等待服务启动..."
 SUCCESS=false
 COUNT=0
 while [ $COUNT -lt 40 ]; do
+    echo "PROGRESS:Verifying:$((85 + COUNT * 10 / 40))"
     # 尝试 HTTP API 检测
     ES_RESP=""
     if command -v curl &>/dev/null; then

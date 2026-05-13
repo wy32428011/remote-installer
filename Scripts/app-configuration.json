@@ -73,7 +73,7 @@
           "windows": "cd {extractPath} && .\\mysql-installer.exe"
         },
         "uninstall": {
-          "linux": "sudo systemctl stop mysqld && sudo rm -rf /var/lib/mysql /opt/mysql /etc/my.cnf && sudo userdel mysql",
+          "linux": "bash Scripts/MySQL/uninstall_linux.sh",
           "windows": "msiexec /x {package} /qn"
         },
         "detect": {
@@ -215,12 +215,12 @@
           "windows": "cd {extractPath} && redis-server.exe --service-install && redis-server.exe --service-start"
         },
         "uninstall": {
-          "linux": "sudo systemctl stop redis-server && sudo rm -rf /etc/redis /var/lib/redis && cd /opt/redis-* && sudo make uninstall",
+          "linux": "bash Scripts/Redis/uninstall_linux.sh",
           "windows": "redis-server.exe --service-uninstall"
         },
         "detect": {
-          "linux": "systemctl status redis-server && redis-cli --version",
-          "windows": "sc query Redis && redis-cli --version"
+          "linux": "Scripts/Redis/check_status_linux.sh",
+          "windows": "Scripts/Redis/check_status_windows.ps1"
         }
       }
     },
@@ -297,12 +297,12 @@
           "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nginx/install_windows.ps1\" -PackagePath \"{package}\" -HttpPort {http_port} -HttpsPort {https_port} -InstallPath \"C:\\Program Files\\Nginx\""
         },
         "uninstall": {
-          "linux": "sudo nginx -s stop && sudo rm -rf /usr/local/nginx /etc/nginx && sudo rm -f /usr/sbin/nginx",
+          "linux": "bash Scripts/Nginx/uninstall_linux.sh",
           "windows": "powershell -ExecutionPolicy Bypass -File \"Scripts/Nginx/uninstall_windows.ps1\" -InstallPath \"C:\\Program Files\\Nginx\""
         },
         "detect": {
-          "linux": "systemctl status nginx || nginx -v",
-          "windows": "tasklist | findstr nginx && nginx -v"
+          "linux": "Scripts/Nginx/check_status_linux.sh",
+          "windows": "Scripts/Nginx/check_status_windows.ps1"
         }
       }
     },
@@ -679,6 +679,80 @@
         },
         "detect": {
           "linux": "export HTTP_PORT={http_port} && export DNS_PORT={dns_port} && export DATA_DIR={data_dir} && bash Scripts/Consul/check_status_linux.sh",
+          "windows": ""
+        }
+      }
+    },
+    {
+      "id": "nacos",
+      "name": "Nacos",
+      "category": "中间件",
+      "icon": "🧭",
+      "description": "动态服务发现、配置管理与服务管理平台",
+      "osSupport": ["CentOS", "Ubuntu"],
+      "versions": [
+        {
+          "version": "2.4.3",
+          "packageUrl": "",
+          "linuxPackageUrl": "https://github.com/alibaba/nacos/releases/download/2.4.3/nacos-server-2.4.3.tar.gz",
+          "checksum": "",
+          "parameters": [
+            {
+              "name": "HTTP Port",
+              "type": "Port",
+              "default": "8848",
+              "required": true,
+              "description": "Nacos HTTP 控制台端口"
+            },
+            {
+              "name": "Raft Port",
+              "type": "Port",
+              "default": "9848",
+              "required": true,
+              "description": "Nacos Raft 通信端口"
+            },
+            {
+              "name": "gRPC Port",
+              "type": "Port",
+              "default": "9849",
+              "required": true,
+              "description": "Nacos gRPC 通信端口"
+            },
+            {
+              "name": "Mode",
+              "type": "Text",
+              "default": "standalone",
+              "required": true,
+              "description": "Nacos 运行模式"
+            },
+            {
+              "name": "Username",
+              "type": "Text",
+              "default": "nacos",
+              "required": true,
+              "description": "Nacos 登录用户名"
+            },
+            {
+              "name": "Password",
+              "type": "Password",
+              "default": "nacos",
+              "required": true,
+              "description": "Nacos 登录密码"
+            }
+          ]
+        }
+      ],
+      "scripts": {
+        "install": {
+          "linux": "export HTTP_PORT={http_port} && export RAFT_PORT={raft_port} && export GRPC_PORT={grpc_port} && export MODE={mode} && export USERNAME={username} && export PASSWORD={password} && export PACKAGE_PATH={package} && bash Scripts/Nacos/install_linux.sh",
+          "windows": ""
+        },
+        "uninstall": {
+          "linux": "bash Scripts/Nacos/uninstall_linux.sh",
+          "windows": ""
+        },
+        "detect": {
+          "linux": "export HTTP_PORT={http_port} && export RAFT_PORT={raft_port} && export GRPC_PORT={grpc_port} && bash Scripts/Nacos/check_status_linux.sh",
           "windows": ""
         }
       }

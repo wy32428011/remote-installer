@@ -23,6 +23,12 @@ namespace RemoteInstaller.Models
         /// </summary>
         public string RepositoryToken { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 客户端更新检测地址（可选）
+        /// 为空时默认使用仓库地址下的 /api/version。
+        /// </summary>
+        public string UpdateCheckUrl { get; set; } = string.Empty;
+
         #endregion
 
         #region 网络代理设置
@@ -134,6 +140,7 @@ namespace RemoteInstaller.Models
             {
                 RepositoryUrl = string.Empty,
                 RepositoryToken = string.Empty,
+                UpdateCheckUrl = string.Empty,
                 UseProxy = false,
                 ProxyType = ProxyType.None,
                 ProxyHost = string.Empty,

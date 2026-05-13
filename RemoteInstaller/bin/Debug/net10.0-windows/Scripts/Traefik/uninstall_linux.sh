@@ -34,6 +34,17 @@ pkill -9 -x traefik 2>/dev/null || true
 
 echo "PROGRESS:Cleaning:45"
 rm -f /etc/systemd/system/${SERVICE_NAME}.service /lib/systemd/system/${SERVICE_NAME}.service /usr/lib/systemd/system/${SERVICE_NAME}.service 2>/dev/null || true
+SYSTEMD_SERVICE_GLOBS=(
+    "/etc/systemd/system/*.wants/traefik.service"
+    "/run/systemd/generator*/traefik.service"
+)
+for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+    for service_file in $pattern; do
+        if [ -e "$service_file" ] || [ -L "$service_file" ]; then
+            rm -f "$service_file" 2>/dev/null || true
+        fi
+    done
+done
 rm -rf "$INSTALL_DIR" "$CONFIG_DIR" /var/log/traefik 2>/dev/null || true
 rm -f /usr/local/bin/traefik /usr/bin/traefik 2>/dev/null || true
 

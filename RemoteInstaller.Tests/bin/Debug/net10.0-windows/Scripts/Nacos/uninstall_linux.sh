@@ -108,6 +108,20 @@ if command -v systemctl &> /dev/null; then
     rm -f /etc/systemd/system/nacos.service 2>/dev/null || true
     rm -f /lib/systemd/system/nacos.service 2>/dev/null || true
     rm -f /usr/lib/systemd/system/nacos.service 2>/dev/null || true
+
+    SYSTEMD_SERVICE_GLOBS=(
+        "/etc/systemd/system/*.wants/nacos.service"
+        "/run/systemd/generator*/nacos.service"
+    )
+
+    for pattern in "${SYSTEMD_SERVICE_GLOBS[@]}"; do
+        for service_file in $pattern; do
+            if [ -e "$service_file" ] || [ -L "$service_file" ]; then
+                rm -f "$service_file" 2>/dev/null || true
+            fi
+        done
+    done
+
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed 2>/dev/null || true
     echo "systemd 服务已清理"
@@ -150,8 +164,12 @@ if command -v systemctl &> /dev/null; then
     if systemctl is-active --quiet nacos 2>/dev/null; then
         echo -e "\033[0;31m警告：Nacos 服务仍在运行\033[0m"
         FAILED=1
+    elif systemctl list-unit-files 2>/dev/null | grep -q '^nacos\.service' || \
+         systemctl list-units --all --type=service 2>/dev/null | grep -Eiwq 'nacos'; then
+        echo -e "\033[0;31m警告：Nacos 服务定义仍存在\033[0m"
+        FAILED=1
     else
-        echo -e "\033[0;32mNacos 服务：已停止\033[0m"
+        echo -e "\033[0;32mNacos 服务：已停止并清理\033[0m"
     fi
 fi
 

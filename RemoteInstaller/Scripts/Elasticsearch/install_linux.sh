@@ -155,7 +155,6 @@ prepare_debian_offline_dependencies() {
     echo "正在安装缺失的 Elasticsearch Debian 离线依赖包..."
     DPKG_OPTS="--force-confdef --force-confold"
     DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "${install_files[@]}"
-    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
 }
 
 collect_redhat_rpm_files() {
@@ -490,7 +489,6 @@ elif [ "$OS_TYPE" = "debian" ] && { [ "$PACKAGE_IS_DIRECTORY" = true ] || { [ "$
     echo "再安装 Elasticsearch 主包：$DEB_MAIN_PACKAGE"
     DPKG_OPTS="--force-confdef --force-confold"
     DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS -i "$DEB_MAIN_PACKAGE"
-    DEBIAN_FRONTEND=noninteractive dpkg $DPKG_OPTS --configure -a
     sync
 
     if ! dpkg -l | grep -q "^ii[[:space:]]\+elasticsearch[[:space:]]"; then
@@ -846,6 +844,7 @@ echo "等待服务启动..."
 SUCCESS=false
 COUNT=0
 while [ $COUNT -lt 40 ]; do
+    echo "PROGRESS:Verifying:$((85 + COUNT * 10 / 40))"
     # 尝试 HTTP API 检测
     ES_RESP=""
     if command -v curl &>/dev/null; then

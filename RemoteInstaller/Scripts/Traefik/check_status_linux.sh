@@ -20,6 +20,9 @@ get_port_process_output() {
 IS_INSTALLED=false
 IS_RUNNING=false
 VERSION="未知"
+service_only_stale="false"
+SERVICE_FOUND=false
+CONFIG_ONLY_RESIDUE=false
 
 if command -v traefik >/dev/null 2>&1; then
     IS_INSTALLED=true
@@ -27,11 +30,13 @@ if command -v traefik >/dev/null 2>&1; then
 fi
 
 if [ -f /etc/systemd/system/${SERVICE_NAME}.service ] || [ -f /lib/systemd/system/${SERVICE_NAME}.service ] || [ -f /usr/lib/systemd/system/${SERVICE_NAME}.service ]; then
-    IS_INSTALLED=true
+    SERVICE_FOUND=true
 fi
 
-if [ -d "$INSTALL_DIR" ] || [ -d "$CONFIG_DIR" ]; then
+if [ -x "$INSTALL_DIR/traefik" ]; then
     IS_INSTALLED=true
+elif [ -d "$INSTALL_DIR" ] || [ -d "$CONFIG_DIR" ]; then
+    CONFIG_ONLY_RESIDUE=true
 fi
 
 if systemctl is-active --quiet ${SERVICE_NAME} 2>/dev/null; then
@@ -52,9 +57,19 @@ for port in "$HTTP_PORT" "$HTTPS_PORT" "$DASHBOARD_PORT"; do
     fi
 done
 
+if [ "$SERVICE_FOUND" = true ] && [ "$IS_INSTALLED" != true ] && [ "$IS_RUNNING" != true ]; then
+    service_only_stale="true"
+    echo "Traefik 服务定义存在，但未发现二进制、安装目录、进程或端口，按残留服务处理"
+fi
+
+if [ "$CONFIG_ONLY_RESIDUE" = true ] && [ "$IS_INSTALLED" != true ] && [ "$IS_RUNNING" != true ]; then
+    echo "Traefik 配置或数据目录存在，但未发现二进制、进程或端口，按残留配置处理"
+fi
+
 echo "--- MACHINE READABLE ---"
 echo "INSTALLED: ${IS_INSTALLED}"
 echo "VERSION: ${VERSION:-未知}"
 echo "RUNNING: ${IS_RUNNING}"
 echo "PORT: ${HTTP_PORT},${HTTPS_PORT},${DASHBOARD_PORT}"
+echo "SERVICE_ONLY_STALE: ${service_only_stale:-false}"
 echo "------------------------"
