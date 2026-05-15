@@ -57,6 +57,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button
                     Margin="8,0,0,0"
+                    AutomationProperties.AutomationId="ConfigEditorToolbarSaveButton"
                     Style="{StaticResource MaterialDesignToolButton}"
                     ToolTip="保存"
                     Command="{Binding SaveCommand}">
@@ -64,6 +65,7 @@
                 </Button>
                 <Button
                     Margin="8,0,0,0"
+                    AutomationProperties.AutomationId="ConfigEditorToolbarSaveAndRestartButton"
                     Style="{StaticResource MaterialDesignToolButton}"
                     ToolTip="保存并重启"
                     Command="{Binding SaveAndRestartCommand}"
@@ -72,6 +74,7 @@
                 </Button>
                 <Button
                     Margin="8,0,0,0"
+                    AutomationProperties.AutomationId="ConfigEditorToolbarCloseButton"
                     Style="{StaticResource MaterialDesignToolButton}"
                     ToolTip="关闭"
                     Command="{Binding CancelCommand}">
@@ -136,6 +139,7 @@
                         Text="当前文件"/>
                     <ComboBox
                         Grid.Column="1"
+                        AutomationProperties.AutomationId="ConfigEditorFileSelectorComboBox"
                         Margin="12,0,0,0"
                         ItemsSource="{Binding AvailableFiles}"
                         SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
@@ -175,6 +179,7 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button
                             Margin="0,0,8,0"
+                            AutomationProperties.AutomationId="StructuredModeButton"
                             Padding="12,4"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding SwitchToStructuredModeCommand}"
@@ -184,6 +189,7 @@
                         </Button>
                         <Button
                             Margin="0,0,8,0"
+                            AutomationProperties.AutomationId="TextModeButton"
                             Padding="12,4"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding SwitchToTextModeCommand}"
@@ -194,12 +200,14 @@
                                     Visibility="{Binding ShowStructuredActions, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Button
                                 Margin="0,0,8,0"
+                                AutomationProperties.AutomationId="AddConfigItemButton"
                                 Padding="12,4"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Command="{Binding AddItemCommand}">
                                 <TextBlock Text="新增项"/>
                             </Button>
                             <Button
+                                AutomationProperties.AutomationId="RemoveSelectedConfigItemButton"
                                 Padding="12,4"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Command="{Binding RemoveSelectedItemCommand}">
@@ -226,9 +234,11 @@
                     </Border.Style>
 
                     <StackPanel>
-                        <TextBox Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox AutomationProperties.AutomationId="MemoryLimitTextBox"
+                                 Text="{Binding MemoryLimit, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="内存限制，例如 2g"/>
                         <CheckBox Margin="0,12,0,0"
+                                  AutomationProperties.AutomationId="ElasticsearchMemoryAdvancedModeCheckBox"
                                   Content="高级模式"
                                   IsChecked="{Binding IsElasticsearchMemoryAdvancedMode, Mode=TwoWay}"/>
                         <TextBlock Margin="0,8,0,0"
@@ -251,9 +261,11 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0"
+                                     AutomationProperties.AutomationId="JvmXmsTextBox"
                                      Text="{Binding JvmXms, UpdateSourceTrigger=PropertyChanged}"
                                      materialDesign:HintAssist.Hint="Xms"/>
                             <TextBox Grid.Column="2"
+                                     AutomationProperties.AutomationId="JvmXmxTextBox"
                                      Text="{Binding JvmXmx, UpdateSourceTrigger=PropertyChanged}"
                                      materialDesign:HintAssist.Hint="Xmx"/>
                         </Grid>
@@ -262,6 +274,7 @@
 
                 <DataGrid
                     Grid.Row="2"
+                    AutomationProperties.AutomationId="KeyValueConfigDataGrid"
                     Margin="0,10,0,0"
                     AutoGenerateColumns="False"
                     CanUserAddRows="False"
@@ -297,6 +310,7 @@
                 </DataGrid>
 
                 <TreeView Grid.Row="2"
+                          AutomationProperties.AutomationId="YamlConfigTreeView"
                           Margin="0,10,0,0"
                           ItemsSource="{Binding YamlTreeNodes}"
                           SelectedItemChanged="YamlConfigTreeView_SelectedItemChanged"
@@ -390,6 +404,7 @@
                 </TreeView>
 
                 <TextBox Grid.Row="2"
+                         AutomationProperties.AutomationId="RawConfigTextBox"
                          Margin="0,10,0,0"
                          PreviewMouseWheel="Editor_PreviewMouseWheel"
                          Text="{Binding ConfigContent, UpdateSourceTrigger=PropertyChanged}">
@@ -438,6 +453,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button
                     Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="ConfigEditorSaveButton"
                     Padding="16,6"
                     Style="{StaticResource PrimaryButtonStyle}"
                     Command="{Binding SaveCommand}">
@@ -445,6 +461,7 @@
                 </Button>
                 <Button
                     Margin="8,0,8,0"
+                    AutomationProperties.AutomationId="ConfigEditorSaveAndRestartButton"
                     Padding="16,6"
                     Style="{StaticResource SecondaryButtonStyle}"
                     Command="{Binding SaveAndRestartCommand}"
@@ -452,6 +469,7 @@
                     <TextBlock Text="保存并重启"/>
                 </Button>
                 <Button
+                    AutomationProperties.AutomationId="ConfigEditorCloseButton"
                     Padding="16,6"
                     Style="{StaticResource SecondaryButtonStyle}"
                     Command="{Binding CancelCommand}">

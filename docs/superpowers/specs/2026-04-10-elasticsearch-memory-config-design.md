@@ -185,7 +185,7 @@
 - 不新增 Elasticsearch 专用主界面入口
 - 不修改安装参数面板为双字段或高级模式
 - 不处理 Windows 下 Elasticsearch 内存配置编辑
-- 不扩展到 Nacos、RabbitMQ 等其它 Java 应用的 JVM 配置统一入口
+- 不扩展到 RabbitMQ 等其它 Java 应用的 JVM 配置统一入口
 
 ## 结论
 本设计采用“安装前保持简单、安装后在现有配置编辑器中增强”的路线：

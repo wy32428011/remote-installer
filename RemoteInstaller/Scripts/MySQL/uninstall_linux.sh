@@ -6,6 +6,8 @@ if [ "$1" == "--keep-data" ]; then
     KEEP_DATA=true
 fi
 
+DATA_DIRECTORY=${DATA_DIRECTORY:-}
+
 LOG_FILE="uninstall.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -52,9 +54,123 @@ is_port_listening() {
     fi
 }
 
+is_safe_custom_data_directory() {
+    local path=$1
+    local resolved_path
+
+    if [ -z "$path" ]; then
+        return 1
+    fi
+
+    if command -v realpath >/dev/null 2>&1; then
+        resolved_path=$(realpath -m "$path" 2>/dev/null) || return 1
+    else
+        return 1
+    fi
+
+    if [[ ! "$resolved_path" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+        return 1
+    fi
+
+    case "$resolved_path" in
+        /var/lib/mysql/*|/var/lib/mysql-*|/opt/mysql/*|/opt/mysql-*|/data/mysql/*|/data/mysql-*|/srv/mysql/*|/srv/mysql-*)
+            DATA_DIRECTORY_RESOLVED="$resolved_path"
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+remove_custom_data_directory_apparmor_rules() {
+    local target_dir=$1
+    local local_profile="/etc/apparmor.d/local/usr.sbin.mysqld"
+    local temp_file
+
+    if [ -z "$target_dir" ] || [ ! -f "$local_profile" ]; then
+        return 0
+    fi
+
+    temp_file=$(mktemp)
+    awk -v read_rule="  $target_dir/ r," -v write_rule="  $target_dir/** rwk," '$0 != read_rule && $0 != write_rule { print }' "$local_profile" > "$temp_file"
+    cat "$temp_file" > "$local_profile"
+    rm -f "$temp_file"
+
+    if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
+        if command -v apparmor_parser >/dev/null 2>&1; then
+            apparmor_parser -r /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
+        elif command -v systemctl >/dev/null 2>&1; then
+            systemctl reload apparmor 2>/dev/null || true
+        fi
+    fi
+}
+
+remove_mysql_port_selinux_resources() {
+    local state_dir="/var/lib/remote-installer/mysql"
+    local state_file
+    local module_name
+    local port
+    local expected_state_file
+    local owner_id
+    local permissions
+
+    if [ ! -d "$state_dir" ]; then
+        return 0
+    fi
+
+    for state_file in "$state_dir"/selinux-port-*.state; do
+        [ -f "$state_file" ] || continue
+        grep -Fxq "owner=remote-installer" "$state_file" || continue
+
+        owner_id=$(stat -c '%u' "$state_file" 2>/dev/null || echo "")
+        permissions=$(stat -c '%a' "$state_file" 2>/dev/null || echo "")
+        if [ "$owner_id" != "0" ] || [ -z "$permissions" ] || [ $((8#$permissions & 022)) -ne 0 ]; then
+            echo "跳过不可信 SELinux 状态文件：$state_file"
+            continue
+        fi
+
+        module_name=$(grep -E '^module=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+        port=$(grep -E '^port=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+
+        if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "跳过无效 SELinux 端口状态文件：$state_file"
+            continue
+        fi
+
+        expected_state_file="$state_dir/selinux-port-${port}.state"
+        if [ "$state_file" != "$expected_state_file" ]; then
+            echo "跳过端口不一致的 SELinux 状态文件：$state_file"
+            continue
+        fi
+
+        if [ -n "$module_name" ] && [ "$module_name" != "remote_installer_mysql_port_${port}" ]; then
+            echo "跳过非本安装器命名空间的 SELinux 模块：$module_name"
+            continue
+        fi
+
+        if grep -Fxq "semanage=added" "$state_file" && command -v semanage >/dev/null 2>&1; then
+            semanage port -d -p tcp "$port" 2>/dev/null || true
+        fi
+
+        if grep -Fxq "module_created=true" "$state_file" && [ -n "$module_name" ] && command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "$module_name"; then
+            semodule -r "$module_name" 2>/dev/null || true
+        fi
+
+        rm -f "$state_file"
+    done
+}
+
 echo "PROGRESS:Initializing:5"
 echo "MySQL 卸载脚本开始..."
 echo "保留数据模式: $KEEP_DATA"
+if [ -n "$DATA_DIRECTORY" ]; then
+    if is_safe_custom_data_directory "$DATA_DIRECTORY"; then
+        echo "自定义数据目录: $DATA_DIRECTORY_RESOLVED"
+    else
+        echo "自定义数据目录: <不安全路径，已拒绝>"
+    fi
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "错误：请使用 root 权限运行此脚本"
@@ -128,6 +244,15 @@ if [ "$KEEP_DATA" = false ]; then
             rm -rf "$path"
         fi
     done
+
+    if [ -n "$DATA_DIRECTORY" ]; then
+        if is_safe_custom_data_directory "$DATA_DIRECTORY"; then
+            rm -rf "$DATA_DIRECTORY_RESOLVED"
+            remove_custom_data_directory_apparmor_rules "$DATA_DIRECTORY_RESOLVED"
+        else
+            echo "跳过不安全的自定义数据目录清理：<不安全路径，已拒绝>"
+        fi
+    fi
 
     for file in \
         /etc/my.cnf \
@@ -208,6 +333,8 @@ if [ "$KEEP_DATA" = false ]; then
     fi
 fi
 
+remove_mysql_port_selinux_resources
+
 echo "PROGRESS:Finalizing:90"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
@@ -280,7 +407,12 @@ else
 fi
 
 if [ "$KEEP_DATA" = false ]; then
-    for path in /etc/mysql /etc/my.cnf /var/lib/mysql /var/log/mysql /usr/local/mysql; do
+    RESIDUE_PATHS=(/etc/mysql /etc/my.cnf /var/lib/mysql /var/log/mysql /usr/local/mysql)
+    if [ -n "$DATA_DIRECTORY" ] && is_safe_custom_data_directory "$DATA_DIRECTORY"; then
+        RESIDUE_PATHS+=("$DATA_DIRECTORY_RESOLVED")
+    fi
+
+    for path in "${RESIDUE_PATHS[@]}"; do
         if [ -e "$path" ]; then
             echo "警告：残留路径仍存在：$path"
             FAILED=1

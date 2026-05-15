@@ -15,6 +15,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RemoteInstaller.Models;
 using RemoteInstaller.Services;
+using RemoteInstaller.Services.Operations;
 using RemoteInstaller.Views;
 using MaterialDesignThemes.Wpf;
 
@@ -37,9 +38,6 @@ namespace RemoteInstaller.ViewModels
         private int _postLoadInitialized;
         private string _refreshStatusText = "正在刷新应用状态...";
 
-        // 批量卸载并发控制；批量安装必须全局串行，避免多台主机同时争用安装资源
-        private SemaphoreSlim? _batchUninstallSemaphore;
-
         // 批量操作取消控制
         private CancellationTokenSource? _batchInstallCts;
         private CancellationTokenSource? _batchUninstallCts;
@@ -54,6 +52,10 @@ namespace RemoteInstaller.ViewModels
         private readonly System.Timers.Timer _taskUiRefreshTimer;
         private readonly object _taskUiRefreshLock = new();
         private const int TaskUiRefreshThrottleMs = 250;
+        private readonly UiOperationEventBuffer _operationEventBuffer = new();
+        private readonly ConcurrentDictionary<string, TaskViewModel> _pendingOperationTaskBindings = new(StringComparer.OrdinalIgnoreCase);
+        private readonly System.Timers.Timer _operationEventFlushTimer;
+        private const int OperationEventFlushThrottleMs = 120;
         private bool _isReorderingTasks;
 
         #region 属性
@@ -1080,32 +1082,18 @@ namespace RemoteInstaller.ViewModels
             try
             {
                 var token = _batchInstallCts.Token;
-
-                foreach (var host in selectedHosts)
+                using var operationExecutor = new DelegateBatchOperationExecutor(async (request, _, requestToken) =>
                 {
-                    token.ThrowIfCancellationRequested();
+                    var hostViewModel = selectedHosts.First(host => string.Equals(host.Id, request.Host.Id, StringComparison.OrdinalIgnoreCase));
+                    var appViewModel = selectedApps.First(app => string.Equals(app.Id, request.Application.Id, StringComparison.OrdinalIgnoreCase));
+                    var taskResult = await InstallApplicationToHost(appViewModel, hostViewModel, requestToken);
+                    RecordBatchTaskResult(taskResult, ref completedCount, ref successCount, ref failedCount, ref canceledCount);
 
-                    foreach (var app in selectedApps)
-                    {
-                        token.ThrowIfCancellationRequested();
-
-                        var result = await InstallApplicationToHost(app, host, token);
-                        completedCount++;
-
-                        switch (result)
-                        {
-                            case BatchTaskResult.Success:
-                                successCount++;
-                                break;
-                            case BatchTaskResult.Failed:
-                                failedCount++;
-                                break;
-                            case BatchTaskResult.Canceled:
-                                canceledCount++;
-                                break;
-                        }
-                    }
-                }
+                    return CreateBatchOperationResult(request, taskResult);
+                });
+                var runner = new BatchOperationRunner(operationExecutor);
+                var requests = CreateBatchOperationRequests(OperationType.Install, selectedHosts, selectedApps);
+                await runner.RunInstallQueueAsync(requests, EnqueueOperationEvent, token);
 
                 AddLog($"批量安装完成，总任务 {totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}", LogLevel.Success);
 
@@ -1117,7 +1105,8 @@ namespace RemoteInstaller.ViewModels
             }
             catch (OperationCanceledException)
             {
-                AddLog($"批量安装已取消，已完成 {completedCount}/{totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}", LogLevel.Warning);
+                var notStartedCount = Math.Max(0, totalTasks - completedCount);
+                AddLog($"批量安装已取消，已完成 {completedCount}/{totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}，未启动 {notStartedCount}", LogLevel.Warning);
             }
             catch (Exception ex)
             {
@@ -1163,10 +1152,11 @@ namespace RemoteInstaller.ViewModels
                 return;
             }
 
-            var totalTasks = selectedApps.Count * SelectedHosts.Count;
+            var selectedHosts = SelectedHosts.ToList();
+            var totalTasks = selectedApps.Count * selectedHosts.Count;
             var appSummary = selectedApps.Count == 1 ? selectedApps[0].Name : $"{selectedApps.Count} 个应用";
             var result = MessageBox.Show(
-                $"确定要在 {SelectedHosts.Count} 台服务器上卸载 {appSummary} 吗？共 {totalTasks} 个任务。",
+                $"确定要在 {selectedHosts.Count} 台服务器上卸载 {appSummary} 吗？共 {totalTasks} 个任务。",
                 "确认批量卸载",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
@@ -1185,47 +1175,23 @@ namespace RemoteInstaller.ViewModels
             var failedCount = 0;
             var canceledCount = 0;
 
-            // 初始化信号量 (根据设置中的并发数)
-            var maxConcurrentTasks = int.TryParse(_databaseService.GetSetting("MaxConcurrentTasks", "3"), out var val) ? val : 3;
-            _batchUninstallSemaphore = new SemaphoreSlim(maxConcurrentTasks, maxConcurrentTasks);
-
             try
             {
                 var token = _batchUninstallCts.Token;
-
-                var tasks = SelectedHosts.Select(async host =>
+                var maxConcurrentHosts = int.TryParse(_databaseService.GetSetting("MaxConcurrentTasks", "3"), out var val) ? val : 3;
+                using var operationExecutor = new DelegateBatchOperationExecutor(async (request, _, requestToken) =>
                 {
-                    await _batchUninstallSemaphore!.WaitAsync(token);
-                    try
-                    {
-                        foreach (var app in selectedApps)
-                        {
-                            token.ThrowIfCancellationRequested();
+                    var hostViewModel = selectedHosts.First(host => string.Equals(host.Id, request.Host.Id, StringComparison.OrdinalIgnoreCase));
+                    var appViewModel = selectedApps.First(app => string.Equals(app.Id, request.Application.Id, StringComparison.OrdinalIgnoreCase));
+                    var taskResult = await UninstallApplicationFromHost(appViewModel, hostViewModel, requestToken);
+                    RecordBatchTaskResult(taskResult, ref completedCount, ref successCount, ref failedCount, ref canceledCount);
 
-                            var uninstallResult = await UninstallApplicationFromHost(app, host, token);
-                            Interlocked.Increment(ref completedCount);
+                    return CreateBatchOperationResult(request, taskResult);
+                });
+                var runner = new BatchOperationRunner(operationExecutor);
+                var requests = CreateBatchOperationRequests(OperationType.Uninstall, selectedHosts, selectedApps);
+                await runner.RunUninstallQueueAsync(requests, maxConcurrentHosts, EnqueueOperationEvent, token);
 
-                            switch (uninstallResult)
-                            {
-                                case BatchTaskResult.Success:
-                                    Interlocked.Increment(ref successCount);
-                                    break;
-                                case BatchTaskResult.Failed:
-                                    Interlocked.Increment(ref failedCount);
-                                    break;
-                                case BatchTaskResult.Canceled:
-                                    Interlocked.Increment(ref canceledCount);
-                                    break;
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        _batchUninstallSemaphore.Release();
-                    }
-                }).ToList();
-
-                await Task.WhenAll(tasks);
                 AddLog($"批量卸载完成，总任务 {totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}", LogLevel.Success);
 
                 if (SelectedHost != null && SelectedHosts.Contains(SelectedHost))
@@ -1236,7 +1202,8 @@ namespace RemoteInstaller.ViewModels
             }
             catch (OperationCanceledException)
             {
-                AddLog($"批量卸载已取消，已完成 {completedCount}/{totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}", LogLevel.Warning);
+                var notStartedCount = Math.Max(0, totalTasks - completedCount);
+                AddLog($"批量卸载已取消，已完成 {completedCount}/{totalTasks}，成功 {successCount}，失败 {failedCount}，取消 {canceledCount}，未启动 {notStartedCount}", LogLevel.Warning);
             }
             catch (Exception ex)
             {
@@ -1245,7 +1212,6 @@ namespace RemoteInstaller.ViewModels
             finally
             {
                 IsBatchUninstalling = false;
-                _batchUninstallSemaphore?.Dispose();
                 _batchUninstallCts?.Dispose();
                 _batchUninstallCts = null;
             }
@@ -1503,25 +1469,31 @@ namespace RemoteInstaller.ViewModels
 
         private void UpdateTaskProgressState(TaskViewModel taskViewModel, InstallTask task)
         {
-            taskViewModel.Progress = task.Progress;
-            taskViewModel.CurrentStage = task.StageDisplayText;
-            taskViewModel.StatusMessage = task.Status == Models.TaskStatus.Failed && !string.IsNullOrWhiteSpace(task.ErrorMessage)
-                ? task.ErrorMessage
-                : $"当前阶段：{task.StageDisplayText}";
-            taskViewModel.IsCompleted = task.Status == Models.TaskStatus.Completed;
-            taskViewModel.IsFailed = task.Status == Models.TaskStatus.Failed;
-            taskViewModel.IsCanceled = task.Status == Models.TaskStatus.Cancelled;
-            taskViewModel.MarkActivity();
-            RequestTaskListRefresh(immediate: task.Status is Models.TaskStatus.Completed or Models.TaskStatus.Failed or Models.TaskStatus.Cancelled);
+            RunOnUiThread(() =>
+            {
+                taskViewModel.Progress = task.Progress;
+                taskViewModel.CurrentStage = task.StageDisplayText;
+                taskViewModel.StatusMessage = task.Status == Models.TaskStatus.Failed && !string.IsNullOrWhiteSpace(task.ErrorMessage)
+                    ? task.ErrorMessage
+                    : $"当前阶段：{task.StageDisplayText}";
+                taskViewModel.IsCompleted = task.Status == Models.TaskStatus.Completed;
+                taskViewModel.IsFailed = task.Status == Models.TaskStatus.Failed;
+                taskViewModel.IsCanceled = task.Status == Models.TaskStatus.Cancelled;
+                taskViewModel.MarkActivity();
+                RequestTaskListRefresh(immediate: task.Status is Models.TaskStatus.Completed or Models.TaskStatus.Failed or Models.TaskStatus.Cancelled);
+            });
         }
 
         private IProgress<LogEntry> CreateTaskLogReporter(TaskViewModel taskViewModel)
         {
             return new Progress<LogEntry>(entry =>
             {
-                taskViewModel.AddLog(entry);
-                taskViewModel.MarkActivity();
-                RequestTaskListRefresh();
+                RunOnUiThread(() =>
+                {
+                    taskViewModel.AddLog(entry);
+                    taskViewModel.MarkActivity();
+                    RequestTaskListRefresh();
+                });
             });
         }
 
@@ -1529,7 +1501,7 @@ namespace RemoteInstaller.ViewModels
         {
             taskViewModel.MarkActivity();
 
-            Application.Current.Dispatcher.Invoke(() =>
+            RunOnUiThread(() =>
             {
                 if (insertAtTop)
                 {
@@ -1785,7 +1757,7 @@ namespace RemoteInstaller.ViewModels
             _filterDebounceTimer.Elapsed += (s, e) =>
             {
                 _filterDebounceTimer.Stop();
-                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                RunOnUiThread(() =>
                 {
                     lock (_filterLock)
                     {
@@ -1801,6 +1773,14 @@ namespace RemoteInstaller.ViewModels
             {
                 _taskUiRefreshTimer.Stop();
                 RunOnUiThread(FlushTaskListRefresh);
+            };
+
+            _operationEventFlushTimer = new System.Timers.Timer(OperationEventFlushThrottleMs);
+            _operationEventFlushTimer.AutoReset = false;
+            _operationEventFlushTimer.Elapsed += (s, e) =>
+            {
+                _operationEventFlushTimer.Stop();
+                RunOnUiThread(FlushOperationEvents);
             };
 
             Tasks.CollectionChanged += (s, e) =>
@@ -2157,11 +2137,14 @@ namespace RemoteInstaller.ViewModels
         /// </summary>
         private void AddLog(string message, LogLevel level)
         {
-            Logs.Add(new LogViewModel { Message = message, Level = level, Timestamp = DateTime.Now });
-            if (Logs.Count > 100)
+            RunOnUiThread(() =>
             {
-                Logs.RemoveAt(0);
-            }
+                Logs.Add(new LogViewModel { Message = message, Level = level, Timestamp = DateTime.Now });
+                if (Logs.Count > 100)
+                {
+                    Logs.RemoveAt(0);
+                }
+            });
         }
 
         private SshService CreateIsolatedSshService()
@@ -2172,6 +2155,125 @@ namespace RemoteInstaller.ViewModels
         private InstallerService CreateIsolatedInstallerService()
         {
             return new InstallerService(CreateIsolatedSshService(), _logger, disposeSshService: true);
+        }
+
+        private OperationExecutor CreateOperationExecutor()
+        {
+            return new OperationExecutor(CreateIsolatedInstallerService(), ownsInstaller: true);
+        }
+
+        private void EnqueueOperationEvent(OperationEvent operationEvent)
+        {
+            _operationEventBuffer.Enqueue(operationEvent);
+            if (operationEvent.Kind is OperationEventKind.Completed or OperationEventKind.Failed or OperationEventKind.Canceled)
+            {
+                lock (_taskUiRefreshLock)
+                {
+                    _operationEventFlushTimer.Stop();
+                }
+
+                RunOnUiThread(FlushOperationEvents);
+                return;
+            }
+
+            lock (_taskUiRefreshLock)
+            {
+                if (!_operationEventFlushTimer.Enabled)
+                {
+                    _operationEventFlushTimer.Start();
+                }
+            }
+        }
+
+        private Action<OperationEvent> CreateTaskOperationEventHandler(TaskViewModel taskViewModel)
+        {
+            return operationEvent =>
+            {
+                if (!string.IsNullOrWhiteSpace(operationEvent.TaskId))
+                {
+                    _pendingOperationTaskBindings[operationEvent.TaskId] = taskViewModel;
+                }
+
+                if (operationEvent.LogEntry != null && string.IsNullOrWhiteSpace(operationEvent.LogEntry.TaskId))
+                {
+                    operationEvent.LogEntry.TaskId = operationEvent.TaskId;
+                }
+
+                EnqueueOperationEvent(operationEvent);
+            };
+        }
+
+        private void FlushOperationEvents()
+        {
+            var batch = _operationEventBuffer.Drain();
+            if (!batch.HasChanges)
+            {
+                return;
+            }
+
+            ApplyOperationEventBatch(batch);
+        }
+
+        private void ApplyOperationEventBatch(UiOperationEventBatch batch)
+        {
+            foreach (var taskId in batch.ProgressEvents.Select(item => item.TaskId)
+                         .Concat(batch.LogEvents.Select(item => item.TaskId))
+                         .Concat(batch.TerminalEvents.Select(item => item.TaskId))
+                         .Where(id => !string.IsNullOrWhiteSpace(id))
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (_pendingOperationTaskBindings.TryRemove(taskId, out var taskViewModel)
+                    && !string.Equals(taskViewModel.TaskId, taskId, StringComparison.OrdinalIgnoreCase))
+                {
+                    taskViewModel.TaskId = taskId;
+                }
+            }
+
+            foreach (var progressEvent in batch.ProgressEvents)
+            {
+                var task = Tasks.FirstOrDefault(item => item.TaskId == progressEvent.TaskId);
+                if (task == null)
+                {
+                    continue;
+                }
+
+                task.Progress = progressEvent.Percent;
+                task.CurrentStage = progressEvent.Stage;
+                task.StatusMessage = $"当前阶段：{progressEvent.Stage}";
+                task.MarkActivity();
+            }
+
+            foreach (var logEvent in batch.LogEvents)
+            {
+                if (logEvent.LogEntry == null)
+                {
+                    continue;
+                }
+
+                var task = string.IsNullOrWhiteSpace(logEvent.TaskId)
+                    ? null
+                    : Tasks.FirstOrDefault(item => item.TaskId == logEvent.TaskId);
+                task?.AddLog(logEvent.LogEntry);
+                task?.MarkActivity();
+            }
+
+            // StatusChanged 由 Completed.Result.Status 统一落地，避免同一状态重复刷新。
+            foreach (var terminalEvent in batch.TerminalEvents)
+            {
+                var result = terminalEvent.Result;
+                if (result?.Status != null && string.Equals(result.Host.Id, SelectedHost?.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    var appCard = Applications.FirstOrDefault(app =>
+                        string.Equals(app.Id, result.Application.Id, StringComparison.OrdinalIgnoreCase) ||
+                        (IsJdkVersionApplicationId(result.Application.Id) && IsUnifiedJdkApplicationId(app.Id)));
+                    if (appCard != null)
+                    {
+                        ApplyApplicationStatus(appCard, result.Status);
+                    }
+                }
+            }
+
+            RequestTaskListRefresh(immediate: batch.TerminalEvents.Count > 0);
         }
 
         /// <summary>
@@ -2481,6 +2583,74 @@ namespace RemoteInstaller.ViewModels
             return output.Trim().Contains("true", StringComparison.OrdinalIgnoreCase);
         }
 
+        private List<OperationRequest> CreateBatchOperationRequests(
+            OperationType operationType,
+            IReadOnlyList<HostViewModel> hosts,
+            IReadOnlyList<ApplicationCardViewModel> apps)
+        {
+            var requests = new List<OperationRequest>();
+            foreach (var hostViewModel in hosts)
+            {
+                var host = GetHostFromViewModel(hostViewModel);
+                if (host == null)
+                {
+                    AddLog($"无法找到主机信息：{hostViewModel.Name}", LogLevel.Error);
+                    continue;
+                }
+
+                foreach (var app in apps)
+                {
+                    var appInfo = GetApplicationInfo(app.Id) ?? new ApplicationInfo
+                    {
+                        Id = app.Id,
+                        Name = app.Name,
+                        Version = string.IsNullOrWhiteSpace(app.Version) ? "1.0.0" : app.Version
+                    };
+                    requests.Add(new OperationRequest(operationType, host, appInfo, isBatch: true));
+                }
+            }
+
+            return requests;
+        }
+
+        private static void RecordBatchTaskResult(
+            BatchTaskResult result,
+            ref int completedCount,
+            ref int successCount,
+            ref int failedCount,
+            ref int canceledCount)
+        {
+            Interlocked.Increment(ref completedCount);
+            switch (result)
+            {
+                case BatchTaskResult.Success:
+                    Interlocked.Increment(ref successCount);
+                    break;
+                case BatchTaskResult.Failed:
+                    Interlocked.Increment(ref failedCount);
+                    break;
+                case BatchTaskResult.Canceled:
+                    Interlocked.Increment(ref canceledCount);
+                    break;
+            }
+        }
+
+        private static OperationResult CreateBatchOperationResult(OperationRequest request, BatchTaskResult result)
+        {
+            return new OperationResult
+            {
+                Type = request.Type,
+                Host = request.Host,
+                Application = request.Application,
+                TaskStatus = result switch
+                {
+                    BatchTaskResult.Success => RemoteInstaller.Models.TaskStatus.Completed,
+                    BatchTaskResult.Canceled => RemoteInstaller.Models.TaskStatus.Cancelled,
+                    _ => RemoteInstaller.Models.TaskStatus.Failed
+                }
+            };
+        }
+
         private async Task<BatchTaskResult> InstallApplicationToHost(ApplicationCardViewModel app, HostViewModel hostViewModel, CancellationToken cancellationToken = default)
         {
             try
@@ -2520,7 +2690,6 @@ namespace RemoteInstaller.ViewModels
 
                 var logProgress = CreateTaskLogReporter(taskViewModel);
 
-                using var installerService = CreateIsolatedInstallerService();
                 var parameters = BuildBatchInstallParameters(appInfo);
                 var executionAppInfo = ResolveApplicationInfoForExecution(appInfo, appInfo.Version) ?? appInfo;
                 var localPackagePath = string.Empty;
@@ -2529,17 +2698,20 @@ namespace RemoteInstaller.ViewModels
                 {
                     if (!TryResolveMariaDbBatchLocalPackage(executionAppInfo, host, out localPackagePath, out var mariaDbHint))
                     {
-                        taskViewModel.IsFailed = true;
-                        taskViewModel.CurrentStage = "执行失败";
-                        taskViewModel.StatusMessage = mariaDbHint;
-                        taskViewModel.AddLog(new LogEntry
+                        RunOnUiThread(() =>
                         {
-                            Message = mariaDbHint,
-                            Level = LogLevel.Error,
-                            Timestamp = DateTime.Now
+                            taskViewModel.IsFailed = true;
+                            taskViewModel.CurrentStage = "执行失败";
+                            taskViewModel.StatusMessage = mariaDbHint;
+                            taskViewModel.AddLog(new LogEntry
+                            {
+                                Message = mariaDbHint,
+                                Level = LogLevel.Error,
+                                Timestamp = DateTime.Now
+                            });
+                            taskViewModel.MarkActivity();
+                            ReorderTasks();
                         });
-                        taskViewModel.MarkActivity();
-                        ReorderTasks();
                         AddLog($"批量任务失败：{app.Name} -> {host.Name} - {mariaDbHint}", LogLevel.Error);
                         return BatchTaskResult.Failed;
                     }
@@ -2563,31 +2735,36 @@ namespace RemoteInstaller.ViewModels
                 }
 
                 AddLog($"正在开始批量任务：{app.Name} -> {host.Name}", LogLevel.Info);
-                var result = await installerService.InstallAsync(
+                using var operationExecutor = CreateOperationExecutor();
+                var request = new OperationRequest(
+                    OperationType.Install,
                     host,
                     executionAppInfo,
                     parameters,
                     localPackagePath,
-                    progressReporter: progress,
-                    cancellationToken: cancellationToken,
-                    logReporter: logProgress);
+                    keepData: false,
+                    isBatch: true);
+                var result = await operationExecutor.ExecuteAsync(request, CreateTaskOperationEventHandler(taskViewModel), cancellationToken);
 
-                taskViewModel.TaskId = result.Id;
-                taskViewModel.IsCompleted = result.Status == Models.TaskStatus.Completed;
-                taskViewModel.IsFailed = result.Status == Models.TaskStatus.Failed;
-                taskViewModel.IsCanceled = result.Status == Models.TaskStatus.Cancelled;
-                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                RunOnUiThread(() =>
                 {
-                    taskViewModel.StatusMessage = result.ErrorMessage;
-                }
+                    taskViewModel.TaskId = result.TaskId;
+                    taskViewModel.IsCompleted = result.TaskStatus == Models.TaskStatus.Completed;
+                    taskViewModel.IsFailed = result.TaskStatus == Models.TaskStatus.Failed;
+                    taskViewModel.IsCanceled = result.TaskStatus == Models.TaskStatus.Cancelled;
+                    if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                    {
+                        taskViewModel.StatusMessage = result.ErrorMessage;
+                    }
+                });
 
-                if (result.Status == Models.TaskStatus.Completed)
+                if (result.TaskStatus == Models.TaskStatus.Completed)
                 {
                     AddLog($"批量任务成功：{app.Name} -> {host.Name}", LogLevel.Success);
                     return BatchTaskResult.Success;
                 }
 
-                if (result.Status == Models.TaskStatus.Cancelled)
+                if (result.TaskStatus == Models.TaskStatus.Cancelled)
                 {
                     AddLog($"批量任务取消：{app.Name} -> {host.Name}", LogLevel.Warning);
                     return BatchTaskResult.Canceled;
@@ -2679,29 +2856,32 @@ namespace RemoteInstaller.ViewModels
                 };
                 AddTask(taskViewModel);
 
-                var progress = new Progress<InstallTask>(t =>
+                using var operationExecutor = new OperationExecutor(installerService);
+                var request = new OperationRequest(
+                    OperationType.Uninstall,
+                    host,
+                    appInfo,
+                    keepData: false,
+                    isBatch: true);
+                var result = await operationExecutor.ExecuteAsync(request, CreateTaskOperationEventHandler(taskViewModel), cancellationToken);
+                RunOnUiThread(() =>
                 {
-                    UpdateTaskProgressState(taskViewModel, t);
+                    taskViewModel.TaskId = result.TaskId;
+                    taskViewModel.IsCompleted = result.TaskStatus == Models.TaskStatus.Completed;
+                    taskViewModel.IsFailed = result.TaskStatus == Models.TaskStatus.Failed;
+                    taskViewModel.IsCanceled = result.TaskStatus == Models.TaskStatus.Cancelled;
+                    if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                    {
+                        taskViewModel.StatusMessage = result.ErrorMessage;
+                    }
                 });
-
-                var logProgress = CreateTaskLogReporter(taskViewModel);
-
-                var result = await installerService.UninstallAsync(host, appInfo, false, progress, cancellationToken, logProgress);
-                taskViewModel.TaskId = result.Id;
-                taskViewModel.IsCompleted = result.Status == Models.TaskStatus.Completed;
-                taskViewModel.IsFailed = result.Status == Models.TaskStatus.Failed;
-                taskViewModel.IsCanceled = result.Status == Models.TaskStatus.Cancelled;
-                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
-                {
-                    taskViewModel.StatusMessage = result.ErrorMessage;
-                }
-                if (result.Status == Models.TaskStatus.Completed)
+                if (result.TaskStatus == Models.TaskStatus.Completed)
                 {
                     AddLog($"成功从 {host.Name} 卸载 {app.Name}", LogLevel.Success);
                     return BatchTaskResult.Success;
                 }
 
-                if (result.Status == Models.TaskStatus.Cancelled)
+                if (result.TaskStatus == Models.TaskStatus.Cancelled)
                 {
                     AddLog($"从 {host.Name} 卸载 {app.Name} 已取消", LogLevel.Warning);
                     return BatchTaskResult.Canceled;
@@ -2867,33 +3047,29 @@ namespace RemoteInstaller.ViewModels
             AddTask(taskViewModel);
             SelectedTask = taskViewModel;
 
-            using var installerService = CreateIsolatedInstallerService();
+            using var operationExecutor = CreateOperationExecutor();
             var cts = new CancellationTokenSource();
-            var progress = new Progress<InstallTask>(t =>
-            {
-                UpdateTaskProgressState(taskViewModel, t);
-            });
-            var logProgress = CreateTaskLogReporter(taskViewModel);
-
-            var taskResult = await installerService.InstallAsync(
+            var request = new OperationRequest(
+                OperationType.Install,
                 host,
                 appInfo,
                 parameters,
                 localPackagePath,
-                progress,
-                cts.Token,
-                logProgress);
+                keepData: false,
+                isBatch: false);
 
-            taskViewModel.TaskId = taskResult.Id;
-            taskViewModel.IsCompleted = taskResult.Status == Models.TaskStatus.Completed;
-            taskViewModel.IsFailed = taskResult.Status == Models.TaskStatus.Failed;
-            taskViewModel.IsCanceled = taskResult.Status == Models.TaskStatus.Cancelled;
-            if (!string.IsNullOrWhiteSpace(taskResult.ErrorMessage))
+            var operationResult = await operationExecutor.ExecuteAsync(request, CreateTaskOperationEventHandler(taskViewModel), cts.Token);
+
+            taskViewModel.TaskId = operationResult.TaskId;
+            taskViewModel.IsCompleted = operationResult.TaskStatus == Models.TaskStatus.Completed;
+            taskViewModel.IsFailed = operationResult.TaskStatus == Models.TaskStatus.Failed;
+            taskViewModel.IsCanceled = operationResult.TaskStatus == Models.TaskStatus.Cancelled;
+            if (!string.IsNullOrWhiteSpace(operationResult.ErrorMessage))
             {
-                taskViewModel.StatusMessage = taskResult.ErrorMessage;
+                taskViewModel.StatusMessage = operationResult.ErrorMessage;
             }
 
-            if (taskResult.Status == Models.TaskStatus.Completed)
+            if (operationResult.TaskStatus == Models.TaskStatus.Completed)
             {
                 UpdateInstalledApplicationState(appInfo.Id, version, appCard);
                 AddLog($"✅ 安装成功：{appInfo.Name} v{version}", LogLevel.Success);
@@ -2906,10 +3082,10 @@ namespace RemoteInstaller.ViewModels
                 }
                 MessageBox.Show($"安装成功！{appInfo.Name} 已安装到 {selectedHostViewModel.Name}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
             }
-            else if (taskResult.Status == Models.TaskStatus.Failed)
+            else if (operationResult.TaskStatus == Models.TaskStatus.Failed)
             {
-                AddLog($"❌ 安装失败：{taskResult.ErrorMessage}", LogLevel.Error);
-                MessageBox.Show($"安装失败：{taskResult.ErrorMessage}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                AddLog($"❌ 安装失败：{operationResult.ErrorMessage}", LogLevel.Error);
+                MessageBox.Show($"安装失败：{operationResult.ErrorMessage}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -2948,11 +3124,29 @@ namespace RemoteInstaller.ViewModels
 
                 AddLog($"正在检测 {appCard.Name} 状态...", LogLevel.Info);
 
-                using var installerService = CreateIsolatedInstallerService();
-                var status = await GetApplicationStatusAsync(host, appCard, installerService);
+                ApplicationStatus status;
+                if (IsUnifiedJdkApplicationId(appCard.Id))
+                {
+                    using var installerService = CreateIsolatedInstallerService();
+                    status = await GetUnifiedJdkStatusAsync(host, installerService);
+                }
+                else
+                {
+                    var appInfo = GetApplicationInfo(appCard.Id);
+                    if (appInfo == null)
+                    {
+                        AddLog($"无法找到应用信息：{appCard.Name}", LogLevel.Error);
+                        return;
+                    }
+
+                    using var operationExecutor = CreateOperationExecutor();
+                    var request = new OperationRequest(OperationType.CheckStatus, host, appInfo);
+                    var operationResult = await operationExecutor.ExecuteAsync(request, EnqueueOperationEvent);
+                    status = operationResult.Status ?? new ApplicationStatus { IsInstalled = false, IsRunning = false, InstalledVersion = string.Empty };
+                }
 
                 ApplyApplicationStatus(appCard, status);
-                
+
                 AddLog($"{appCard.Name} 状态已更新", LogLevel.Success);
             }
             catch (Exception ex)
@@ -3092,40 +3286,32 @@ namespace RemoteInstaller.ViewModels
                 AddTask(taskViewModel, insertAtTop: true);
                 SelectedTask = taskViewModel;
 
-                // 创建进度报告器
-                var progress = new Progress<InstallTask>(t =>
-                {
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        UpdateTaskProgressState(taskViewModel, t);
-                        if (t.Status == RemoteInstaller.Models.TaskStatus.Failed && !string.IsNullOrWhiteSpace(t.ErrorMessage))
-                        {
-                            taskViewModel.CurrentStage = "执行失败";
-                            taskViewModel.StatusMessage = t.ErrorMessage;
-                        }
-                    });
-                });
+                using var operationExecutor = new OperationExecutor(installerService);
+                var request = new OperationRequest(
+                    OperationType.Uninstall,
+                    host,
+                    appInfo,
+                    keepData: keepData,
+                    isBatch: false);
 
-                var logProgress = CreateTaskLogReporter(taskViewModel);
-
-                var task = await installerService.UninstallAsync(host, appInfo, keepData, progress, default, logProgress);
-                taskViewModel.TaskId = task.Id;
-                taskViewModel.IsCompleted = task.Status == RemoteInstaller.Models.TaskStatus.Completed;
-                taskViewModel.IsFailed = task.Status == RemoteInstaller.Models.TaskStatus.Failed;
-                taskViewModel.IsCanceled = task.Status == RemoteInstaller.Models.TaskStatus.Cancelled;
-                if (!string.IsNullOrWhiteSpace(task.ErrorMessage))
+                var operationResult = await operationExecutor.ExecuteAsync(request, CreateTaskOperationEventHandler(taskViewModel));
+                taskViewModel.TaskId = operationResult.TaskId;
+                taskViewModel.IsCompleted = operationResult.TaskStatus == RemoteInstaller.Models.TaskStatus.Completed;
+                taskViewModel.IsFailed = operationResult.TaskStatus == RemoteInstaller.Models.TaskStatus.Failed;
+                taskViewModel.IsCanceled = operationResult.TaskStatus == RemoteInstaller.Models.TaskStatus.Cancelled;
+                if (!string.IsNullOrWhiteSpace(operationResult.ErrorMessage))
                 {
-                    taskViewModel.StatusMessage = task.ErrorMessage;
+                    taskViewModel.StatusMessage = operationResult.ErrorMessage;
                 }
 
-                if (task.Status == RemoteInstaller.Models.TaskStatus.Completed)
+                if (operationResult.TaskStatus == RemoteInstaller.Models.TaskStatus.Completed)
                 {
                     AddLog($"{app.Name} 卸载成功", LogLevel.Success);
                     await RefreshApplicationStatusAfterMutationAsync(SelectedHost, app);
                 }
                 else
                 {
-                    AddLog($"{app.Name} 卸载失败: {task.ErrorMessage}", LogLevel.Error);
+                    AddLog($"{app.Name} 卸载失败: {operationResult.ErrorMessage}", LogLevel.Error);
                 }
             }
             catch (Exception ex)
@@ -3174,6 +3360,25 @@ namespace RemoteInstaller.ViewModels
             Success,
             Failed,
             Canceled
+        }
+
+        private sealed class DelegateBatchOperationExecutor : IBatchOperationExecutor, IDisposable
+        {
+            private readonly Func<OperationRequest, Action<OperationEvent>?, CancellationToken, Task<OperationResult>> _execute;
+
+            public DelegateBatchOperationExecutor(Func<OperationRequest, Action<OperationEvent>?, CancellationToken, Task<OperationResult>> execute)
+            {
+                _execute = execute;
+            }
+
+            public Task<OperationResult> ExecuteAsync(OperationRequest request, Action<OperationEvent>? onEvent, CancellationToken cancellationToken)
+            {
+                return _execute(request, onEvent, cancellationToken);
+            }
+
+            public void Dispose()
+            {
+            }
         }
 
         private enum InstallMode { None, Network, Local }
@@ -4049,18 +4254,6 @@ namespace RemoteInstaller.ViewModels
             });
             Applications.Add(new ApplicationCardViewModel(this)
             {
-                Id = "Nacos",
-                Name = "Nacos",
-                Version = "2.4.3",
-                Versions = new List<string> { "2.4.3" },
-                Description = "动态服务发现、配置管理与服务管理平台",
-                Icon = "🧭",
-                Category = "中间件",
-                IsSupported = true,
-                OsType = "Linux"
-            });
-            Applications.Add(new ApplicationCardViewModel(this)
-            {
                 Id = "traefik",
                 Name = "Traefik",
                 Version = "3.6.13",
@@ -4251,29 +4444,6 @@ namespace RemoteInstaller.ViewModels
                         new InstallParameter { Key = "DATA_DIR", Name = "数据目录", Description = "Consul 数据目录路径", Type = ParameterType.Path, DefaultValue = "/var/lib/consul", Required = true },
                         new InstallParameter { Key = "NODE_NAME", Name = "节点名称", Description = "Consul 节点名称", Type = ParameterType.Text, DefaultValue = "consul-node", Required = true },
                         new InstallParameter { Key = "UI_ENABLED", Name = "启用 Web UI", Description = "是否启用 Consul Web UI", Type = ParameterType.Boolean, DefaultValue = "true", Required = false }
-                    }
-                },
-                "nacos" => new ApplicationInfo
-                {
-                    Id = "Nacos",
-                    Name = "Nacos",
-                    Version = "2.4.3",
-                    Versions = new List<string> { "2.4.3" },
-                    Description = "动态服务发现、配置管理与服务管理平台",
-                    Category = "中间件",
-                    SupportWindows = false,
-                    SupportCentOS = true,
-                    SupportUbuntu = true,
-                    CheckScriptLinux = "Scripts/Nacos/check_status_linux.sh",
-                    CheckScriptWindows = string.Empty,
-                    Parameters = new List<InstallParameter>
-                    {
-                        new InstallParameter { Key = "HTTP_PORT", Name = "HTTP 端口", Description = "Nacos HTTP 控制台端口", Type = ParameterType.Port, DefaultValue = "8848", Required = true, MinValue = 1, MaxValue = 65535 },
-                        new InstallParameter { Key = "RAFT_PORT", Name = "Raft 端口", Description = "Nacos Raft 通信端口", Type = ParameterType.Port, DefaultValue = "9848", Required = true, MinValue = 1, MaxValue = 65535 },
-                        new InstallParameter { Key = "GRPC_PORT", Name = "gRPC 端口", Description = "Nacos gRPC 通信端口", Type = ParameterType.Port, DefaultValue = "9849", Required = true, MinValue = 1, MaxValue = 65535 },
-                        new InstallParameter { Key = "MODE", Name = "运行模式", Description = "Nacos 运行模式", Type = ParameterType.Text, DefaultValue = "standalone", Required = true },
-                        new InstallParameter { Key = "USERNAME", Name = "用户名", Description = "Nacos 登录用户名", Type = ParameterType.Text, DefaultValue = "nacos", Required = true },
-                        new InstallParameter { Key = "PASSWORD", Name = "密码", Description = "Nacos 登录密码", Type = ParameterType.Password, DefaultValue = "nacos", Required = true }
                     }
                 },
                 "traefik" => new ApplicationInfo

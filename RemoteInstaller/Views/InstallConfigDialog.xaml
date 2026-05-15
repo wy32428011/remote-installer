@@ -19,6 +19,7 @@
         </Grid.RowDefinitions>
 
         <ScrollViewer x:Name="ContentScrollViewer"
+                      AutomationProperties.AutomationId="InstallConfigContentScrollViewer"
                       Grid.Row="0"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
@@ -64,7 +65,8 @@
                                    Margin="0,0,0,8"/>
 
                         <StackPanel Visibility="{Binding PackageSource, Converter={StaticResource StringToVisibilityConverter}, ConverterParameter=online}">
-                            <ComboBox ItemsSource="{Binding AvailableVersions}"
+                            <ComboBox AutomationProperties.AutomationId="InstallVersionComboBox"
+                                      ItemsSource="{Binding AvailableVersions}"
                                       SelectedItem="{Binding SelectedVersion}"
                                       Style="{StaticResource DarkComboBoxStyle}"
                                       materialDesign:HintAssist.Hint="请选择安装版本"
@@ -100,10 +102,12 @@
                         <WrapPanel Margin="0,0,0,8"
                                    Visibility="{Binding ShowPackageSourceSection, Converter={StaticResource BoolToVisibilityConverter}}">
                             <RadioButton Content="本地资源"
+                                         AutomationProperties.AutomationId="LocalResourceRadioButton"
                                          GroupName="PackageSource"
                                          IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=local}"
                                          Margin="0,0,12,8"/>
                             <RadioButton Content="在线安装"
+                                         AutomationProperties.AutomationId="OnlineInstallRadioButton"
                                          GroupName="PackageSource"
                                          IsChecked="{Binding PackageSource, Converter={StaticResource StringToBoolConverter}, ConverterParameter=online}"
                                          Visibility="{Binding ShowOnlineInstallOption, Converter={StaticResource BoolToVisibilityConverter}}"
@@ -117,6 +121,7 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBox Grid.Row="0"
+                                     AutomationProperties.AutomationId="LocalPackagePathTextBox"
                                      Text="{Binding LocalPackagePath, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource DarkTextBoxStyle}"
                                      Foreground="{DynamicResource PrimaryTextBrush}"
@@ -127,12 +132,14 @@
                                      IsReadOnlyCaretVisible="False"/>
                             <WrapPanel Grid.Row="1" Margin="0,5,0,0">
                                 <Button Content="选择文件夹"
+                                        AutomationProperties.AutomationId="MySqlLocalPackageFolderButton"
                                         Style="{StaticResource MaterialDesignOutlinedButton}"
                                         Command="{Binding BrowseMySqlLocalPackageFolderCommand}"
                                         Margin="0,0,6,6"
                                         Padding="10,5"
                                         Visibility="{Binding IsMySqlApplication, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                 <Button Content="刷新检测"
+                                        AutomationProperties.AutomationId="RefreshPackageDetectionButton"
                                         Style="{StaticResource MaterialDesignOutlinedButton}"
                                         Command="{Binding BrowsePackagePathCommand}"
                                         Margin="0,0,0,6"
@@ -187,6 +194,7 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <TextBox Grid.Row="0"
+                                             AutomationProperties.AutomationId="JdkLocalPackagePathTextBox"
                                              Text="{Binding LocalPackagePath, UpdateSourceTrigger=PropertyChanged}"
                                              Style="{StaticResource DarkTextBoxStyle}"
                                              Foreground="{DynamicResource PrimaryTextBrush}"
@@ -195,12 +203,14 @@
                                              IsReadOnlyCaretVisible="False"/>
                                     <WrapPanel Grid.Row="1" Margin="0,5,0,0">
                                         <Button Content="选择 JDK 文件夹"
+                                                AutomationProperties.AutomationId="BrowseJdkLocalFolderButton"
                                                 Style="{StaticResource MaterialDesignOutlinedButton}"
                                                 Command="{Binding BrowseJdkLocalPackageFolderCommand}"
                                                 Margin="0,0,6,6"
                                                 Padding="10,5"
                                                 Visibility="{Binding ShowJdkFolderPicker, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                         <Button Content="刷新检测"
+                                                AutomationProperties.AutomationId="RefreshJdkDetectionButton"
                                                 Style="{StaticResource MaterialDesignOutlinedButton}"
                                                 Command="{Binding BrowsePackagePathCommand}"
                                                 Margin="0,0,0,6"
@@ -214,7 +224,8 @@
                                     <TextBlock Text="远端上传目录"
                                                FontWeight="SemiBold"
                                                Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding RemoteUploadPath, UpdateSourceTrigger=PropertyChanged}"
+                                    <TextBox AutomationProperties.AutomationId="RemoteUploadPathTextBox"
+                                             Text="{Binding RemoteUploadPath, UpdateSourceTrigger=PropertyChanged}"
                                              Style="{StaticResource DarkTextBoxStyle}"
                                              Foreground="{DynamicResource PrimaryTextBrush}"
                                              materialDesign:HintAssist.Hint="例如 /tmp/jdk-upload 或 C:\Windows\Temp\jdk-upload，留空则使用默认临时目录"/>
@@ -314,7 +325,8 @@
                                FontWeight="SemiBold"
                                Margin="0,0,0,8"/>
 
-                    <ItemsControl ItemsSource="{Binding ParameterViewModels}">
+                    <ItemsControl AutomationProperties.AutomationId="InstallParameterItemsControl"
+                                  ItemsSource="{Binding ParameterViewModels}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Margin="0,0,0,6"
@@ -421,11 +433,13 @@
                            Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <WrapPanel HorizontalAlignment="Right">
                     <Button Content="取消"
+                            AutomationProperties.AutomationId="InstallConfigCancelButton"
                             Style="{StaticResource MaterialDesignFlatButton}"
                             Command="{Binding CancelCommand}"
                             Margin="0,0,8,6"
                             Padding="12,6"/>
                     <Button Content="确认"
+                            AutomationProperties.AutomationId="InstallConfigConfirmButton"
                             Style="{StaticResource MaterialDesignRaisedButton}"
                             Command="{Binding ConfirmCommand}"
                             IsDefault="True"

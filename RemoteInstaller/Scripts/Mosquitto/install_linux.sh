@@ -307,11 +307,143 @@ install_ubuntu_packages() {
     fi
 }
 
+normalize_rpm_capability() {
+    local capability=${1:-}
+    printf '%s\n' "$capability" | awk 'NF { $1=$1; print }'
+}
+
+is_ignored_rpm_requirement() {
+    local requirement=${1:-}
+
+    case "$requirement" in
+        ""|rpmlib\(*|/bin/sh|/bin/bash|/usr/bin/*|/usr/sbin/*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+local_rpm_capabilities_satisfy_requirement() {
+    local requirement=$1
+    local provides_file=$2
+    local requirement_name=${requirement%% *}
+    local provided_capability
+
+    while IFS= read -r provided_capability; do
+        if [ "$provided_capability" = "$requirement" ]; then
+            return 0
+        fi
+
+        if [ "$requirement_name" = "$requirement" ] && { [ "$provided_capability" = "$requirement_name" ] || [[ "$provided_capability" == "$requirement_name "* ]]; }; then
+            return 0
+        fi
+    done < "$provides_file"
+
+    return 1
+}
+
+system_satisfies_rpm_requirement() {
+    local requirement=$1
+    local requirement_name=${requirement%% *}
+
+    rpm -q --whatprovides "$requirement" >/dev/null 2>&1 && return 0
+    [ "$requirement_name" = "$requirement" ] || return 1
+    rpm -q --whatprovides "$requirement_name" >/dev/null 2>&1
+}
+
+validate_centos_package_dependencies() {
+    local provides_file
+    local missing_file
+    local requirements_file
+    local normalized_provides_file
+    local rpm_file
+    local requirement
+    local normalized_requirement
+
+    command_exists rpm || fail "CentOS 7 依赖校验需要 rpm 命令"
+    provides_file=$(mktemp)
+    missing_file=$(mktemp)
+    requirements_file=$(mktemp)
+    normalized_provides_file="${provides_file}.normalized"
+    : > "$provides_file"
+    : > "$missing_file"
+
+    cleanup_centos_dependency_files() {
+        rm -f "$provides_file" "$missing_file" "$requirements_file" "$normalized_provides_file"
+    }
+
+    for rpm_file in "${ROOT_RPMS[@]}"; do
+        rpm -qp --provides "$rpm_file" 2>/dev/null >> "$provides_file" || {
+            cleanup_centos_dependency_files
+            fail "读取 RPM 提供能力失败：$rpm_file"
+        }
+    done
+
+    awk 'NF { $1=$1; print }' "$provides_file" | sort -u > "$normalized_provides_file" || {
+        cleanup_centos_dependency_files
+        fail "整理 RPM 提供能力失败"
+    }
+    mv -f "$normalized_provides_file" "$provides_file" || {
+        cleanup_centos_dependency_files
+        fail "更新 RPM 提供能力索引失败"
+    }
+
+    for rpm_file in "${ROOT_RPMS[@]}"; do
+        rpm -qpR "$rpm_file" 2>/dev/null > "$requirements_file" || {
+            cleanup_centos_dependency_files
+            fail "读取 RPM 依赖能力失败：$rpm_file"
+        }
+
+        while IFS= read -r requirement; do
+            normalized_requirement=$(normalize_rpm_capability "$requirement")
+
+            if is_ignored_rpm_requirement "$normalized_requirement"; then
+                continue
+            fi
+
+            case "$normalized_requirement" in
+                *" = "*|*" >= "*|*" <= "*|*" > "*|*" < "*)
+                    if system_satisfies_rpm_requirement "$normalized_requirement"; then
+                        continue
+                    fi
+                    continue
+                    ;;
+            esac
+
+            if local_rpm_capabilities_satisfy_requirement "$normalized_requirement" "$provides_file"; then
+                continue
+            fi
+
+            if system_satisfies_rpm_requirement "$normalized_requirement"; then
+                continue
+            fi
+
+            printf '%s\n' "$normalized_requirement" >> "$missing_file"
+        done < "$requirements_file"
+    done
+
+    if [ -s "$missing_file" ]; then
+        sort -u -o "$missing_file" "$missing_file" || {
+            cleanup_centos_dependency_files
+            fail "整理 RPM 缺失依赖列表失败"
+        }
+        echo "错误：CentOS 7 Mosquitto 离线目录缺少以下 RPM 依赖能力："
+        cat "$missing_file"
+        echo "请将满足以上能力的 EL7 RPM 一并放入目录：$PACKAGE_DIR"
+        cleanup_centos_dependency_files
+        exit 1
+    fi
+
+    cleanup_centos_dependency_files
+}
+
 install_centos_packages() {
     write_progress "InstallingPackages" 25
     validate_centos_packages
     echo "使用 CentOS 7 Mosquitto 离线目录：$PACKAGE_DIR"
 
+    validate_centos_package_dependencies
     yum --disablerepo='*' -y localinstall --setopt=tsflags=test "${ROOT_RPMS[@]}" >/dev/null
     yum --disablerepo='*' -y localinstall "${ROOT_RPMS[@]}"
 

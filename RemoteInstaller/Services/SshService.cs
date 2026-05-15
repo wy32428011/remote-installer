@@ -1317,7 +1317,7 @@ public class SshService : IDisposable
                 return new RemoteCommandResult
                 {
                     Command = cleanCommand,
-                    ExitCode = cmd.ExitStatus,
+                    ExitCode = cmd.ExitStatus ?? -1,
                     Stdout = stdoutOutput.ToString(),
                     Stderr = stderr,
                     TimedOut = false,
@@ -1734,7 +1734,7 @@ public class SshService : IDisposable
     /// <summary>
     /// 将 SSH.NET 的远程文件对象映射为仓库内通用模型。
     /// </summary>
-    private static RemoteFileEntry MapRemoteFileEntry(SftpFile file)
+    private static RemoteFileEntry MapRemoteFileEntry(ISftpFile file)
     {
         return new RemoteFileEntry
         {

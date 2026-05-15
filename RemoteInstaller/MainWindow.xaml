@@ -838,6 +838,7 @@
                                                                         HorizontalAlignment="Right"
                                                                         VerticalAlignment="Center">
                                                                 <Button Content="安装"
+                                                                        AutomationProperties.AutomationId="{Binding Id, StringFormat=ApplicationInstallButton_{0}}"
                                                                         Style="{StaticResource PrimaryButtonStyle}"
                                                                         Command="{Binding InstallCommand}"
                                                                         FontSize="10"
@@ -856,6 +857,7 @@
                                                                                              Height="14"/>
                                                                 </Button>
                                                                 <Button Style="{StaticResource ToolButtonStyle}"
+                                                                        AutomationProperties.AutomationId="{Binding Id, StringFormat=ApplicationConfigureButton_{0}}"
                                                                         ToolTip="编辑配置"
                                                                         Command="{Binding ConfigureCommand}"
                                                                         Width="28"
@@ -1074,7 +1076,8 @@
                         </TabItem>
 
                         <!-- 脚本管理标签页 -->
-                        <TabItem Header="脚本管理">
+                        <TabItem Header="脚本管理"
+                                 AutomationProperties.AutomationId="ScriptManagementTab">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -1095,6 +1098,7 @@
 
                                 <!-- 脚本管理控件 -->
                                 <ContentControl Grid.Row="1"
+                                                AutomationProperties.AutomationId="ScriptManagementContentHost"
                                                 Content="{Binding ScriptManagementViewModel}"
                                                 Visibility="{Binding ScriptManagementViewModel, Converter={StaticResource NotNullToVisibilityConverter}}">
                                     <ContentControl.ContentTemplate>

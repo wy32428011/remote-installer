@@ -102,6 +102,27 @@ public class MosquittoScriptTests
     }
 
     [Fact]
+    public void InstallLinuxScript_PreflightsCentosOfflineRpmDependencies()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "install_linux.sh");
+
+        Assert.Contains("validate_centos_package_dependencies()", script);
+        Assert.Contains("normalize_rpm_capability()", script);
+        Assert.Contains("local_rpm_capabilities_satisfy_requirement", script);
+        Assert.Contains("system_satisfies_rpm_requirement", script);
+        Assert.Contains("requirements_file=$(mktemp)", script);
+        Assert.Contains("cleanup_centos_dependency_files()", script);
+        Assert.Contains("rpm -qpR \"$rpm_file\" 2>/dev/null > \"$requirements_file\"", script);
+        Assert.Contains("读取 RPM 依赖能力失败", script);
+        Assert.DoesNotContain("rpm -qpR \"$rpm_file\" 2>/dev/null || true", script);
+        Assert.Contains("错误：CentOS 7 Mosquitto 离线目录缺少以下 RPM 依赖能力", script);
+        Assert.Contains("请将满足以上能力的 EL7 RPM 一并放入目录", script);
+        var method = ExtractMethod(script, "install_centos_packages()");
+        Assert.True(method.IndexOf("validate_centos_package_dependencies", StringComparison.Ordinal) <
+                    method.IndexOf("yum --disablerepo='*' -y localinstall --setopt=tsflags=test", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void InstallLinuxScript_StartsServiceAndVerifiesSingleMqttPort()
     {
         var script = ReadProjectFile("RemoteInstaller", "Scripts", "Mosquitto", "install_linux.sh");
@@ -289,9 +310,10 @@ public class MosquittoScriptTests
         Assert.Contains("BuildWindowsPowerShellArguments", installerService);
         Assert.Contains("EscapePowerShellSingleQuotedValue", installerService);
         Assert.Contains("ReplacePowerShellPlaceholders", installerService);
-        Assert.Contains("ValidateBashEnvironmentVariableName", installerService);
+        Assert.Contains("IsValidBashEnvironmentVariableName", installerService);
+        Assert.Contains("IsSensitiveParameter(parameter.Key)", installerService);
         Assert.Contains("PrepareMosquittoSecretFilesAsync", installerService);
-        Assert.Contains("!string.Equals(param.Key, \"PASSWORD\"", installerService);
+        Assert.Contains("key.Contains(\"PASSWORD\", StringComparison.OrdinalIgnoreCase)", installerService);
         Assert.Contains("parameters[\"PASSWORD_FILE\"]", installerService);
         Assert.DoesNotContain("$env:{k}=\"{parameters[k]}\"", installerService);
     }

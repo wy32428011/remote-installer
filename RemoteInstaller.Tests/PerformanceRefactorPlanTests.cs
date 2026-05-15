@@ -14,10 +14,12 @@ public class PerformanceRefactorPlanTests
         var executeInstall = ExtractMethod(source, "private async Task ExecuteInstallAsync");
 
         Assert.Contains("private InstallerService CreateIsolatedInstallerService()", source);
+        Assert.Contains("private OperationExecutor CreateOperationExecutor()", source);
+        Assert.Contains("return new OperationExecutor(CreateIsolatedInstallerService(), ownsInstaller: true);", source);
         Assert.DoesNotContain("new InstallerService(_sshService, _logger)", fetchSnapshot);
         Assert.Contains("using var installerService = CreateIsolatedInstallerService();", fetchSnapshot);
-        Assert.Contains("using var installerService = CreateIsolatedInstallerService();", installToHost);
-        Assert.Contains("using var installerService = CreateIsolatedInstallerService();", executeInstall);
+        Assert.Contains("using var operationExecutor = CreateOperationExecutor();", installToHost);
+        Assert.Contains("using var operationExecutor = CreateOperationExecutor();", executeInstall);
     }
 
     [Fact]
@@ -74,13 +76,11 @@ public class PerformanceRefactorPlanTests
     {
         var elasticsearch = ReadProjectFile("RemoteInstaller", "Scripts", "Elasticsearch", "install_linux.sh");
         var rabbitMq = ReadProjectFile("RemoteInstaller", "Scripts", "RabbitMQ", "install_linux.sh");
-        var nacos = ReadProjectFile("RemoteInstaller", "Scripts", "Nacos", "install_linux.sh");
         var mysql = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_linux.sh");
 
         Assert.Contains("PROGRESS:Verifying:$((85 + COUNT * 10 / 40))", elasticsearch);
         Assert.Contains("PROGRESS:WaitingForService:$((85 + COUNT * 2 / 30))", rabbitMq);
         Assert.Contains("PROGRESS:CheckingManagementPort:$((87 + MGMT_COUNT * 2 / 20))", rabbitMq);
-        Assert.Contains("PROGRESS:Starting:$((80 + COUNT * 15 / 60))", nacos);
         Assert.Contains("PROGRESS:Starting:$((65 + i * 10 / 30))", mysql);
         Assert.Contains("PROGRESS:Verifying:$((88 + i * 7 / 20))", mysql);
     }
@@ -98,6 +98,57 @@ public class PerformanceRefactorPlanTests
         Assert.Contains("BuiltInApplicationStatusRequest", service);
         Assert.Contains("CustomApplicationStatusRequest", service);
         Assert.DoesNotContain("new SemaphoreSlim(3)", fetchSnapshot);
+    }
+
+    [Fact]
+    public void InstallerService_ReusesOperationParametersForInternalStatusVerification()
+    {
+        var source = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+        var installAsync = ExtractMethod(source, "public async Task<InstallTask> InstallAsync");
+        var uninstallAsync = ExtractMethod(source, "public async Task<InstallTask> UninstallAsync");
+
+        Assert.Contains("CheckStatusAsync(host, app, parameters, cancellationToken)", installAsync);
+        Assert.DoesNotContain("CheckStatusAsync(host, app, cancellationToken)", installAsync);
+        Assert.Contains("finalStatus = await CheckStatusAsync(host, app, parameters, cancellationToken);", uninstallAsync);
+    }
+
+    [Fact]
+    public void InstallerService_RedactsSensitiveParametersFromCommandLogs()
+    {
+        var source = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+
+        Assert.Contains("RedactCommandForLog(command, parameters)", source);
+        Assert.Contains("RedactCommandForLog(checkCommand ?? \"null\", parameters)", source);
+        Assert.Contains("key.Contains(\"PASSWORD\", StringComparison.OrdinalIgnoreCase)", source);
+        Assert.Contains("key.Contains(\"TOKEN\", StringComparison.OrdinalIgnoreCase)", source);
+        Assert.Contains("key.Contains(\"API_KEY\", StringComparison.OrdinalIgnoreCase)", source);
+        Assert.Contains("redacted.Replace(parameter.Value, \"***\", StringComparison.Ordinal)", source);
+    }
+
+    [Fact]
+    public void InstallerService_UsesResolvedUninstallScriptMetadataForWindowsArguments()
+    {
+        var source = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+        var uninstallAsync = ExtractMethod(source, "public async Task<InstallTask> UninstallAsync");
+
+        Assert.Contains("string? resolvedUninstallScriptPath = null;", uninstallAsync);
+        Assert.Contains("resolvedUninstallScriptPath = scriptPath;", uninstallAsync);
+        Assert.Contains("resolvedUninstallScriptPath = configuredScriptPath;", uninstallAsync);
+        Assert.Contains("ExtractPowerShellScriptParameterMetadata(resolvedUninstallScriptPath)", uninstallAsync);
+        Assert.DoesNotContain("ExtractPowerShellScriptParameterMetadata(null)", uninstallAsync);
+    }
+
+    [Fact]
+    public void InstallerService_SkipsInvalidBashParameterNamesInsteadOfThrowingDuringCheckAndUninstall()
+    {
+        var source = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
+        var buildEnv = ExtractMethod(source, "private static string BuildBashEnvironmentAssignments");
+
+        Assert.Contains("IsValidBashEnvironmentVariableName(parameter.Key)", buildEnv);
+        Assert.Contains("string.Equals(parameter.Key, \"PASSWORD\", StringComparison.OrdinalIgnoreCase)", buildEnv);
+        Assert.Contains("continue;", buildEnv);
+        Assert.DoesNotContain("throw new InvalidOperationException", buildEnv);
+        Assert.DoesNotContain("ValidateBashEnvironmentVariableName", source);
     }
 
     private static string ExtractMethod(string source, string signature)

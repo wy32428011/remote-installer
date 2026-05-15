@@ -549,25 +549,6 @@ public class DatabaseService : IDisposable
                 IsBuiltIn = true,
                 SortOrder = 20
             },
-            new()
-            {
-                AppKey = "NACOS",
-                Name = "Nacos",
-                Icon = "🧭",
-                Description = "Nacos 配置与注册中心",
-                AppType = "SUPPORT",
-                RemoteDirectory = "/opt/nacos",
-                StartCommand = "cd /opt/nacos && bash start.sh",
-                StopCommand = "cd /opt/nacos && bash stop.sh",
-                ConfigFilePath = "/opt/nacos/conf/application-prod.properties",
-                RemoteFrontendDirectory = "/var/www/nacos",
-                PidFilePath = "/opt/nacos/run/run.PID",
-                ConfigDirectory = "/opt/nacos/conf",
-                ConfigFileName = "application-prod.properties",
-                LogDirectory = "/opt/nacos/log",
-                IsBuiltIn = true,
-                SortOrder = 30
-            }
         };
 
         foreach (var app in builtIns)
@@ -617,7 +598,7 @@ public class DatabaseService : IDisposable
         cmd.CommandText = @"
             DELETE FROM custom_apps
             WHERE is_builtin = 1
-              AND app_key IN ('WMS', 'WCS', 'FMS')";
+              AND UPPER(app_key) IN ('WMS', 'WCS', 'FMS', 'NACOS')";
         cmd.ExecuteNonQuery();
     }
 

@@ -233,6 +233,70 @@ has_debian_local_repository() {
     compgen -G "$package_dir/MariaDB-*-public.asc" >/dev/null 2>&1
 }
 
+debian_package_installed_or_available() {
+    local package_dir=$1
+    local package_name=$2
+    local -a package_files
+
+    if dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q '^install ok installed$'; then
+        return 0
+    fi
+
+    if awk -v package_name="$package_name" '
+        /^Package: / { current=$2 }
+        current == package_name { found=1 }
+        END { exit found ? 0 : 1 }
+    ' "$package_dir/Packages" 2>/dev/null; then
+        return 0
+    fi
+
+    package_files=("$package_dir"/"${package_name}"_*.deb)
+    [ ${#package_files[@]} -gt 0 ]
+}
+
+validate_debian_offline_dependencies() {
+    local package_dir=$1
+    local dependency
+    local missing_file
+    local -a required_dependencies=(
+        galera-4
+        gawk
+        iproute2
+        libconfig-inifiles-perl
+        libdbi-perl
+        lsof
+        mariadb-client
+        mariadb-common
+        mariadb-server-core
+        perl
+        passwd
+        procps
+        psmisc
+        rsync
+        socat
+        debconf
+    )
+
+    missing_file=$(mktemp)
+
+    for dependency in "${required_dependencies[@]}"; do
+        if ! debian_package_installed_or_available "$package_dir" "$dependency"; then
+            printf '%s\n' "$dependency" >> "$missing_file"
+        fi
+    done
+
+    if [ -s "$missing_file" ]; then
+        sort -u -o "$missing_file" "$missing_file"
+        echo "错误：严格离线模式下，MariaDB 离线目录缺少以下 Debian 依赖包，且目标系统未安装："
+        cat "$missing_file"
+        echo "请将以上依赖对应的 Ubuntu DEB 包一并放入目录：$package_dir"
+        rm -f "$missing_file"
+        exit 1
+    fi
+
+    rm -f "$missing_file"
+}
+
 build_debian_direct_install_queue() {
     local package_dir=$1
     local pattern
@@ -456,7 +520,7 @@ install_debian_from_repository() {
             -o APT::Get::List-Cleanup=0 \
             update
 
-        apt-get -y -qq \
+        apt-get -y -qq --no-install-recommends \
             -o Dir::Etc::sourcelist="$repo_list" \
             -o Dir::Etc::sourceparts=/dev/null \
             -o Dpkg::Options::="--force-confdef" \
@@ -485,6 +549,7 @@ log_debian_package_diagnostics() {
 install_debian_from_directory() {
     local package_dir=$1
     local -a deb_files=("$package_dir"/*.deb)
+    local -a server_deb_files=("$package_dir"/mariadb-server_*.deb "$package_dir"/mariadb-server-core_*.deb)
     local -a install_queue=()
     local deb_file
 
@@ -493,7 +558,7 @@ install_debian_from_directory() {
         exit 1
     fi
 
-    if ! ls "$package_dir"/mariadb-server_*.deb >/dev/null 2>&1 && ! ls "$package_dir"/mariadb-server-core_*.deb >/dev/null 2>&1; then
+    if [ ${#server_deb_files[@]} -eq 0 ]; then
         echo "错误：离线目录中缺少 MariaDB 主 DEB 包：$package_dir"
         exit 1
     fi
@@ -505,6 +570,7 @@ install_debian_from_directory() {
 
     cleanup_debian_repo_artifacts
     log_debian_package_diagnostics "$package_dir"
+    validate_debian_offline_dependencies "$package_dir"
 
     if has_debian_local_repository "$package_dir"; then
         echo "检测到 Packages 与签名 key，优先使用本地 file:// APT 仓库安装 MariaDB..."
@@ -539,13 +605,14 @@ install_debian_from_directory() {
 install_redhat_from_directory() {
     local package_dir=$1
     local -a rpm_files=("$package_dir"/*.rpm)
+    local -a server_rpm_files=("$package_dir"/MariaDB-server-*.rpm "$package_dir"/mariadb-server-*.rpm)
 
     if [ ${#rpm_files[@]} -eq 0 ]; then
         echo "错误：离线目录中未找到 .rpm 文件：$package_dir"
         exit 1
     fi
 
-    if ! ls "$package_dir"/MariaDB-server-*.rpm >/dev/null 2>&1 && ! ls "$package_dir"/mariadb-server-*.rpm >/dev/null 2>&1; then
+    if [ ${#server_rpm_files[@]} -eq 0 ]; then
         echo "错误：离线目录中缺少 MariaDB 主 RPM 包：$package_dir"
         exit 1
     fi
@@ -757,7 +824,7 @@ VERSION=$( ( "$MARIADB_SERVER_BIN" --version 2>/dev/null || true ) | grep -oE '[
 
 echo "PROGRESS:Complete:100"
 echo "MariaDB 安装完成！"
-echo "连接信息: Host=127.0.0.1, Port=$PORT, User=root, Password=$ROOT_PASSWORD"
+echo "连接信息: Host=127.0.0.1, Port=$PORT, User=root, Password=<已隐藏>"
 echo ""
 echo "--- MACHINE READABLE ---"
 echo "INSTALLED: true"

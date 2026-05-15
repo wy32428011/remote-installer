@@ -35,6 +35,69 @@ fail() {
     exit 1
 }
 
+validate_elasticsearch_port() {
+    local port=$1
+
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        fail "无效的 Elasticsearch HTTP 端口：<不安全端口，已拒绝>"
+    fi
+}
+
+validate_elasticsearch_name() {
+    local label=$1
+    local value=$2
+
+    if [[ ! "$value" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+        fail "无效的 Elasticsearch ${label}：仅允许 1-64 位字母、数字、点、下划线和连字符"
+    fi
+}
+
+validate_elasticsearch_memory_limit() {
+    local value=$1
+
+    if [[ ! "$value" =~ ^[1-9][0-9]*[mMgG]$ ]]; then
+        fail "无效的 Elasticsearch JVM 内存配置：<不安全内存值，已拒绝>"
+    fi
+}
+
+validate_elasticsearch_deb_package() {
+    local package_file=$1
+    local package_name
+    local package_version
+
+    package_name=$(dpkg-deb -f "$package_file" Package 2>/dev/null) || fail "无法读取 Elasticsearch DEB 包名：$package_file"
+    package_version=$(dpkg-deb -f "$package_file" Version 2>/dev/null) || fail "无法读取 Elasticsearch DEB 版本：$package_file"
+
+    if [ "$package_name" != "elasticsearch" ]; then
+        fail "Elasticsearch DEB 主包元数据不匹配：$package_file"
+    fi
+
+    case "$package_version" in
+        "$ELASTICSEARCH_OFFLINE_VERSION"|"$ELASTICSEARCH_OFFLINE_VERSION"-*|"$ELASTICSEARCH_OFFLINE_VERSION"+*)
+            ;;
+        *)
+            fail "Elasticsearch DEB 主包版本不匹配：$package_version"
+            ;;
+    esac
+}
+
+validate_elasticsearch_rpm_package() {
+    local package_file=$1
+    local package_name
+    local package_version
+
+    package_name=$(rpm -qp --queryformat '%{NAME}' "$package_file" 2>/dev/null) || fail "无法读取 Elasticsearch RPM 包名：$package_file"
+    package_version=$(rpm -qp --queryformat '%{VERSION}' "$package_file" 2>/dev/null) || fail "无法读取 Elasticsearch RPM 版本：$package_file"
+
+    if [ "$package_name" != "elasticsearch" ]; then
+        fail "Elasticsearch RPM 主包元数据不匹配：$package_file"
+    fi
+
+    if [ "$package_version" != "$ELASTICSEARCH_OFFLINE_VERSION" ]; then
+        fail "Elasticsearch RPM 主包版本不匹配：$package_version"
+    fi
+}
+
 if [ -z "$PACKAGE_PATH" ]; then
     fail "Elasticsearch Linux 安装仅支持显式提供 PACKAGE_PATH，本脚本不会自动猜测当前目录中的安装包。请通过 PACKAGE_PATH 提供离线目录、.deb/.rpm 主包所在目录或 .tar 归档文件。"
 fi
@@ -185,6 +248,10 @@ is_ignored_rpm_requirement() {
             ;;
     esac
 
+    if [[ "$requirement" =~ [[:space:]](=|==|>=|<=|>|<)[[:space:]] ]]; then
+        return 0
+    fi
+
     return 1
 }
 
@@ -330,6 +397,11 @@ CLUSTER_NAME=${CLUSTER_NAME:-my-cluster}
 NODE_NAME=${NODE_NAME:-node-1}
 MEMORY_LIMIT=${MEMORY_LIMIT:-2g}
 
+validate_elasticsearch_port "$HTTP_PORT"
+validate_elasticsearch_name "集群名称" "$CLUSTER_NAME"
+validate_elasticsearch_name "节点名称" "$NODE_NAME"
+validate_elasticsearch_memory_limit "$MEMORY_LIMIT"
+
 # 1. 优化系统参数
 echo "PROGRESS:ConfiguringKernel:10"
 echo "配置系统内核参数..."
@@ -437,8 +509,7 @@ if [ "$PACKAGE_IS_FILE" = true ] && ([[ "$PACKAGE_PATH" == *.tar.gz ]] || [[ "$P
     # 如果解压失败，尝试另一种方式
     if [ ! -f "$ES_INSTALL_DIR/bin/elasticsearch" ]; then
         echo "尝试备选解压方式..."
-        TEMP_DIR="/tmp/es_extract_$$"
-        mkdir -p "$TEMP_DIR"
+        TEMP_DIR=$(mktemp -d /tmp/es_extract.XXXXXX)
         tar -xzf "$PACKAGE_PATH" -C "$TEMP_DIR" 2>/dev/null || tar -xf "$PACKAGE_PATH" -C "$TEMP_DIR" 2>/dev/null
         # 查找解压出的 elasticsearch 目录
         ES_FOUND=$(find "$TEMP_DIR" -maxdepth 2 -type d -name "elasticsearch" | head -n 1)
@@ -474,6 +545,7 @@ elif [ "$OS_TYPE" = "debian" ] && { [ "$PACKAGE_IS_DIRECTORY" = true ] || { [ "$
     if [ -z "$DEB_MAIN_PACKAGE" ] || [ ! -f "$DEB_MAIN_PACKAGE" ]; then
         fail "离线目录中未找到 elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.deb 主包：$PACKAGE_ROOT"
     fi
+    validate_elasticsearch_deb_package "$DEB_MAIN_PACKAGE"
 
     prepare_debian_offline_dependencies "$PACKAGE_ROOT"
 
@@ -517,6 +589,7 @@ elif [ "$OS_TYPE" = "rhel" ] && { [ "$PACKAGE_IS_DIRECTORY" = true ] || { [ "$PA
     if [ -z "$RPM_MAIN_PACKAGE" ] || [ ! -f "$RPM_MAIN_PACKAGE" ]; then
         fail "离线目录中未找到 elasticsearch-${ELASTICSEARCH_OFFLINE_VERSION}*.rpm 主包：$PACKAGE_ROOT"
     fi
+    validate_elasticsearch_rpm_package "$RPM_MAIN_PACKAGE"
 
     mapfile -t RPM_FILES < <(collect_redhat_rpm_files "$PACKAGE_ROOT")
     if [ ${#RPM_FILES[@]} -eq 0 ]; then

@@ -8,7 +8,9 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     d:DataContext="{d:DesignInstance Type=vm:ScriptManagementViewModel}"
     mc:Ignorable="d">
-    <Grid x:Name="LayoutRoot" Margin="10">
+    <Grid x:Name="LayoutRoot"
+          AutomationProperties.AutomationId="ScriptManagementRoot"
+          Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition x:Name="PrimaryRowDefinition" Height="*"/>
             <RowDefinition x:Name="SecondaryRowDefinition" Height="0"/>
@@ -57,9 +59,11 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBox Grid.Row="0"
+                                 AutomationProperties.AutomationId="LocalScriptFolderTextBox"
                                  Text="{Binding LocalScriptFolder, UpdateSourceTrigger=PropertyChanged}"/>
                         <WrapPanel Grid.Row="1" Margin="0,6,0,0">
                             <Button Style="{StaticResource SecondaryButtonStyle}"
+                                    AutomationProperties.AutomationId="BrowseScriptFolderButton"
                                     Command="{Binding BrowseFolderCommand}"
                                     Padding="10,5">
                                 <StackPanel Orientation="Horizontal">
@@ -77,6 +81,7 @@
                                Foreground="{DynamicResource SecondaryTextBrush}"
                                FontSize="12"/>
                     <TextBox Margin="0,4,0,0"
+                             AutomationProperties.AutomationId="RemoteScriptDirectoryTextBox"
                              Text="{Binding RemoteScriptDirectory, UpdateSourceTrigger=PropertyChanged}"/>
                     <TextBlock Text="输入目录后点击上方“加载列表”直接加载"
                                FontSize="10"
@@ -110,10 +115,12 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBox Grid.Row="0"
+                                     AutomationProperties.AutomationId="LocalScriptFileTextBox"
                                      Text="{Binding LocalScriptFile, UpdateSourceTrigger=PropertyChanged}"
                                      materialDesign:HintAssist.Hint="选择本地脚本文件"/>
                             <WrapPanel Grid.Row="1" Margin="0,6,0,0">
                                 <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        AutomationProperties.AutomationId="BrowseScriptFileButton"
                                         Command="{Binding BrowseFileCommand}"
                                         Padding="10,5"
                                         Margin="0,0,6,0">
@@ -123,6 +130,7 @@
                                     </StackPanel>
                                 </Button>
                                 <Button Style="{StaticResource PrimaryButtonStyle}"
+                                        AutomationProperties.AutomationId="UploadSingleScriptButton"
                                         Command="{Binding UploadSingleCommand}"
                                         Padding="10,5">
                                     <StackPanel Orientation="Horizontal">
@@ -167,6 +175,7 @@
                                        VerticalAlignment="Center"/>
                             <Button Grid.Column="1"
                                     Style="{StaticResource SecondaryButtonStyle}"
+                                    AutomationProperties.AutomationId="LoadRemoteDirectoryButton"
                                     Command="{Binding LoadDirectoryCommand}"
                                     Padding="9,4"
                                     ToolTip="加载远程目录结构">
@@ -178,6 +187,7 @@
                         </Grid>
 
                         <TreeView Grid.Row="1"
+                                  AutomationProperties.AutomationId="RemoteDirectoryTreeView"
                                   ItemsSource="{Binding DirectoryItems}"
                                   Margin="6,0,6,6"
                                   MinHeight="120"
@@ -238,6 +248,7 @@
                                        VerticalAlignment="Center"/>
                             <Button Grid.Column="1"
                                     Style="{StaticResource SecondaryButtonStyle}"
+                                    AutomationProperties.AutomationId="RefreshScriptListButton"
                                     Command="{Binding RefreshListCommand}"
                                     Padding="9,4"
                                     ToolTip="从远程目录加载脚本列表">
@@ -249,6 +260,7 @@
                         </Grid>
 
                         <ListBox Grid.Row="1"
+                                 AutomationProperties.AutomationId="ScriptFilesListBox"
                                  ItemsSource="{Binding ScriptFiles}"
                                  SelectedItem="{Binding SelectedScriptFile}"
                                  Margin="6,0,6,6"
@@ -277,6 +289,7 @@
                 <!-- 上传按钮 -->
                 <WrapPanel Grid.Row="6" Margin="0,6,0,0">
                     <Button Style="{StaticResource PrimaryButtonStyle}"
+                            AutomationProperties.AutomationId="UploadScriptFolderButton"
                             Command="{Binding UploadCommand}"
                             Padding="12,6">
                         <StackPanel Orientation="Horizontal">
@@ -329,7 +342,8 @@
                         Margin="0,6,0,0"
                         Background="{DynamicResource SurfaceLightBrush}"
                         CornerRadius="{StaticResource CornerRadiusMedium}">
-                    <TextBox Text="{Binding ScriptContent, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox AutomationProperties.AutomationId="ScriptContentTextBox"
+                             Text="{Binding ScriptContent, UpdateSourceTrigger=PropertyChanged}"
                              AcceptsReturn="True"
                              TextWrapping="NoWrap"
                              VerticalScrollBarVisibility="Auto"
@@ -368,6 +382,7 @@
 
                     <WrapPanel Grid.Row="1" Margin="0,8,0,0">
                         <Button Style="{StaticResource PrimaryButtonStyle}"
+                                AutomationProperties.AutomationId="SaveScriptButton"
                                 Command="{Binding SaveScriptCommand}"
                                 Padding="12,6">
                             <StackPanel Orientation="Horizontal">

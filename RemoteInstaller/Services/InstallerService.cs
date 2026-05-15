@@ -16,7 +16,7 @@ namespace RemoteInstaller.Services;
 /// 安装服务
 /// 负责执行远程应用的安装、卸载和状态检测
 /// </summary>
-public class InstallerService : IDisposable
+public class InstallerService : IOperationInstaller, IDisposable
 {
     private readonly SshService _sshService;
     private readonly ILogger _logger;
@@ -24,6 +24,9 @@ public class InstallerService : IDisposable
     private readonly FileLoggerService _fileLogger;
     private readonly ScriptResolver _scriptResolver = new();
     private readonly bool _disposeSshService;
+    private readonly object _taskPersistenceLock = new();
+    private readonly Dictionary<string, InstallTask> _pendingTaskPersistence = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Timers.Timer _taskPersistenceTimer = new(300) { AutoReset = false };
     private bool _disposed;
 
     public InstallerService(SshService sshService, ILogger logger, bool disposeSshService = false)
@@ -33,6 +36,7 @@ public class InstallerService : IDisposable
         _disposeSshService = disposeSshService;
         _databaseService = new DatabaseService();
         _fileLogger = new FileLoggerService();
+        _taskPersistenceTimer.Elapsed += (_, _) => FlushTaskPersistence();
 
         _fileLogger.Info("InstallerService", $"InstallerService 初始化，SSH服务: {sshService.GetType().Name}");
     }
@@ -45,6 +49,9 @@ public class InstallerService : IDisposable
         }
 
         _disposed = true;
+        _taskPersistenceTimer.Stop();
+        FlushTaskPersistence();
+        _taskPersistenceTimer.Dispose();
         _fileLogger.Dispose();
         _databaseService.Dispose();
 
@@ -52,6 +59,47 @@ public class InstallerService : IDisposable
         {
             _sshService.Dispose();
         }
+    }
+
+    private void RequestTaskPersistence(InstallTask task)
+    {
+        lock (_taskPersistenceLock)
+        {
+            _pendingTaskPersistence[task.Id] = task;
+            if (!_taskPersistenceTimer.Enabled)
+            {
+                _taskPersistenceTimer.Start();
+            }
+        }
+    }
+
+    private void FlushTaskPersistence()
+    {
+        List<InstallTask> tasks;
+        lock (_taskPersistenceLock)
+        {
+            tasks = _pendingTaskPersistence.Values.ToList();
+            _pendingTaskPersistence.Clear();
+            _taskPersistenceTimer.Stop();
+        }
+
+        foreach (var task in tasks)
+        {
+            try
+            {
+                _databaseService.SaveTask(task);
+            }
+            catch (Exception ex)
+            {
+                _fileLogger.Warning("InstallerService", $"任务状态延迟持久化失败，TaskId={task.Id}，错误：{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    private void SaveTaskImmediately(InstallTask task)
+    {
+        FlushTaskPersistence();
+        _databaseService.SaveTask(task);
     }
 
     /// <summary>
@@ -85,8 +133,7 @@ public class InstallerService : IDisposable
             task.UpdateProgress(ParseStage(stage), progressVal);
             progressReporter?.Report(task);
 
-            // 实时更新数据库中的任务状态
-            try { _databaseService.SaveTask(task); } catch { /* 忽略更新错误 */ }
+            RequestTaskPersistence(task);
         };
 
         logCollector.LogReceived += entry =>
@@ -111,7 +158,7 @@ public class InstallerService : IDisposable
             task.Start();
                         
             // 初始保存任务记录，确保外键一致性
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
 
             // 1. 连接服务器
             task.UpdateProgress(InstallStage.Connecting, 5);
@@ -332,14 +379,14 @@ public class InstallerService : IDisposable
             while (elapsed < maxWaitMs)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                status = await CheckStatusAsync(host, app, cancellationToken);
+                status = await CheckStatusAsync(host, app, parameters, cancellationToken);
 
                 if (status.IsInstalled)
                 {
                     _logger.Info($"应用已检测到（等待{elapsed}ms），正在确认运行状态...");
                     // 如果已安装，再多等1秒让服务完全启动
                     await Task.Delay(1000, cancellationToken);
-                    status = await CheckStatusAsync(host, app, cancellationToken);
+                    status = await CheckStatusAsync(host, app, parameters, cancellationToken);
                     break;
                 }
 
@@ -350,7 +397,7 @@ public class InstallerService : IDisposable
             // 如果超时未检测到，尝试最后检测一次
             if (status == null || !status.IsInstalled)
             {
-                status = await CheckStatusAsync(host, app, cancellationToken);
+                status = await CheckStatusAsync(host, app, parameters, cancellationToken);
             }
 
             var decision = OperationDecisionPolicy.DecideInstall(scriptResult, status ?? new ApplicationStatus());
@@ -375,7 +422,7 @@ public class InstallerService : IDisposable
             }
             
             // 更新最终任务状态
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
             
             // 保存任务日志
             _databaseService.SaveTaskLogs(task.Id, logCollector.GetLogs());
@@ -383,7 +430,7 @@ public class InstallerService : IDisposable
         catch (OperationCanceledException)
         {
             task.Cancel();
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
             progressReporter?.Report(task);
             _logger.Warning("安装已取消");
         }
@@ -391,7 +438,7 @@ public class InstallerService : IDisposable
         {
             _logger.Error($"安装发生致命错误: {ex}");
             task.Fail(ex.Message);
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
             progressReporter?.Report(task);
             _logger.Error($"安装失败：{ex.Message}");
         }
@@ -463,9 +510,21 @@ public class InstallerService : IDisposable
     /// <summary>
     /// 执行卸载
     /// </summary>
+    public Task<InstallTask> UninstallAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        bool keepData = false,
+        IProgress<InstallTask>? progressReporter = null,
+        CancellationToken cancellationToken = default,
+        IProgress<LogEntry>? logReporter = null)
+    {
+        return UninstallAsync(host, app, parameters: null, keepData, progressReporter, cancellationToken, logReporter);
+    }
+
     public async Task<InstallTask> UninstallAsync(
         RemoteHost host,
         ApplicationInfo app,
+        Dictionary<string, string>? parameters,
         bool keepData = false,
         IProgress<InstallTask>? progressReporter = null,
         CancellationToken cancellationToken = default,
@@ -498,7 +557,7 @@ public class InstallerService : IDisposable
         {
             task.UpdateProgress(ParseStage(stage), progressVal);
             progressReporter?.Report(task);
-            try { _databaseService.SaveTask(task); } catch { }
+            RequestTaskPersistence(task);
         };
 
         logCollector.LogReceived += entry =>
@@ -511,7 +570,7 @@ public class InstallerService : IDisposable
         {
             task.Start();
             // 初始保存
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
 
             _fileLogger.Info("UninstallAsync", "正在连接远程服务器...");
             await _sshService.ConnectAsync(host, cancellationToken);
@@ -524,10 +583,12 @@ public class InstallerService : IDisposable
             _fileLogger.Info("UninstallAsync", $"脚本路径: {scriptPath ?? "未找到"}");
 
             string scriptContent = "";
+            string? resolvedUninstallScriptPath = null;
             RemoteCommandResult? scriptResult = null;
 
             if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath))
             {
+                resolvedUninstallScriptPath = scriptPath;
                 scriptContent = await File.ReadAllTextAsync(scriptPath, cancellationToken);
                 _fileLogger.Info("UninstallAsync", $"从文件加载卸载脚本成功，长度: {scriptContent.Length} 字符");
             }
@@ -538,6 +599,7 @@ public class InstallerService : IDisposable
                 var configuredScriptPath = _scriptResolver.TryResolveConfiguredScriptFilePath(configuredScript, host.OsType);
                 if (!string.IsNullOrEmpty(configuredScriptPath) && File.Exists(configuredScriptPath))
                 {
+                    resolvedUninstallScriptPath = configuredScriptPath;
                     scriptContent = await File.ReadAllTextAsync(configuredScriptPath, cancellationToken);
                     _fileLogger.Info("UninstallAsync", $"从配置引用加载卸载脚本: {configuredScriptPath}，长度: {scriptContent.Length} 字符");
                 }
@@ -591,6 +653,8 @@ public class InstallerService : IDisposable
                 if (host.OsType != OperatingSystemType.Windows)
                 {
                     var keepDataArg = keepData ? "--keep-data" : "--no-keep-data";
+                    var envAssignments = BuildBashEnvironmentAssignments(parameters);
+                    var envPrefix = string.IsNullOrWhiteSpace(envAssignments) ? string.Empty : $"env {envAssignments} ";
 
                     // 直接尝试用sudo执行脚本，让脚本自己检查权限
                     // 移除过于严格的 sudo -n true 检查（该检查会导致合法的免密sudo配置被误判）
@@ -600,18 +664,23 @@ public class InstallerService : IDisposable
                     // 关键修复：不使用 timeout 外层包裹，因为 timeout 会干扰 sudo 的执行
                     // 改为直接执行脚本，让脚本内部自己处理超时
                     // 添加 2>&1 确保 stderr 被捕获
-                    command = $"cd \"{remoteWorkDir}\" && sudo bash \"{remoteScriptPath}\" {keepDataArg} 2>&1";
+                    command = $"cd \"{remoteWorkDir}\" && sudo {envPrefix}bash \"{remoteScriptPath}\" {keepDataArg} 2>&1";
 
                                     }
                 else
                 {
                     // Windows PowerShell: 直接传递开关参数，不要用环境变量
                     var keepDataSwitch = keepData ? "$true" : "$false";
-                    command = $"Set-Location \"{remoteWorkDir}\"; & \"{remoteScriptPath}\" -KeepData:${keepDataSwitch}";
+                    var explicitArguments = parameters is null
+                        ? string.Empty
+                        : BuildWindowsPowerShellArguments(parameters, ExtractPowerShellScriptParameterMetadata(resolvedUninstallScriptPath));
+                    command = string.IsNullOrWhiteSpace(explicitArguments)
+                        ? $"Set-Location \"{remoteWorkDir}\"; & \"{remoteScriptPath}\" -KeepData:${keepDataSwitch}"
+                        : $"Set-Location \"{remoteWorkDir}\"; & \"{remoteScriptPath}\" -KeepData:${keepDataSwitch} {explicitArguments}";
                 }
                 
                 var outputBuilder = new StringBuilder();
-                _fileLogger.Info("UninstallAsync", $"执行卸载命令: {command}");
+                _fileLogger.Info("UninstallAsync", $"执行卸载命令: {RedactCommandForLog(command, parameters)}");
                 try
                 {
                     scriptResult = await _sshService.ExecuteCommandResultAsync(command,
@@ -648,7 +717,7 @@ public class InstallerService : IDisposable
                 var finalStatus = new ApplicationStatus();
                 try
                 {
-                    finalStatus = await CheckStatusAsync(host, app, cancellationToken);
+                    finalStatus = await CheckStatusAsync(host, app, parameters, cancellationToken);
                     _fileLogger.Info("UninstallAsync", $"卸载后状态检测结果: IsInstalled={finalStatus.IsInstalled}, IsRunning={finalStatus.IsRunning}, Version={finalStatus.InstalledVersion}");
                 }
                 catch (Exception ex)
@@ -756,7 +825,7 @@ public class InstallerService : IDisposable
             }
 
             _databaseService.SaveTaskLogs(task.Id, logCollector.GetLogs());
-            _databaseService.SaveTask(task);
+            SaveTaskImmediately(task);
             progressReporter?.Report(task);
             logCollector.Dispose();
 
@@ -771,9 +840,18 @@ public class InstallerService : IDisposable
     /// <summary>
     /// 检查应用状态
     /// </summary>
+    public Task<ApplicationStatus> CheckStatusAsync(
+        RemoteHost host,
+        ApplicationInfo app,
+        CancellationToken cancellationToken = default)
+    {
+        return CheckStatusAsync(host, app, parameters: null, cancellationToken);
+    }
+
     public async Task<ApplicationStatus> CheckStatusAsync(
         RemoteHost host,
         ApplicationInfo app,
+        Dictionary<string, string>? parameters,
         CancellationToken cancellationToken = default)
     {
         var operationStopwatch = Stopwatch.StartNew();
@@ -813,8 +891,8 @@ public class InstallerService : IDisposable
                             var scriptContent = await File.ReadAllTextAsync(path, cancellationToken);
                             checkCommand = host.OsType != OperatingSystemType.Windows &&
                                            path.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)
-                                ? ScriptResolver.BuildLinuxShellScriptCommand(scriptContent)
-                                : scriptContent;
+                                ? BuildLinuxShellScriptCommand(scriptContent, parameters)
+                                : BuildScriptCommand(scriptContent, host.OsType, parameters);
                             _fileLogger.Info("CheckStatusAsync", $"从文件加载检测脚本: {path}");
                             break;
                         }
@@ -830,8 +908,8 @@ public class InstallerService : IDisposable
                         var scriptContent = await File.ReadAllTextAsync(configuredScriptPath, cancellationToken);
                         checkCommand = host.OsType != OperatingSystemType.Windows &&
                                        configuredScriptPath.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)
-                            ? ScriptResolver.BuildLinuxShellScriptCommand(scriptContent)
-                            : scriptContent;
+                            ? BuildLinuxShellScriptCommand(scriptContent, parameters)
+                            : BuildScriptCommand(scriptContent, host.OsType, parameters);
                         _fileLogger.Info("CheckStatusAsync", $"从配置引用加载检测脚本: {configuredScriptPath}");
                     }
                 }
@@ -856,7 +934,7 @@ public class InstallerService : IDisposable
             }
         }
 
-        _fileLogger.Info("CheckStatusAsync", $"检测命令: {checkCommand ?? "null"}");
+        _fileLogger.Info("CheckStatusAsync", $"检测命令: {RedactCommandForLog(checkCommand ?? "null", parameters)}");
 
         if (string.IsNullOrEmpty(checkCommand))
         {
@@ -2116,13 +2194,7 @@ _ => null
         if (host.OsType != OperatingSystemType.Windows)
         {
 
-            var envParameters = parameters
-                .Where(param => !string.Equals(param.Key, "version", StringComparison.OrdinalIgnoreCase))
-                .Where(param => !string.Equals(param.Key, "PASSWORD", StringComparison.OrdinalIgnoreCase))
-                .ToDictionary(param => param.Key, param => param.Value, StringComparer.OrdinalIgnoreCase);
-
-            var escapedEnvAssignments = string.Join(" ", envParameters.Select(param =>
-                $"{ValidateBashEnvironmentVariableName(param.Key)}={EscapeBashSingleQuotedValue(param.Value)}"));
+            var escapedEnvAssignments = BuildBashEnvironmentAssignments(parameters);
 
             string command;
             if (isFilePath)
@@ -2258,19 +2330,86 @@ _ => null
                 return null;
     }
 
+    private static string BuildLinuxShellScriptCommand(string scriptContent, Dictionary<string, string>? parameters)
+    {
+        var command = ScriptResolver.BuildLinuxShellScriptCommand(scriptContent);
+        var envAssignments = BuildBashEnvironmentAssignments(parameters);
+        return string.IsNullOrWhiteSpace(envAssignments) ? command : $"env {envAssignments} {command}";
+    }
+
+    private static string BuildScriptCommand(string scriptContent, OperatingSystemType osType, Dictionary<string, string>? parameters)
+    {
+        return osType == OperatingSystemType.Windows && parameters is not null
+            ? ReplacePowerShellPlaceholders(scriptContent, parameters)
+            : scriptContent;
+    }
+
+    private static string BuildBashEnvironmentAssignments(Dictionary<string, string>? parameters)
+    {
+        if (parameters is null || parameters.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var assignments = new List<string>();
+        foreach (var parameter in parameters)
+        {
+            if (string.Equals(parameter.Key, "version", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(parameter.Key, "PASSWORD", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!IsValidBashEnvironmentVariableName(parameter.Key))
+            {
+                continue;
+            }
+
+            assignments.Add($"{parameter.Key}={EscapeBashSingleQuotedValue(parameter.Value)}");
+        }
+
+        return string.Join(" ", assignments);
+    }
+
+    private static bool IsValidBashEnvironmentVariableName(string key)
+    {
+        return !string.IsNullOrWhiteSpace(key) && Regex.IsMatch(key, "^[A-Z_][A-Z0-9_]*$");
+    }
+
+    private static bool IsSensitiveParameter(string key)
+    {
+        return key.Contains("PASSWORD", StringComparison.OrdinalIgnoreCase) ||
+               key.Contains("SECRET", StringComparison.OrdinalIgnoreCase) ||
+               key.Contains("TOKEN", StringComparison.OrdinalIgnoreCase) ||
+               key.Contains("API_KEY", StringComparison.OrdinalIgnoreCase) ||
+               key.Contains("ACCESS_KEY", StringComparison.OrdinalIgnoreCase) ||
+               key.Contains("PRIVATE_KEY", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string RedactCommandForLog(string command, Dictionary<string, string>? parameters)
+    {
+        if (parameters is null || parameters.Count == 0)
+        {
+            return command;
+        }
+
+        var redacted = command;
+        foreach (var parameter in parameters.Where(parameter => IsSensitiveParameter(parameter.Key)))
+        {
+            if (!string.IsNullOrEmpty(parameter.Value))
+            {
+                redacted = redacted.Replace(parameter.Value, "***", StringComparison.Ordinal);
+                redacted = redacted.Replace(EscapeBashSingleQuotedValue(parameter.Value), "'***'", StringComparison.Ordinal);
+                redacted = redacted.Replace(EscapePowerShellSingleQuotedValue(parameter.Value), "'***'", StringComparison.Ordinal);
+            }
+        }
+
+        return redacted;
+    }
+
     private static string EscapeBashSingleQuotedValue(string value)
     {
         return $"'{value.Replace("'", "'\"'\"'")}'";
-    }
-
-    private static string ValidateBashEnvironmentVariableName(string key)
-    {
-        if (string.IsNullOrWhiteSpace(key) || !Regex.IsMatch(key, "^[A-Z_][A-Z0-9_]*$"))
-        {
-            throw new InvalidOperationException($"无效的环境变量名：{key}");
-        }
-
-        return key;
     }
 
     private static string EscapePowerShellSingleQuotedValue(string value)

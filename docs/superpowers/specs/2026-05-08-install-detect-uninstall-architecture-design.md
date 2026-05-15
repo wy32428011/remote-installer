@@ -4,7 +4,7 @@
 
 ## 背景
 
-当前远程安装链路已经能支撑 MySQL、Redis、Elasticsearch、RabbitMQ、Nacos、Nginx 等应用，但安装、检测、卸载的核心逻辑集中在 `InstallerService` 中。该服务同时承担远程命令执行、脚本定位、参数转义、脚本输出解析、状态归一化、日志收集、安装验证、卸载验证和应用特例处理。
+当前远程安装链路已经能支撑 MySQL、MariaDB、Redis、Elasticsearch、RabbitMQ、Mosquitto、Consul、Traefik、Nginx、JDK 等应用，但安装、检测、卸载的核心逻辑集中在 `InstallerService` 中。该服务同时承担远程命令执行、脚本定位、参数转义、脚本输出解析、状态归一化、日志收集、安装验证、卸载验证和应用特例处理。
 
 这导致几个反复出现的问题：
 
@@ -151,7 +151,7 @@ ViewModel 只展示结果，不理解每个应用的目录结构。
 
 负责根据应用、版本、操作系统和操作类型解析脚本路径。它应支持：
 
-- 配置引用，例如 `Scripts/Nacos/check_status_linux.sh`。
+- 配置引用，例如 `Scripts/Consul/check_status_linux.sh`。
 - 本地调试路径。
 - 发布输出路径。
 - 脚本文本命令兼容。
@@ -288,7 +288,7 @@ Uninstall request
 第四阶段：应用 handler
 
 - 先迁移 Mosquitto、JDK、RabbitMQ、MariaDB。
-- 再迁移 Redis、Nginx、Elasticsearch、Nacos、Consul、Traefik。
+- 再迁移 Redis、Nginx、Elasticsearch、Consul、Traefik。
 - 移除 ViewModel 中的应用部署特例。
 
 第五阶段：配置收敛和协议升级

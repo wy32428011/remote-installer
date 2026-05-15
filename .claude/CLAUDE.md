@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-**远程安装应用 (Remote Installer)** - 基于 C# WPF 的跨平台服务器管理工具，支持在 Windows Server、CentOS、Ubuntu 上远程安装和管理中间件（MySQL、Redis、Elasticsearch、RabbitMQ、Nacos、Nginx）。
+**远程安装应用 (Remote Installer)** - 基于 C# WPF 的跨平台服务器管理工具，支持在 Windows Server、CentOS、Ubuntu 上远程安装和管理中间件（MySQL、MariaDB、Redis、Elasticsearch、RabbitMQ、Mosquitto、Consul、Traefik、Nginx、JDK）。
 
 ## 构建命令
 

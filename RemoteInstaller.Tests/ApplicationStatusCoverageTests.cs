@@ -54,6 +54,21 @@ public class ApplicationStatusCoverageTests
     }
 
     [Fact]
+    public void Nacos_RemainsRemovedFromBundledConfigurationAndScripts()
+    {
+        var projectRoot = GetProjectRoot();
+        using var document = JsonDocument.Parse(ReadProjectFile("Scripts", "app-configuration.json"));
+        var configuredIds = document.RootElement
+            .GetProperty("applications")
+            .EnumerateArray()
+            .Select(app => app.GetProperty("id").GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("nacos", configuredIds);
+        Assert.False(Directory.Exists(Path.Combine(projectRoot, "RemoteInstaller", "Scripts", "Nacos")));
+    }
+
+    [Fact]
     public void InstallerService_VerifiesRemoteStatusAfterInstallScriptThrowsBeforeFailingTask()
     {
         var source = ReadProjectFile("RemoteInstaller", "Services", "InstallerService.cs");
@@ -87,18 +102,6 @@ public class ApplicationStatusCoverageTests
         Assert.Contains("INSTALLED: true", script);
         Assert.Contains("RUNNING:", script);
         Assert.Contains("STAGE:SUCCESS", script);
-    }
-
-    [Fact]
-    public void NacosStatusScript_DoesNotUseRawPgrepThatCanMatchItsOwnHereDocCommand()
-    {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "Nacos", "check_status_linux.sh");
-
-        Assert.DoesNotContain("nacos_pid=$(pgrep -f", script);
-        Assert.Contains("find_nacos_pids()", script);
-        Assert.Contains("STATUS_SCRIPT_PID=$$", script);
-        Assert.Contains("/proc/$pid/cmdline", script);
-        Assert.Contains("nacos-server\\.jar", script);
     }
 
     private static string ExtractMethod(string source, string signature)

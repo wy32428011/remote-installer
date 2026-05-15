@@ -10,9 +10,9 @@ export APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
 shopt -s nullglob
 
 PACKAGE_PATH=${PACKAGE_PATH:-}
-ROOT_PASSWORD=${ROOT_PASSWORD:-MySql@123}
+ROOT_PASSWORD=${ROOT_PASSWORD:-}
 PORT=${PORT:-3306}
-ALLOW_REMOTE=${ALLOW_REMOTE:-true}
+ALLOW_REMOTE=${ALLOW_REMOTE:-false}
 DATA_DIRECTORY=${DATA_DIRECTORY:-}
 
 LOG_FILE="install.log"
@@ -24,6 +24,11 @@ echo "当前工作目录: $(pwd)"
 echo "PACKAGE_PATH: ${PACKAGE_PATH:-<未指定>}"
 echo "PORT: $PORT"
 echo "ALLOW_REMOTE: $ALLOW_REMOTE"
+
+if [ -z "$ROOT_PASSWORD" ] || [ "$ROOT_PASSWORD" = "MySql@123" ]; then
+    echo "错误：必须显式提供非默认 MySQL root 密码"
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "错误：请使用 root 权限运行此脚本"
@@ -129,6 +134,353 @@ ensure_mysqld_option() {
     else
         printf '\n[mysqld]\n%s = %s\n' "$key" "$value" >> "$file"
     fi
+}
+
+resolve_safe_custom_data_directory() {
+    local path=$1
+    local resolved_path
+
+    if [ -z "$path" ]; then
+        return 1
+    fi
+
+    if ! command -v realpath >/dev/null 2>&1; then
+        echo "错误：缺少 realpath，无法安全解析自定义数据目录"
+        return 1
+    fi
+
+    resolved_path=$(realpath -m "$path" 2>/dev/null) || return 1
+
+    if [[ ! "$resolved_path" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+        echo "错误：MySQL 自定义数据目录包含不安全字符：<不安全路径，已拒绝>"
+        return 1
+    fi
+
+    case "$resolved_path" in
+        /var/lib/mysql/*|/var/lib/mysql-*|/opt/mysql/*|/opt/mysql-*|/data/mysql/*|/data/mysql-*|/srv/mysql/*|/srv/mysql-*)
+            DATA_DIRECTORY_RESOLVED="$resolved_path"
+            return 0
+            ;;
+        *)
+            echo "错误：不安全的 MySQL 自定义数据目录：<不安全路径，已拒绝>"
+            return 1
+            ;;
+    esac
+}
+
+validate_mysql_port() {
+    local port=$1
+
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "错误：无效的 MySQL 端口：<不安全端口，已拒绝>"
+        exit 1
+    fi
+}
+
+mysql_data_directory_has_selinux_context() {
+    local target_dir=$1
+
+    ls -Zd "$target_dir" 2>/dev/null | grep -q ':mysqld_db_t:'
+}
+
+apply_mysql_data_directory_security_context() {
+    local target_dir=$1
+    local selinux_status=""
+    local escaped_target_dir="${target_dir//./\\.}"
+    local context_pattern="${escaped_target_dir}(/.*)?"
+
+    if ! command -v getenforce >/dev/null 2>&1; then
+        return 0
+    fi
+
+    selinux_status=$(getenforce 2>/dev/null || true)
+    if [ "$selinux_status" != "Enforcing" ] && [ "$selinux_status" != "Permissive" ]; then
+        return 0
+    fi
+
+    if command -v semanage >/dev/null 2>&1 && command -v restorecon >/dev/null 2>&1; then
+        semanage fcontext -a -t mysqld_db_t "$context_pattern" 2>/dev/null || \
+            semanage fcontext -m -t mysqld_db_t "$context_pattern" || {
+                echo "错误：配置 MySQL 自定义数据目录 SELinux 持久上下文失败"
+                exit 1
+            }
+
+        restorecon -R "$target_dir" || {
+            echo "错误：恢复 MySQL 自定义数据目录 SELinux 上下文失败"
+            exit 1
+        }
+
+        if mysql_data_directory_has_selinux_context "$target_dir"; then
+            return 0
+        fi
+    fi
+
+    command -v chcon >/dev/null 2>&1 || {
+        echo "错误：SELinux 已启用但缺少 chcon，无法授权 MySQL 自定义数据目录"
+        exit 1
+    }
+
+    chcon -R -t mysqld_db_t "$target_dir" || {
+        echo "错误：设置 MySQL 自定义数据目录 SELinux 上下文失败"
+        exit 1
+    }
+
+    mysql_data_directory_has_selinux_context "$target_dir" || {
+        echo "错误：MySQL 自定义数据目录 SELinux 上下文仍不是 mysqld_db_t"
+        exit 1
+    }
+}
+
+configure_custom_data_directory() {
+    local target_dir=$1
+    local source_dir="/var/lib/mysql"
+
+    if [ -z "$target_dir" ] || [ "$target_dir" = "$source_dir" ]; then
+        return 0
+    fi
+
+    mkdir -p "$target_dir"
+
+    if [ -d "$source_dir" ] && [ -z "$(find "$target_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a "$source_dir"/ "$target_dir"/
+        else
+            cp -a "$source_dir"/. "$target_dir"/
+        fi
+    fi
+
+    chown -R mysql:mysql "$target_dir"
+    apply_mysql_data_directory_security_context "$target_dir"
+
+    if [ -d /etc/apparmor.d/local ] && [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
+        local local_profile="/etc/apparmor.d/local/usr.sbin.mysqld"
+        touch "$local_profile"
+        grep -Fqx "  $target_dir/ r," "$local_profile" || echo "  $target_dir/ r," >> "$local_profile"
+        grep -Fqx "  $target_dir/** rwk," "$local_profile" || echo "  $target_dir/** rwk," >> "$local_profile"
+        if command -v apparmor_parser >/dev/null 2>&1; then
+            apparmor_parser -r /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
+        elif command -v systemctl >/dev/null 2>&1; then
+            systemctl reload apparmor 2>/dev/null || true
+        fi
+    fi
+}
+
+install_mysql_port_selinux_policy_module_from_cil() {
+    local module_name=$1
+    local port=$2
+    local work_dir=$3
+    local cil_file="$work_dir/${module_name}.cil"
+
+    command -v semodule >/dev/null 2>&1 || return 1
+
+    cat > "$cil_file" <<EOF
+(block $module_name
+    (portcon tcp $port (system_u object_r mysqld_port_t ((s0)(s0))))
+)
+EOF
+
+    semodule -i "$cil_file" >/dev/null 2>&1
+}
+
+install_mysql_port_selinux_policy_module_from_te() {
+    local module_name=$1
+    local port=$2
+    local work_dir=$3
+    local policy_file="$work_dir/${module_name}.te"
+    local mod_file="$work_dir/${module_name}.mod"
+    local pp_file="$work_dir/${module_name}.pp"
+
+    command -v checkmodule >/dev/null 2>&1 || return 1
+    command -v semodule_package >/dev/null 2>&1 || return 1
+    command -v semodule >/dev/null 2>&1 || return 1
+
+    cat > "$policy_file" <<EOF
+module ${module_name} 1.0;
+
+require {
+    type mysqld_port_t;
+}
+
+portcon tcp $port system_u:object_r:mysqld_port_t:s0;
+EOF
+
+    checkmodule -M -m -o "$mod_file" "$policy_file" >/dev/null 2>&1 && \
+        semodule_package -o "$pp_file" -m "$mod_file" >/dev/null 2>&1 && \
+        semodule -i "$pp_file" >/dev/null 2>&1
+}
+
+write_mysql_selinux_state_file() {
+    local state_file=$1
+    local module_name=$2
+    local port=$3
+    local module_created=${4:-false}
+    local state_dir
+
+    state_dir=$(dirname "$state_file")
+    mkdir -p "$state_dir"
+    chmod 700 "$state_dir" 2>/dev/null || true
+    cat > "$state_file" <<EOF
+module=$module_name
+port=$port
+owner=remote-installer
+module_created=$module_created
+EOF
+    chmod 600 "$state_file" 2>/dev/null || true
+}
+
+install_mysql_port_selinux_policy_module() {
+    local port=$1
+    local module_name="remote_installer_mysql_port_${port}"
+    local state_file="/var/lib/remote-installer/mysql/selinux-port-${port}.state"
+    local work_dir=""
+
+    if [ "$port" -lt 1024 ]; then
+        echo "警告：SELinux 已启用但端口 $port 不是非保留端口，无法使用本地策略模块替代 semanage port"
+        return 1
+    fi
+
+    if ! command -v semodule >/dev/null 2>&1; then
+        echo "警告：SELinux 已启用但缺少 semodule，无法加载 MySQL 端口策略模块"
+        return 1
+    fi
+
+    if semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "$module_name"; then
+        echo "警告：SELinux 策略模块 $module_name 已存在，跳过本安装器所有权登记"
+        return 0
+    fi
+
+    work_dir=$(mktemp -d "/tmp/${module_name}.XXXXXX") || return 1
+    chmod 700 "$work_dir" 2>/dev/null || true
+
+    if install_mysql_port_selinux_policy_module_from_cil "$module_name" "$port" "$work_dir" || \
+        install_mysql_port_selinux_policy_module_from_te "$module_name" "$port" "$work_dir"; then
+        rm -rf "$work_dir"
+        write_mysql_selinux_state_file "$state_file" "$module_name" "$port" true
+        echo "已加载 MySQL SELinux 端口策略模块：$module_name"
+        return 0
+    fi
+
+    rm -rf "$work_dir"
+    echo "警告：加载 MySQL SELinux 端口策略模块失败，服务启动可能被 SELinux 拒绝"
+    return 1
+}
+
+selinux_port_is_mysqld_type() {
+    local port=$1
+
+    semanage port -l 2>/dev/null | awk -v port="$port" '
+        $1 == "mysqld_port_t" && $2 == "tcp" {
+            for (index = 3; index <= NF; index++) {
+                gsub(/,/, "", $index)
+                split($index, bounds, "-")
+                if ((bounds[2] == "" && bounds[1] == port) || (bounds[2] != "" && port >= bounds[1] && port <= bounds[2])) {
+                    found = 1
+                }
+            }
+        }
+        END { exit found ? 0 : 1 }
+    '
+}
+
+selinux_port_has_any_type() {
+    local port=$1
+
+    semanage port -l 2>/dev/null | awk -v port="$port" '
+        $2 == "tcp" {
+            for (index = 3; index <= NF; index++) {
+                gsub(/,/, "", $index)
+                split($index, bounds, "-")
+                if ((bounds[2] == "" && bounds[1] == port) || (bounds[2] != "" && port >= bounds[1] && port <= bounds[2])) {
+                    found = 1
+                }
+            }
+        }
+        END { exit found ? 0 : 1 }
+    '
+}
+
+record_mysql_semanage_port_mapping() {
+    local port=$1
+    local state_file="/var/lib/remote-installer/mysql/selinux-port-${port}.state"
+
+    mkdir -p "$(dirname "$state_file")"
+    chmod 700 "$(dirname "$state_file")" 2>/dev/null || true
+    cat > "$state_file" <<EOF
+port=$port
+owner=remote-installer
+semanage=added
+EOF
+    chmod 600 "$state_file" 2>/dev/null || true
+}
+
+apply_mysql_port_security_context() {
+    local port=$1
+    local selinux_status=""
+
+    if ! command -v getenforce >/dev/null 2>&1; then
+        return 0
+    fi
+
+    selinux_status=$(getenforce 2>/dev/null || true)
+    if [ "$selinux_status" != "Enforcing" ] && [ "$selinux_status" != "Permissive" ]; then
+        return 0
+    fi
+
+    if ! command -v semanage >/dev/null 2>&1; then
+        echo "警告：SELinux 已启用但缺少 semanage，无法持久授权 MySQL 端口 $port，正在尝试加载端口级 MySQL 策略模块"
+        if ! install_mysql_port_selinux_policy_module "$port" && [ "$selinux_status" = "Enforcing" ]; then
+            echo "错误：SELinux Enforcing 下无法授权 MySQL 端口 $port"
+            exit 1
+        fi
+        return 0
+    fi
+
+    if selinux_port_is_mysqld_type "$port"; then
+        return 0
+    fi
+
+    if selinux_port_has_any_type "$port"; then
+        echo "错误：SELinux 端口 $port 已被其他类型占用，拒绝改写现有策略"
+        exit 1
+    fi
+
+    if semanage port -a -t mysqld_port_t -p tcp "$port" 2>/dev/null; then
+        record_mysql_semanage_port_mapping "$port"
+        return 0
+    fi
+
+    if ! install_mysql_port_selinux_policy_module "$port" && [ "$selinux_status" = "Enforcing" ]; then
+        echo "错误：SELinux Enforcing 下无法授权 MySQL 端口 $port"
+        exit 1
+    fi
+}
+
+configure_mysql_systemd_selinux_context_override() {
+    local service_name=$1
+    local target_dir=$2
+    local selinux_status=""
+    local override_dir="/etc/systemd/system/${service_name}.service.d"
+    local override_file="$override_dir/remote-installer-selinux.conf"
+
+    if [ -z "$target_dir" ] || ! command -v systemctl >/dev/null 2>&1 || ! command -v getenforce >/dev/null 2>&1; then
+        return 0
+    fi
+
+    selinux_status=$(getenforce 2>/dev/null || true)
+    if [ "$selinux_status" != "Enforcing" ] && [ "$selinux_status" != "Permissive" ]; then
+        return 0
+    fi
+
+    command -v chcon >/dev/null 2>&1 || return 0
+    systemctl cat "$service_name" 2>/dev/null | grep -q '^ExecStartPre=/usr/bin/mysqld_pre_systemd' || return 0
+
+    mkdir -p "$override_dir"
+    cat > "$override_file" <<EOF
+[Service]
+ExecStartPre=
+ExecStartPre=/usr/bin/mysqld_pre_systemd
+ExecStartPre=/usr/bin/chcon -R -t mysqld_db_t $target_dir
+EOF
 }
 
 detect_mysql_service() {
@@ -525,7 +877,7 @@ is_ignored_rpm_requirement() {
 
     # rpmlib(...) 是 RPM 自身内部能力，不属于离线包闭包缺失。
     case "$requirement" in
-        ""|rpmlib\(*)
+        ""|rpmlib\(*|/bin/sh|/bin/bash|/usr/bin/*|/usr/sbin/*)
             return 0
             ;;
     esac
@@ -648,6 +1000,16 @@ validate_redhat_offline_dependencies() {
                 continue
             fi
 
+            # 带版本比较的 capability 交给 yum 事务预检判断，避免手写版本比较误报。
+            case "$normalized_requirement" in
+                *" = "*|*" >= "*|*" <= "*|*" > "*|*" < "*)
+                    if system_satisfies_rpm_requirement "$normalized_requirement"; then
+                        continue
+                    fi
+                    continue
+                    ;;
+            esac
+
             # 如果离线目录本身已经提供该能力，则视为闭包完整。
             if local_rpm_capabilities_satisfy_requirement "$normalized_requirement" "$provides_file"; then
                 continue
@@ -713,10 +1075,13 @@ install_redhat_from_directory() {
 
 install_from_archive() {
     local archive_path=$1
-    local extract_dir="/tmp/mysql_extract_$(date +%s)"
+    local extract_dir=""
 
-    rm -rf "$extract_dir"
-    mkdir -p "$extract_dir"
+    extract_dir=$(mktemp -d "/tmp/remote-installer-mysql.XXXXXX") || {
+        echo "错误：创建 MySQL 解压临时目录失败"
+        exit 1
+    }
+    chmod 700 "$extract_dir" 2>/dev/null || true
     tar -xf "$archive_path" -C "$extract_dir" --no-same-owner
 
     if [ "$OS" = "RedHat" ] && find "$extract_dir" -type f -name '*.rpm' | grep -q .; then
@@ -843,7 +1208,9 @@ CONFIG_FILE=$(get_primary_config_file)
 echo "使用配置文件: $CONFIG_FILE"
 cp "$CONFIG_FILE" "${CONFIG_FILE}.bak" 2>/dev/null || true
 
+validate_mysql_port "$PORT"
 ensure_mysqld_option "$CONFIG_FILE" port "$PORT"
+apply_mysql_port_security_context "$PORT"
 if [ "$ALLOW_REMOTE" = "true" ]; then
     ensure_mysqld_option "$CONFIG_FILE" bind-address "0.0.0.0"
 else
@@ -851,14 +1218,18 @@ else
 fi
 
 if [ -n "$DATA_DIRECTORY" ]; then
-    mkdir -p "$DATA_DIRECTORY"
-    chown -R mysql:mysql "$DATA_DIRECTORY"
-    ensure_mysqld_option "$CONFIG_FILE" datadir "$DATA_DIRECTORY"
+    resolve_safe_custom_data_directory "$DATA_DIRECTORY"
+    configure_custom_data_directory "$DATA_DIRECTORY_RESOLVED"
+    ensure_mysqld_option "$CONFIG_FILE" datadir "$DATA_DIRECTORY_RESOLVED"
 fi
 
 echo "PROGRESS:Starting:65"
 SERVICE_NAME=$(detect_mysql_service)
 echo "检测到服务名: $SERVICE_NAME"
+
+if [ -n "${DATA_DIRECTORY_RESOLVED:-}" ]; then
+    configure_mysql_systemd_selinux_context_override "$SERVICE_NAME" "$DATA_DIRECTORY_RESOLVED"
+fi
 
 if command -v systemctl >/dev/null 2>&1; then
     SERVICE_MASKED=false
@@ -926,7 +1297,7 @@ if [ "$SUCCESS" != true ]; then
 fi
 
 if [ "$ALLOW_REMOTE" = "true" ]; then
-    current_bind_address=$(grep -E '^[[:space:]]*bind-address([[:space:]]*=|[[:space:]]+)' "$CONFIG_FILE" 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*bind-address([[:space:]]*=|[[:space:]]+)//' | tr -d '\r')
+    current_bind_address=$(grep -E '^[[:space:]]*bind-address([[:space:]]*=|[[:space:]]+)' "$CONFIG_FILE" 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*bind-address([[:space:]]*=|[[:space:]]+)//' | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
     if [ "$current_bind_address" != "0.0.0.0" ]; then
         echo "错误：已启用远程访问，但 bind-address 未配置为 0.0.0.0"
         exit 1
@@ -948,7 +1319,7 @@ VERSION=$( ( "$MYSQLD_BIN" --version 2>/dev/null || true ) | grep -oE '[0-9]+\.[
 
 echo "PROGRESS:Complete:100"
 echo "MySQL 安装完成！"
-echo "连接信息: Host=127.0.0.1, Port=$PORT, User=root, Password=$ROOT_PASSWORD"
+echo "连接信息: Host=127.0.0.1, Port=$PORT, User=root, Password=<已隐藏>"
 echo ""
 echo "--- MACHINE READABLE ---"
 echo "INSTALLED: true"

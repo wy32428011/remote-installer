@@ -11,6 +11,174 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+is_selinux_state_dir_trusted() {
+    local state_dir=$1
+    local owner_id
+    local group_id
+    local permissions
+
+    if [ -L "$state_dir" ] || [ ! -d "$state_dir" ]; then
+        echo "跳过不可信 SELinux 状态目录：$state_dir"
+        return 1
+    fi
+
+    owner_id=$(stat -c '%u' "$state_dir" 2>/dev/null || echo "")
+    group_id=$(stat -c '%g' "$state_dir" 2>/dev/null || echo "")
+    permissions=$(stat -c '%a' "$state_dir" 2>/dev/null || echo "")
+    if [ "$owner_id" != "0" ] || [ "$group_id" != "0" ] || [ "$permissions" != "700" ]; then
+        echo "跳过权限不可信 SELinux 状态目录：$state_dir"
+        return 1
+    fi
+}
+
+selinux_port_is_http_type() {
+    local port=$1
+
+    semanage port -l 2>/dev/null | awk -v port="$port" '
+        $1 == "http_port_t" && $2 == "tcp" {
+            for (index = 3; index <= NF; index++) {
+                gsub(/,/, "", $index)
+                split($index, bounds, "-")
+                if ((bounds[2] == "" && bounds[1] == port) || (bounds[2] != "" && port >= bounds[1] && port <= bounds[2])) {
+                    found = 1
+                }
+            }
+        }
+        END { exit found ? 0 : 1 }
+    '
+}
+
+remove_nginx_port_selinux_resources() {
+    local state_dir="/var/lib/remote-installer/nginx"
+    local state_file
+    local port
+    local expected_state_file
+    local owner_id
+    local permissions
+    local module_name
+
+    if [ ! -e "$state_dir" ]; then
+        return 0
+    fi
+
+    is_selinux_state_dir_trusted "$state_dir" || return 0
+
+    for state_file in "$state_dir"/selinux-port-*.state; do
+        [ -f "$state_file" ] || continue
+        [ ! -L "$state_file" ] || continue
+        grep -Fxq "owner=remote-installer" "$state_file" || continue
+
+        owner_id=$(stat -c '%u' "$state_file" 2>/dev/null || echo "")
+        permissions=$(stat -c '%a' "$state_file" 2>/dev/null || echo "")
+        if [ "$owner_id" != "0" ] || [ -z "$permissions" ] || [ $((8#$permissions & 022)) -ne 0 ]; then
+            echo "跳过不可信 SELinux 状态文件：$state_file"
+            continue
+        fi
+
+        port=$(grep -E '^port=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+        if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "跳过无效 SELinux 端口状态文件：$state_file"
+            continue
+        fi
+
+        expected_state_file="$state_dir/selinux-port-${port}.state"
+        if [ "$state_file" != "$expected_state_file" ]; then
+            echo "跳过端口不一致的 SELinux 状态文件：$state_file"
+            continue
+        fi
+
+        module_name=$(grep -E '^module=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+        if [ -n "$module_name" ] && [ "$module_name" != "remote_installer_nginx_port_${port}" ]; then
+            echo "跳过非本安装器命名空间的 SELinux 模块：$module_name"
+            continue
+        fi
+
+        cleanup_succeeded=true
+
+        if grep -Fxq "semanage=added" "$state_file"; then
+            echo "提示：检测到安装器曾添加 SELinux http_port_t 端口 $port。为避免误删管理员接管的端口，卸载脚本不会自动删除，请确认后手动执行：semanage port -d -p tcp $port"
+            cleanup_succeeded=false
+        fi
+
+        if grep -Fxq "module_created=true" "$state_file" && [ -n "$module_name" ]; then
+            if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "$module_name"; then
+                if ! semodule -r "$module_name" 2>/dev/null; then
+                    echo "警告：删除 SELinux 策略模块 $module_name 失败，保留状态文件：$state_file"
+                    cleanup_succeeded=false
+                fi
+            fi
+        fi
+
+        if [ "$cleanup_succeeded" = "true" ]; then
+            rm -f "$state_file"
+        else
+            echo "保留 SELinux 状态文件以便后续人工确认：$state_file"
+        fi
+    done
+}
+
+remove_nginx_firewall_resources() {
+    local state_dir="/var/lib/remote-installer/nginx"
+    local state_file
+    local port
+    local expected_state_file
+    local owner_id
+    local permissions
+    local backend
+
+    if [ ! -e "$state_dir" ]; then
+        return 0
+    fi
+
+    is_selinux_state_dir_trusted "$state_dir" || return 0
+
+    for state_file in "$state_dir"/firewall-port-*.state; do
+        [ -f "$state_file" ] || continue
+        [ ! -L "$state_file" ] || continue
+        grep -Fxq "owner=remote-installer" "$state_file" || continue
+
+        owner_id=$(stat -c '%u' "$state_file" 2>/dev/null || echo "")
+        permissions=$(stat -c '%a' "$state_file" 2>/dev/null || echo "")
+        if [ "$owner_id" != "0" ] || [ -z "$permissions" ] || [ $((8#$permissions & 022)) -ne 0 ]; then
+            echo "跳过不可信 Nginx 防火墙状态文件：$state_file"
+            continue
+        fi
+
+        port=$(grep -E '^port=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+        if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "跳过无效 Nginx 防火墙状态文件：$state_file"
+            continue
+        fi
+
+        expected_state_file="$state_dir/firewall-port-${port}.state"
+        if [ "$state_file" != "$expected_state_file" ]; then
+            echo "跳过端口不一致的 Nginx 防火墙状态文件：$state_file"
+            continue
+        fi
+
+        backend=$(grep -E '^backend=' "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2)
+        case "$backend" in
+            firewalld)
+                if command -v firewall-cmd >/dev/null 2>&1; then
+                    firewall-cmd --permanent --remove-port=${port}/tcp 2>/dev/null || true
+                    firewall-cmd --reload 2>/dev/null || true
+                fi
+                ;;
+            ufw)
+                if command -v ufw >/dev/null 2>&1; then
+                    ufw delete allow ${port}/tcp 2>/dev/null || true
+                fi
+                ;;
+            *)
+                echo "跳过未知 Nginx 防火墙后端状态文件：$state_file"
+                continue
+                ;;
+        esac
+
+        rm -f "$state_file"
+    done
+}
+
 get_config_candidates() {
     local -a files=()
     local file
@@ -186,11 +354,8 @@ echo "PROGRESS:Cleaning:60"
 echo -e "${YELLOW}3. 清理残留文件和目录...${NC}"
 
 declare -a CONFIG_PATHS=(
-    "/etc/nginx"
     "/etc/nginx.conf"
-    "/usr/local/nginx/conf"
     "/usr/local/nginx/conf/nginx.conf"
-    "/opt/nginx/conf"
     "/opt/nginx/conf/nginx.conf"
 )
 
@@ -204,10 +369,7 @@ declare -a LOG_PATHS=(
 declare -a DATA_PATHS=(
     "/var/lib/nginx"
     "/var/cache/nginx"
-    "/usr/share/nginx"
-    "/usr/local/nginx/html"
     "/usr/local/nginx/client_body_temp"
-    "/opt/nginx"
 )
 
 declare -a BINARY_PATHS=(
@@ -337,12 +499,7 @@ for path in "${RUNTIME_PATHS[@]}"; do
 done
 
 if [ "$KEEP_DATA" = false ]; then
-    for path in "${SSL_CERT_PATHS[@]}"; do
-        if [ -e "$path" ]; then
-            echo "  删除：$path"
-            rm -rf "$path"
-        fi
-    done
+    echo "默认保留可能包含业务配置或证书的 Nginx 目录：/etc/nginx、/usr/share/nginx、/usr/local/nginx/html、/opt/nginx、/etc/nginx/ssl、/etc/ssl/nginx"
 fi
 
 echo "清理系统用户..."
@@ -355,6 +512,9 @@ if getent group nginx >/dev/null 2>&1; then
     groupdel nginx 2>/dev/null || true
 fi
 
+remove_nginx_port_selinux_resources
+remove_nginx_firewall_resources
+
 echo "PROGRESS:Finalizing:90"
 echo -e "${YELLOW}4. 刷新系统服务与防火墙...${NC}"
 if command -v systemctl >/dev/null 2>&1; then
@@ -363,29 +523,7 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl reset-failed 2>/dev/null || true
 fi
 
-if command -v firewall-cmd >/dev/null 2>&1; then
-    for port in "${PORTS[@]}"; do
-        firewall-cmd --permanent --remove-port=${port}/tcp 2>/dev/null || true
-    done
-    firewall-cmd --permanent --remove-service=http 2>/dev/null || true
-    firewall-cmd --permanent --remove-service=https 2>/dev/null || true
-    firewall-cmd --reload 2>/dev/null || true
-fi
-
-if command -v ufw >/dev/null 2>&1; then
-    for port in "${PORTS[@]}"; do
-        ufw delete allow ${port}/tcp 2>/dev/null || true
-    done
-    ufw delete allow 'Nginx Full' 2>/dev/null || true
-    ufw delete allow 'Nginx HTTP' 2>/dev/null || true
-    ufw delete allow 'Nginx HTTPS' 2>/dev/null || true
-fi
-
-if command -v iptables >/dev/null 2>&1; then
-    for port in "${PORTS[@]}"; do
-        iptables -D INPUT -p tcp --dport ${port} -j ACCEPT 2>/dev/null || true
-    done
-fi
+echo "Nginx 防火墙规则只会按 /var/lib/remote-installer/nginx/firewall-port-*.state 中的安装器状态文件清理。"
 
 echo "PROGRESS:Complete:100"
 echo -e "${YELLOW}========================================${NC}"
@@ -464,10 +602,9 @@ elif [ "$OS_TYPE" = "redhat" ]; then
 fi
 
 VALIDATE_PATHS=(
-    "/etc/nginx"
     "/etc/nginx.conf"
-    "/usr/local/nginx"
-    "/opt/nginx"
+    "/usr/local/nginx/conf/nginx.conf"
+    "/opt/nginx/conf/nginx.conf"
 )
 
 if [ "$KEEP_DATA" = false ]; then
