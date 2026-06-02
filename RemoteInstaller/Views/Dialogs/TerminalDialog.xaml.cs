@@ -15,6 +15,7 @@ public partial class TerminalDialog : Window
 {
     private readonly TerminalViewModel _viewModel;
     private const int VisibleOutputHardLimit = 350_000;
+    private int _visibleDocumentLength;
 
     public TerminalDialog(TerminalViewModel viewModel)
     {
@@ -33,16 +34,28 @@ public partial class TerminalDialog : Window
     private void TerminalDialog_Loaded(object sender, RoutedEventArgs e)
     {
         ReloadVisibleOutput();
-        CommandInput.Focus();
+        FocusCommandInput();
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(new Action(() => ViewModel_PropertyChanged(sender, e)));
+            return;
+        }
+
         if (e.PropertyName == nameof(TerminalViewModel.CurrentCommand) &&
             CommandInput.Text != _viewModel.CurrentCommand)
         {
             CommandInput.Text = _viewModel.CurrentCommand;
             CommandInput.CaretIndex = CommandInput.Text.Length;
+            return;
+        }
+
+        if (e.PropertyName == nameof(TerminalViewModel.IsExecuting) && !_viewModel.IsExecuting)
+        {
+            _ = Dispatcher.BeginInvoke(new Action(FocusCommandInput), System.Windows.Threading.DispatcherPriority.Input);
         }
     }
 
@@ -64,16 +77,16 @@ public partial class TerminalDialog : Window
             return;
         }
 
-        var currentLength = GetVisibleDocumentLength();
         var incomingLength = GetSpanTextLength(spans);
         var visibleLimit = _viewModel.AutoScroll ? _viewModel.VisibleOutputLimit : VisibleOutputHardLimit;
-        if (currentLength + incomingLength > visibleLimit)
+        if (_visibleDocumentLength + incomingLength > visibleLimit)
         {
             ReloadVisibleOutput();
             return;
         }
 
         AppendSpans(spans);
+        _visibleDocumentLength += incomingLength;
 
         if (_viewModel.AutoScroll)
         {
@@ -94,8 +107,10 @@ public partial class TerminalDialog : Window
 
     private void ReloadVisibleOutput()
     {
-        var document = CreateDocument(_viewModel.VisibleRenderSpans);
+        var spans = _viewModel.VisibleRenderSpans;
+        var document = CreateDocument(spans);
         OutputRichTextBox.Document = document;
+        _visibleDocumentLength = GetSpanTextLength(spans);
 
         if (_viewModel.AutoScroll)
         {
@@ -189,17 +204,6 @@ public partial class TerminalDialog : Window
         return fallbackBrush;
     }
 
-    private int GetVisibleDocumentLength()
-    {
-        if (OutputRichTextBox.Document == null)
-        {
-            return 0;
-        }
-
-        var range = new TextRange(OutputRichTextBox.Document.ContentStart, OutputRichTextBox.Document.ContentEnd);
-        return range.Text.Length;
-    }
-
     /// <summary>
     /// TreeView 展开时按需懒加载子目录。
     /// 这里保留少量 code-behind，仅做 WPF 事件到 ViewModel 命令的桥接。
@@ -250,6 +254,7 @@ public partial class TerminalDialog : Window
         if (e.Key == Key.Enter && !_viewModel.IsExecuting)
         {
             _viewModel.ExecuteCommandCommand.Execute(null);
+            FocusCommandInput();
             e.Handled = true;
             return;
         }
@@ -295,10 +300,29 @@ public partial class TerminalDialog : Window
 
         if (e.Key == Key.Escape && !CommandInput.IsKeyboardFocusWithin)
         {
-            CommandInput.Focus();
-            CommandInput.CaretIndex = CommandInput.Text.Length;
+            FocusCommandInput();
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// 将键盘焦点放回命令输入框，并把光标移动到输入末尾。
+    /// </summary>
+    private void FocusCommandInput()
+    {
+        if (!CommandInput.IsVisible)
+        {
+            return;
+        }
+
+        CommandInput.Focus();
+        Keyboard.Focus(CommandInput);
+        CommandInput.CaretIndex = CommandInput.Text.Length;
+    }
+
+    private void TerminalInputBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        FocusCommandInput();
     }
 
     private async void CloseButton_Click(object sender, RoutedEventArgs e)

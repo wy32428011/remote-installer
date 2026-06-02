@@ -133,6 +133,35 @@
     <SolidColorBrush x:Key="MaterialDesignBackground" Color="#EDF4FB"/>
     <SolidColorBrush x:Key="PrimaryForegroundColor" Color="{StaticResource LightPrimaryTextColor}"/>
 
+    <!-- 终端 ANSI 语义画笔：浅色主题下仍保持黑底终端的可读性 -->
+    <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#07111F"/>
+    <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#F8FAFC"/>
+    <SolidColorBrush x:Key="TerminalBrightForegroundBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="TerminalMutedBrush" Color="#7C8CA0"/>
+    <SolidColorBrush x:Key="TerminalPinkBrush" Color="#FB7185"/>
+    <SolidColorBrush x:Key="TerminalBrightErrorBrush" Color="#FCA5A5"/>
+    <SolidColorBrush x:Key="TerminalBrightSuccessBrush" Color="#86EFAC"/>
+    <SolidColorBrush x:Key="TerminalBrightWarningBrush" Color="#FDE68A"/>
+    <SolidColorBrush x:Key="TerminalBrightInfoBrush" Color="#93C5FD"/>
+    <SolidColorBrush x:Key="TerminalBrightPinkBrush" Color="#FDA4AF"/>
+    <SolidColorBrush x:Key="TerminalBrightAccentBrush" Color="#67E8F9"/>
+    <SolidColorBrush x:Key="TerminalMutedBackgroundBrush" Color="#20314C"/>
+    <SolidColorBrush x:Key="TerminalErrorBackgroundBrush" Color="#4B1D1D"/>
+    <SolidColorBrush x:Key="TerminalSuccessBackgroundBrush" Color="#163021"/>
+    <SolidColorBrush x:Key="TerminalWarningBackgroundBrush" Color="#463415"/>
+    <SolidColorBrush x:Key="TerminalInfoBackgroundBrush" Color="#172C48"/>
+    <SolidColorBrush x:Key="TerminalPinkBackgroundBrush" Color="#442231"/>
+    <SolidColorBrush x:Key="TerminalAccentBackgroundBrush" Color="#17324A"/>
+    <SolidColorBrush x:Key="TerminalLightBackgroundBrush" Color="#2F4057"/>
+    <SolidColorBrush x:Key="TerminalBrightMutedBackgroundBrush" Color="#324863"/>
+    <SolidColorBrush x:Key="TerminalBrightErrorBackgroundBrush" Color="#6B2424"/>
+    <SolidColorBrush x:Key="TerminalBrightSuccessBackgroundBrush" Color="#1D4D30"/>
+    <SolidColorBrush x:Key="TerminalBrightWarningBackgroundBrush" Color="#664A16"/>
+    <SolidColorBrush x:Key="TerminalBrightInfoBackgroundBrush" Color="#1E3E67"/>
+    <SolidColorBrush x:Key="TerminalBrightPinkBackgroundBrush" Color="#5B2941"/>
+    <SolidColorBrush x:Key="TerminalBrightAccentBackgroundBrush" Color="#1F4663"/>
+    <SolidColorBrush x:Key="TerminalBrightLightBackgroundBrush" Color="#4A617F"/>
+
     <!-- ==================== 3. 基础样式 ==================== -->
     <Style x:Key="LightCardBorderStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource LightCardBackgroundBrush}"/>

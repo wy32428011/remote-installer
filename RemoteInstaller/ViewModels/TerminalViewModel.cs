@@ -107,6 +107,11 @@ public partial class TerminalViewModel : ObservableObject
 
     public string ShortcutHint => "回车执行 | Ctrl+C 中断 | Ctrl+L 清屏 | F5 重连";
 
+    /// <summary>
+    /// 当前命令输入行使用的终端提示符。
+    /// </summary>
+    public string CommandPrompt => BuildCommandPrompt();
+
     public string OutputSnapshot => GetOutputSnapshot();
 
     public IReadOnlyList<TerminalOutputSpan> VisibleRenderSpans => GetVisibleRenderSpansSnapshot();
@@ -130,6 +135,11 @@ public partial class TerminalViewModel : ObservableObject
     partial void OnIsExecutingChanged(bool value)
     {
         OnPropertyChanged(nameof(CanReconnect));
+    }
+
+    partial void OnCurrentDirectoryChanged(string value)
+    {
+        OnPropertyChanged(nameof(CommandPrompt));
     }
 
     private async Task ConnectAsync()
@@ -896,6 +906,38 @@ public partial class TerminalViewModel : ObservableObject
     {
         return string.Equals(command, "clear", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(command, "cls", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 根据主机系统和当前路径生成接近原生 shell 的提示符。
+    /// </summary>
+    private string BuildCommandPrompt()
+    {
+        var directory = NormalizePromptDirectory(CurrentDirectory);
+        if (IsWindowsHost)
+        {
+            return $"PS {directory}>";
+        }
+
+        var userName = string.IsNullOrWhiteSpace(_remoteHost.Username)
+            ? "user"
+            : _remoteHost.Username.Trim();
+        var hostName = string.IsNullOrWhiteSpace(HostViewModel?.Name)
+            ? _remoteHost.IpAddress
+            : HostViewModel!.Name.Trim();
+        var suffix = string.Equals(userName, "root", StringComparison.OrdinalIgnoreCase) ? "#" : "$";
+
+        return $"[{userName}@{hostName} {directory}]{suffix}";
+    }
+
+    /// <summary>
+    /// 规范化提示符中的目录，避免空路径造成输入行抖动。
+    /// </summary>
+    private static string NormalizePromptDirectory(string? directory)
+    {
+        return string.IsNullOrWhiteSpace(directory)
+            ? "~"
+            : directory.Trim();
     }
 
     private static string GetOperatingSystemLabel(OperatingSystemType operatingSystemType)

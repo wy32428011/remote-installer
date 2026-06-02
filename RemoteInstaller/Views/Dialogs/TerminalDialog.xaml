@@ -109,7 +109,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0">
@@ -293,6 +292,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <DockPanel Grid.Row="0" Margin="16,14,16,10">
@@ -330,6 +330,77 @@
                                  Cursor="IBeam"
                                  SelectionBrush="#3B82F6"
                                  ContextMenu="{StaticResource TerminalContextMenu}"/>
+
+                    <Border Grid.Row="2"
+                            Margin="14,0,14,14"
+                            Padding="10,8"
+                            Background="{DynamicResource TerminalBackgroundBrush}"
+                            BorderBrush="{DynamicResource DarkBorderLightBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            MouseLeftButtonDown="TerminalInputBar_MouseLeftButtonDown">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding CommandPrompt}"
+                                       FontFamily="Cascadia Mono, Consolas"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SuccessBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0"/>
+
+                            <TextBox x:Name="CommandInput"
+                                     Grid.Column="1"
+                                     Text="{Binding CurrentCommand, UpdateSourceTrigger=PropertyChanged}"
+                                     FontFamily="Cascadia Mono, Consolas"
+                                     FontSize="13"
+                                     Background="Transparent"
+                                     Foreground="{DynamicResource TerminalForegroundBrush}"
+                                     CaretBrush="{DynamicResource TerminalBrightForegroundBrush}"
+                                     BorderThickness="0"
+                                     Padding="0"
+                                     MinHeight="24"
+                                     VerticalContentAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     IsReadOnly="{Binding IsExecuting}"
+                                     AutomationProperties.AutomationId="TerminalCommandInput"
+                                     KeyDown="CommandInput_KeyDown"/>
+
+                            <Button Grid.Column="2"
+                                    Style="{StaticResource ToolButtonStyle}"
+                                    Command="{Binding ExecuteCommandCommand}"
+                                    IsEnabled="{Binding IsExecuting, Converter={StaticResource InverseBoolConverter}}"
+                                    Width="30"
+                                    Height="30"
+                                    Padding="0"
+                                    Margin="8,0,0,0"
+                                    AutomationProperties.AutomationId="TerminalExecuteCommandButton"
+                                    ToolTip="执行命令">
+                                <materialDesign:PackIcon Kind="Play" Width="16" Height="16"/>
+                            </Button>
+
+                            <Button Grid.Column="3"
+                                    Style="{StaticResource ToolButtonStyle}"
+                                    Command="{Binding CancelCommandCommand}"
+                                    IsEnabled="{Binding IsExecuting}"
+                                    Visibility="{Binding IsExecuting, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    Width="30"
+                                    Height="30"
+                                    Padding="0"
+                                    Margin="6,0,0,0"
+                                    AutomationProperties.AutomationId="TerminalCancelCommandButton"
+                                    ToolTip="中断命令">
+                                <materialDesign:PackIcon Kind="Stop" Width="16" Height="16"/>
+                            </Button>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <GridSplitter Grid.Column="1"
@@ -549,76 +620,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="4"
-                Margin="0,14,0,0"
-                Padding="14"
-                Background="{DynamicResource DarkSurfaceBrush}"
-                BorderBrush="{DynamicResource DarkBorderBrush}"
-                BorderThickness="1"
-                CornerRadius="16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <Border Grid.Column="0"
-                        Width="36"
-                        Height="36"
-                        CornerRadius="10"
-                        Background="{DynamicResource DarkSurfaceElevatedBrush}"
-                        Margin="0,0,10,0">
-                    <materialDesign:PackIcon Kind="ChevronRight"
-                                             Width="18"
-                                             Height="18"
-                                             Foreground="{DynamicResource SuccessBrush}"
-                                             HorizontalAlignment="Center"
-                                             VerticalAlignment="Center"/>
-                </Border>
-
-                <TextBox x:Name="CommandInput"
-                         Grid.Column="1"
-                         Text="{Binding CurrentCommand, UpdateSourceTrigger=PropertyChanged}"
-                         FontFamily="Cascadia Mono, Consolas"
-                         FontSize="13"
-                         Background="Transparent"
-                         Foreground="{DynamicResource DarkPrimaryTextBrush}"
-                         BorderThickness="0"
-                         VerticalAlignment="Center"
-                         materialDesign:HintAssist.Hint="输入命令后按回车..."
-                         IsEnabled="{Binding IsExecuting, Converter={StaticResource InverseBoolConverter}}"
-                         KeyDown="CommandInput_KeyDown"/>
-
-                <Button Grid.Column="2"
-                        Style="{StaticResource PrimaryButtonStyle}"
-                        Command="{Binding ExecuteCommandCommand}"
-                        IsEnabled="{Binding IsExecuting, Converter={StaticResource InverseBoolConverter}}"
-                        Padding="18,8"
-                        Margin="10,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Play" Width="16" Height="16"/>
-                        <TextBlock Text="执行" Margin="6,0,0,0"/>
-                    </StackPanel>
-                </Button>
-
-                <Button Grid.Column="3"
-                        Style="{StaticResource ToolButtonStyle}"
-                        Command="{Binding CancelCommandCommand}"
-                        IsEnabled="{Binding IsExecuting}"
-                        Visibility="{Binding IsExecuting, Converter={StaticResource BoolToVisibilityConverter}}"
-                        Padding="16,8"
-                        Margin="8,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="Stop" Width="16" Height="16"/>
-                        <TextBlock Text="中断" Margin="6,0,0,0"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="5" Margin="0,12,0,0">
+        <Grid Grid.Row="4" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
