@@ -3212,6 +3212,9 @@
       "packagesPath": "C:\\Users\\WY\\.nuget\\packages\\",
       "outputPath": "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\obj\\",
       "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\WY\\AppData\\Roaming\\NuGet\\NuGet.Config"
+      ],
       "originalTargetFrameworks": [
         "net10.0-windows"
       ],

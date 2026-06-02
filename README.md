@@ -25,6 +25,7 @@
 - 扩展能力：脚本管理、自定义应用部署
 - Traefik：默认生成 `traefik.yml` 与 `dynamic.yml`，配置编辑器会按 YAML 文件提供结构化/文本双模式编辑，编辑区支持键值、树形和原始文本内容修改，并可使用鼠标滚轮滚动
 - Mosquitto：完全离线安装、支持匿名访问或用户名密码认证、按系统与 CPU 架构匹配离线资源
+- Linux 安装脚本：CentOS/RHEL 与 Ubuntu 优先使用 `install_centos.sh`、`install_ubuntu.sh` 系统专属入口，`install_linux.sh` 保留为兼容分发入口，便于后续按发行版维护安装逻辑
 
 > 说明：
 > 应用市场中的应用、版本和安装参数由当前程序配置驱动，实际以程序界面显示为准，不在 README 中维护固定清单。

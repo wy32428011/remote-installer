@@ -15,22 +15,92 @@ public sealed class ScriptResolver
             return null;
         }
 
-        foreach (var candidate in BuildConfiguredScriptCandidatePaths(scriptReference))
+        foreach (var reference in BuildOperatingSystemScriptReferences(scriptReference, osType))
         {
-            try
+            foreach (var candidate in BuildConfiguredScriptCandidatePaths(reference))
             {
-                if (File.Exists(candidate))
+                try
                 {
-                    return candidate;
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
                 }
-            }
-            catch
-            {
-                // Ignore invalid candidate paths and continue probing known roots.
+                catch
+                {
+                    // Ignore invalid candidate paths and continue probing known roots.
+                }
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 获取指定操作系统的脚本文件名后缀优先级。
+    /// </summary>
+    public static IReadOnlyList<string> GetScriptFileNameSuffixes(OperatingSystemType osType)
+    {
+        return osType switch
+        {
+            OperatingSystemType.Windows => ["windows"],
+            OperatingSystemType.CentOS => ["centos", "linux"],
+            OperatingSystemType.Ubuntu => ["ubuntu", "linux"],
+            _ => ["linux"]
+        };
+    }
+
+    /// <summary>
+    /// 基于配置里的通用脚本引用生成当前操作系统的候选脚本引用。
+    /// </summary>
+    public static IEnumerable<string> BuildOperatingSystemScriptReferences(string scriptReference, OperatingSystemType osType)
+    {
+        if (string.IsNullOrWhiteSpace(scriptReference))
+        {
+            yield break;
+        }
+
+        var normalizedReference = scriptReference.Replace('\\', '/');
+        var extension = osType == OperatingSystemType.Windows ? ".ps1" : ".sh";
+        if (!normalizedReference.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return scriptReference;
+            yield break;
+        }
+
+        var nameWithoutExtension = normalizedReference[..^extension.Length];
+        var baseName = RemoveKnownOperatingSystemSuffix(nameWithoutExtension);
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var suffix in GetScriptFileNameSuffixes(osType))
+        {
+            var candidate = $"{baseName}_{suffix}{extension}";
+            if (emitted.Add(candidate))
+            {
+                yield return candidate;
+            }
+        }
+
+        if (emitted.Add(normalizedReference))
+        {
+            yield return normalizedReference;
+        }
+    }
+
+    /// <summary>
+    /// 移除配置引用末尾已有的操作系统后缀，便于生成系统专属脚本名。
+    /// </summary>
+    private static string RemoveKnownOperatingSystemSuffix(string nameWithoutExtension)
+    {
+        foreach (var suffix in new[] { "_windows", "_centos", "_ubuntu", "_linux" })
+        {
+            if (nameWithoutExtension.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return nameWithoutExtension[..^suffix.Length];
+            }
+        }
+
+        return nameWithoutExtension;
     }
 
     public static string BuildLinuxShellScriptCommand(string scriptContent)

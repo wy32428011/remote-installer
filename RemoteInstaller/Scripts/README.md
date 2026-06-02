@@ -7,7 +7,10 @@ This directory contains installation, uninstallation and detection scripts for d
 ```
 Scripts/
 ├── MySQL/
+│   ├── install_ubuntu.sh
+│   ├── install_centos.sh
 │   ├── install_linux.sh
+│   ├── install_common.sh
 │   ├── install_windows.ps1
 │   ├── uninstall_linux.sh
 │   ├── uninstall_windows.ps1
@@ -50,6 +53,39 @@ Scripts/
     │   └── 24/
     └── mosquitto-centos7/
 ```
+
+## Linux Install Script Selection
+
+Linux 安装脚本按目标主机系统优先选择专属入口，旧的通用脚本名继续保留为兼容入口：
+
+1. CentOS / RHEL 系主机优先匹配 `install_centos.sh`，找不到时回退 `install_linux.sh`。
+2. Ubuntu 主机优先匹配 `install_ubuntu.sh`，找不到时回退 `install_linux.sh`。
+3. Windows 主机仍匹配 `install_windows.ps1`。
+4. 版本目录内的脚本优先级高于应用根目录，例如 `Scripts/MySQL/8.0.35/install_ubuntu.sh` 会优先于 `Scripts/MySQL/install_ubuntu.sh`。
+
+已经拆分系统入口的应用包括：
+
+- `Consul`
+- `Elasticsearch`
+- `MariaDB`
+- `Mosquitto`
+- `MySQL`
+- `Nginx`
+- `RabbitMQ`
+- `Redis`
+
+这些目录中的 `install_ubuntu.sh` 与 `install_centos.sh` 负责系统校验和入口分流，`install_common.sh` 保存原有公共安装执行体，`install_linux.sh` 只作为历史配置和旧版本调用的兼容分发入口。安装服务上传 Linux 安装脚本时会同时上传同目录的 `.sh` 文件，保证系统专属入口可以调用同目录公共脚本。
+
+### Smoke Mode
+
+系统专属入口支持轻量冒烟模式，不会执行实际安装：
+
+```bash
+REMOTE_INSTALLER_SMOKE_TEST=true bash install_ubuntu.sh
+REMOTE_INSTALLER_SMOKE_TEST=true bash install_centos.sh
+```
+
+冒烟模式会校验当前系统类型、检查 `install_common.sh` 是否存在，并执行 `bash -n install_common.sh` 验证公共执行体语法。
 
 ## Script Format
 

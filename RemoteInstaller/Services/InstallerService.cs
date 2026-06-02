@@ -198,12 +198,7 @@ public class InstallerService : IOperationInstaller, IDisposable
 
                 if (host.OsType != OperatingSystemType.Windows)
                 {
-                    // Linux 脚本需要处理换行符 (CRLF -> LF)，否则会导致 shebang 解析错误
-                    var content = (await File.ReadAllTextAsync(localScriptPath, cancellationToken))
-                        .Replace("\r\n", "\n")
-                        .Replace("\r", "\n");
-                    await _sshService.UploadTextAsync(content, remoteScriptPath, host.OsType, cancellationToken);
-                    await _sshService.ExecuteCommandAsync($"chmod +x \"{remoteScriptPath}\"", cancellationToken: cancellationToken);
+                    await UploadLinuxScriptDirectoryAsync(localScriptPath, remoteWorkDir, host.OsType, AddTaskLog, cancellationToken);
                 }
                 else
                 {
@@ -2267,7 +2262,7 @@ _ => null
     private string? GetLocalScriptPath(string appId, string version, OperatingSystemType osType, string scriptPrefix = "install")
     {
         var extension = osType == OperatingSystemType.Windows ? "ps1" : "sh";
-        var osSuffix = osType == OperatingSystemType.Windows ? "windows" : "linux";
+        var osSuffixes = ScriptResolver.GetScriptFileNameSuffixes(osType);
         
         // 1. 尝试相对于运行目录的路径
         var searchRoots = new List<string>
@@ -2282,10 +2277,14 @@ _ => null
 
         var searchPatterns = new List<string>();
         
-        // 1. 优先找版本特定的脚本 (例如: Scripts/Elasticsearch/8.11.0/install_linux.sh)
+        // 1. 优先找版本特定的脚本 (例如: Scripts/Elasticsearch/8.11.0/install_centos.sh)
         if (!string.IsNullOrEmpty(version))
         {
-            searchPatterns.Add(Path.Combine(version, $"{scriptPrefix}_{osSuffix}.{extension}"));
+            foreach (var osSuffix in osSuffixes)
+            {
+                searchPatterns.Add(Path.Combine(version, $"{scriptPrefix}_{osSuffix}.{extension}"));
+            }
+
             searchPatterns.Add(Path.Combine(version, $"{scriptPrefix}.{extension}"));
             
             // 处理 v1.2.3 这种形式
@@ -2294,18 +2293,30 @@ _ => null
             
             if (versionWithV != version)
             {
-                searchPatterns.Add(Path.Combine(versionWithV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                foreach (var osSuffix in osSuffixes)
+                {
+                    searchPatterns.Add(Path.Combine(versionWithV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                }
+
                 searchPatterns.Add(Path.Combine(versionWithV, $"{scriptPrefix}.{extension}"));
             }
             if (versionWithoutV != version)
             {
-                searchPatterns.Add(Path.Combine(versionWithoutV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                foreach (var osSuffix in osSuffixes)
+                {
+                    searchPatterns.Add(Path.Combine(versionWithoutV, $"{scriptPrefix}_{osSuffix}.{extension}"));
+                }
+
                 searchPatterns.Add(Path.Combine(versionWithoutV, $"{scriptPrefix}.{extension}"));
             }
         }
         
         // 2. 其次找通用的脚本 (例如: Scripts/Elasticsearch/install_linux.sh)
-        searchPatterns.Add($"{scriptPrefix}_{osSuffix}.{extension}");
+        foreach (var osSuffix in osSuffixes)
+        {
+            searchPatterns.Add($"{scriptPrefix}_{osSuffix}.{extension}");
+        }
+
         searchPatterns.Add($"{scriptPrefix}.{extension}");
 
         foreach (var root in searchRoots)
@@ -2317,7 +2328,7 @@ _ => null
                     var fullPath = Path.Combine(root, pattern);
                     if (File.Exists(fullPath))
                     {
-                                                return fullPath;
+                        return fullPath;
                     }
                 }
                 catch
@@ -2327,7 +2338,60 @@ _ => null
             }
         }
 
-                return null;
+        return null;
+    }
+
+    /// <summary>
+    /// 上传 Linux 脚本所在目录的同级 Shell 脚本，确保拆分后的入口脚本可以 source 公共脚本。
+    /// </summary>
+    private async Task UploadLinuxScriptDirectoryAsync(
+        string localScriptPath,
+        string remoteWorkDir,
+        OperatingSystemType osType,
+        Action<LogLevel, string> addTaskLog,
+        CancellationToken cancellationToken)
+    {
+        var localScriptDirectory = Path.GetDirectoryName(localScriptPath);
+        if (string.IsNullOrWhiteSpace(localScriptDirectory) || !Directory.Exists(localScriptDirectory))
+        {
+            await UploadLinuxScriptFileAsync(localScriptPath, remoteWorkDir, osType, cancellationToken);
+            return;
+        }
+
+        var scriptFiles = Directory
+            .EnumerateFiles(localScriptDirectory, "*.sh", SearchOption.TopDirectoryOnly)
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (scriptFiles.Length == 0)
+        {
+            await UploadLinuxScriptFileAsync(localScriptPath, remoteWorkDir, osType, cancellationToken);
+            return;
+        }
+
+        foreach (var scriptFile in scriptFiles)
+        {
+            await UploadLinuxScriptFileAsync(scriptFile, remoteWorkDir, osType, cancellationToken);
+        }
+
+        addTaskLog(LogLevel.Info, $"已上传同目录 Linux 脚本 {scriptFiles.Length} 个，支持系统专属脚本和公共脚本协作。");
+    }
+
+    /// <summary>
+    /// 上传单个 Linux Shell 脚本，并统一转换为 LF 换行。
+    /// </summary>
+    private async Task UploadLinuxScriptFileAsync(
+        string localScriptPath,
+        string remoteWorkDir,
+        OperatingSystemType osType,
+        CancellationToken cancellationToken)
+    {
+        var remoteScriptPath = $"{remoteWorkDir}/{Path.GetFileName(localScriptPath)}";
+        var content = (await File.ReadAllTextAsync(localScriptPath, cancellationToken))
+            .Replace("\r\n", "\n")
+            .Replace("\r", "\n");
+        await _sshService.UploadTextAsync(content, remoteScriptPath, osType, cancellationToken);
+        await _sshService.ExecuteCommandAsync($"chmod +x \"{remoteScriptPath}\"", cancellationToken: cancellationToken);
     }
 
     private static string BuildLinuxShellScriptCommand(string scriptContent, Dictionary<string, string>? parameters)
