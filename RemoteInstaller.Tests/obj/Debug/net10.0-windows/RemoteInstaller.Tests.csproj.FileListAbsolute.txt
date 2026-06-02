@@ -61,7 +61,6 @@ C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\S
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\SQLitePCLRaw.core.dll
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\SQLitePCLRaw.provider.e_sqlite3.dll
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Renci.SshNet.dll
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\SshNet.Security.Cryptography.dll
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\System.Data.SQLite.dll
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\xunit.assert.dll
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\xunit.core.dll
@@ -178,8 +177,6 @@ C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\S
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Elasticsearch\check_status_windows.ps1
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\MySQL\check_status_linux.sh
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\MySQL\check_status_windows.ps1
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\check_status_linux.sh
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\check_status_windows.ps1
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nginx\check_status_linux.sh
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nginx\check_status_windows.ps1
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\check_status_linux.sh
@@ -194,10 +191,6 @@ C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\S
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\install_windows.ps1
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\uninstall_linux.sh
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\uninstall_windows.ps1
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\install_linux.sh
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\install_windows.ps1
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\uninstall_linux.sh
-C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Nacos\uninstall_windows.ps1
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\rabbitmq-centos7\erlang-23.3.4.11-1.el7.x86_64.rpm
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\rabbitmq-centos7\rabbitmq-release-signing-key.asc
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\RabbitMQ\rabbitmq-centos7\rabbitmq-server-3.9.16-1.el7.noarch.rpm
@@ -582,3 +575,4 @@ C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\S
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Mosquitto\mosquitto-ubuntu\22\libmicrohttpd12_0.9.75-3ubuntu1_amd64.deb
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Mosquitto\mosquitto-ubuntu\24\libcjson1_1.7.17-1_amd64.deb
 C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\Scripts\Mosquitto\mosquitto-ubuntu\24\libmicrohttpd12t64_1.0.0-2.1ubuntu2_amd64.deb
+C:\projects\远程安装应用\RemoteInstaller.Tests\bin\Debug\net10.0-windows\BouncyCastle.Cryptography.dll

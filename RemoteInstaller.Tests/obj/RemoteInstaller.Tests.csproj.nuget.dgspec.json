@@ -13,9 +13,6 @@
         "packagesPath": "C:\\Users\\WY\\.nuget\\packages\\",
         "outputPath": "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\obj\\",
         "projectStyle": "PackageReference",
-        "configFilePaths": [
-          "C:\\Users\\WY\\AppData\\Roaming\\NuGet\\NuGet.Config"
-        ],
         "originalTargetFrameworks": [
           "net10.0-windows"
         ],
@@ -377,9 +374,6 @@
         "packagesPath": "C:\\Users\\WY\\.nuget\\packages\\",
         "outputPath": "C:\\projects\\远程安装应用\\RemoteInstaller\\obj\\",
         "projectStyle": "PackageReference",
-        "configFilePaths": [
-          "C:\\Users\\WY\\AppData\\Roaming\\NuGet\\NuGet.Config"
-        ],
         "originalTargetFrameworks": [
           "net10.0-windows"
         ],
@@ -431,23 +425,11 @@
             },
             "SSH.NET": {
               "target": "Package",
-              "version": "[2020.0.0, )"
+              "version": "[2025.1.0, )"
             },
             "System.Data.SQLite": {
               "target": "Package",
               "version": "[2.0.2, )"
-            },
-            "System.Security.Cryptography.ProtectedData": {
-              "target": "Package",
-              "version": "[10.0.0, )"
-            },
-            "System.Text.Encoding.CodePages": {
-              "target": "Package",
-              "version": "[10.0.0, )"
-            },
-            "System.Text.Json": {
-              "target": "Package",
-              "version": "[10.0.5, )"
             }
           },
           "imports": [

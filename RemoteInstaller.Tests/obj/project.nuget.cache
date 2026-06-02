@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "u7AJhroPAbE=",
+  "dgSpecHash": "ESg0cKaAB9U=",
   "success": true,
   "projectFilePath": "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\RemoteInstaller.Tests.csproj",
   "expectedPackageFiles": [
+    "C:\\Users\\WY\\.nuget\\packages\\bouncycastle.cryptography\\2.6.2\\bouncycastle.cryptography.2.6.2.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\castle.core\\5.1.1\\castle.core.5.1.1.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\communitytoolkit.mvvm\\8.4.0\\communitytoolkit.mvvm.8.4.0.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\coverlet.collector\\8.0.0\\coverlet.collector.8.0.0.nupkg.sha512",
@@ -49,8 +50,7 @@
     "C:\\Users\\WY\\.nuget\\packages\\sqlitepclraw.core\\2.1.11\\sqlitepclraw.core.2.1.11.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\sqlitepclraw.lib.e_sqlite3\\2.1.11\\sqlitepclraw.lib.e_sqlite3.2.1.11.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\2.1.11\\sqlitepclraw.provider.e_sqlite3.2.1.11.nupkg.sha512",
-    "C:\\Users\\WY\\.nuget\\packages\\ssh.net\\2020.0.0\\ssh.net.2020.0.0.nupkg.sha512",
-    "C:\\Users\\WY\\.nuget\\packages\\sshnet.security.cryptography\\1.3.0\\sshnet.security.cryptography.1.3.0.nupkg.sha512",
+    "C:\\Users\\WY\\.nuget\\packages\\ssh.net\\2025.1.0\\ssh.net.2025.1.0.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\system.data.sqlite\\2.0.2\\system.data.sqlite.2.0.2.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\system.diagnostics.eventlog\\10.0.5\\system.diagnostics.eventlog.10.0.5.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\xunit\\2.9.3\\xunit.2.9.3.nupkg.sha512",
@@ -62,18 +62,5 @@
     "C:\\Users\\WY\\.nuget\\packages\\xunit.extensibility.execution\\2.9.3\\xunit.extensibility.execution.2.9.3.nupkg.sha512",
     "C:\\Users\\WY\\.nuget\\packages\\xunit.runner.visualstudio\\3.1.5\\xunit.runner.visualstudio.3.1.5.nupkg.sha512"
   ],
-  "logs": [
-    {
-      "code": "NU1902",
-      "level": "Warning",
-      "message": "Package 'SSH.NET' 2020.0.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-72p8-v4hg-v45p",
-      "projectPath": "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\RemoteInstaller.Tests.csproj",
-      "warningLevel": 1,
-      "filePath": "C:\\projects\\远程安装应用\\RemoteInstaller.Tests\\RemoteInstaller.Tests.csproj",
-      "libraryId": "SSH.NET",
-      "targetGraphs": [
-        "net10.0-windows7.0"
-      ]
-    }
-  ]
+  "logs": []
 }
