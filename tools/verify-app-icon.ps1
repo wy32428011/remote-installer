@@ -35,7 +35,9 @@ function Test-FileExists {
 function Test-IcoFile {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+
+        [int[]]$ExpectedSizes = @()
     )
 
     if (-not (Test-FileExists -Path $Path -Description 'ICO icon file')) {
@@ -59,11 +61,10 @@ function Test-IcoFile {
             return
         }
 
-        if ($count -ne 7) {
-            Add-ValidationError ("ICO frame count mismatch. Expected 7, actual {0}: {1}" -f $count, $Path)
+        if ($count -le 0) {
+            Add-ValidationError ("ICO frame count is invalid. Expected at least 1, actual {0}: {1}" -f $count, $Path)
         }
 
-        $expectedSizes = @(16, 24, 32, 48, 64, 128, 256)
         $actualSizes = [System.Collections.Generic.List[int]]::new()
         $entrySize = 16
         $directorySize = 6 + ($count * $entrySize)
@@ -101,7 +102,11 @@ function Test-IcoFile {
             }
         }
 
-        $expectedJoined = ($expectedSizes | Sort-Object) -join '/'
+        if ($ExpectedSizes.Count -eq 0) {
+            return
+        }
+
+        $expectedJoined = ($ExpectedSizes | Sort-Object) -join '/'
         $actualJoined = ($actualSizes | Sort-Object) -join '/'
 
         if ($expectedJoined -ne $actualJoined) {
@@ -118,16 +123,21 @@ $repoRoot = Split-Path -Parent $scriptPath
 
 $icoPath = Join-Path $repoRoot 'RemoteInstaller/Assets/Brand/remoteinstaller-icon.ico'
 $pngPath = Join-Path $repoRoot 'RemoteInstaller/Assets/Brand/remoteinstaller-icon-256.png'
+$packageIconRelativePath = 'RemoteInstaller/Assets/Brand/zending.ico'
+$packageIconFileName = 'zending.ico'
+$packageIconPath = Join-Path $repoRoot $packageIconRelativePath
 $csprojPath = Join-Path $repoRoot 'RemoteInstaller/RemoteInstaller.csproj'
 $issPath = Join-Path $repoRoot 'installer/installer.iss'
+$buildScriptPath = Join-Path $repoRoot 'build-installer.ps1'
 
-Test-IcoFile -Path $icoPath
+Test-IcoFile -Path $icoPath -ExpectedSizes @(16, 24, 32, 48, 64, 128, 256)
 Test-FileExists -Path $pngPath -Description 'PNG icon file' | Out-Null
+Test-IcoFile -Path $packageIconPath
 
 if (Test-FileExists -Path $csprojPath -Description 'project file') {
     $csprojContent = [System.IO.File]::ReadAllText($csprojPath)
-    if ($csprojContent -notmatch '<ApplicationIcon>Assets\\Brand\\remoteinstaller-icon\.ico</ApplicationIcon>') {
-        Add-ValidationError ("Missing ApplicationIcon wiring in project file: {0}" -f $csprojPath)
+    if ($csprojContent -notmatch '<ApplicationIcon>Assets\\Brand\\zending\.ico</ApplicationIcon>') {
+        Add-ValidationError ("Missing ZENDING ApplicationIcon wiring in project file: {0}" -f $csprojPath)
     }
 }
 
@@ -135,6 +145,21 @@ if (Test-FileExists -Path $issPath -Description 'installer script') {
     $issContent = [System.IO.File]::ReadAllText($issPath)
     if ($issContent -notmatch 'SetupIconFile=\{#MySetupIconFile\}') {
         Add-ValidationError ("Missing SetupIconFile={{#MySetupIconFile}} wiring in installer script: {0}" -f $issPath)
+    }
+
+    if ($issContent -notmatch [regex]::Escape('..\\RemoteInstaller\\Assets\\Brand\\zending.ico')) {
+        Add-ValidationError ("Missing packaged ZENDING icon default in installer script: {0}" -f $issPath)
+    }
+}
+
+if (Test-FileExists -Path $buildScriptPath -Description 'installer build script') {
+    $buildScriptContent = [System.IO.File]::ReadAllText($buildScriptPath)
+    if ($buildScriptContent -notmatch [regex]::Escape('RemoteInstaller/Assets/Brand') -or $buildScriptContent -notmatch [regex]::Escape($packageIconFileName)) {
+        Add-ValidationError ("Missing packaged ZENDING icon path in installer build script: {0}" -f $buildScriptPath)
+    }
+
+    if ($buildScriptContent -notmatch [regex]::Escape('-p:ApplicationIcon=$iconFile')) {
+        Add-ValidationError ("Missing ApplicationIcon publish override in installer build script: {0}" -f $buildScriptPath)
     }
 }
 

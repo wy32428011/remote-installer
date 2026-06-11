@@ -113,11 +113,13 @@ dotnet test
 ```powershell
 ./build-installer.ps1 -Version 1.0.0
 ./build-installer.ps1 -SkipPublish
+./build-installer.ps1 -IconPath "E:\公司文件\ZENDING 品牌化应用\zending.ico"
 ```
 
 默认行为说明：
 
 - 脚本会先执行面向 `win-x64` 的自包含发布：`dotnet publish RemoteInstaller/RemoteInstaller.csproj -c Release -r win-x64 --self-contained true`
+- 打包默认图标使用仓库内 `RemoteInstaller/Assets/Brand/zending.ico`；该文件来源于 `E:\公司文件\ZENDING 品牌化应用\zending.ico`，脚本会在发布时同步覆盖应用 exe 图标，并传给 Inno Setup 作为安装包图标
 - 安装器输入目录默认使用脚本显式指定的 publish 输出目录，当前默认仍为 `RemoteInstaller/bin/<Configuration>/net10.0-windows/publish`，并非 `dotnet publish -r` 的默认 RID 输出结构
 - 安装包输出目录默认使用 `artifacts/installer`
 - 安装内容会保留发布目录原始结构，包含 `Assets/`、`Scripts/` 和 `Scripts/app-configuration.json`
@@ -136,7 +138,7 @@ dotnet test
 - 新版本首次启动时，如果安装目录中存在旧版 `data.db`，会自动迁移到用户数据目录。
 - 重新安装或覆盖安装不会替换 `%LocalAppData%\RemoteInstaller` 下的数据库内容。
 - 当前安装包默认采用 self-contained 发布，目标机器通常无需预装 `.NET 10 Windows Desktop Runtime`。
-- 项目图标文件使用 `RemoteInstaller/Assets/Brand/remoteinstaller-icon.ico`。
+- 项目内置旧图标文件仍保留在 `RemoteInstaller/Assets/Brand/remoteinstaller-icon.ico`，打包流程默认改用 `RemoteInstaller/Assets/Brand/zending.ico`。
 - 如需重新生成图标，可执行 `powershell.exe -ExecutionPolicy Bypass -File ".\\tools\\generate-app-icon.ps1"`。
 
 ### 使用 Visual Studio

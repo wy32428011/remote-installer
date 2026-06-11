@@ -1,8 +1,11 @@
-param(
+﻿param(
     [string]$Configuration = "Release",
     [string]$ProjectPath = "RemoteInstaller/RemoteInstaller.csproj",
     [string]$PublishDir,
     [string]$OutputDir = "artifacts/installer",
+    [string]$IconDirectory = "RemoteInstaller/Assets/Brand",
+    [string]$IconFileName = "zending.ico",
+    [string]$IconPath,
     [string]$Version,
     [string]$AppName = "RemoteInstaller",
     [string]$Runtime = "win-x64",
@@ -77,12 +80,23 @@ $installerScript = Resolve-FullPath -Path "installer/installer.iss" -BasePath $s
 $outputDirectory = Resolve-FullPath -Path $OutputDir -BasePath $scriptRoot
 $dotnetCommand = Resolve-DotnetCommand
 
+# 默认使用仓库内的 ZENDING 图标，避免安装包构建依赖外部磁盘路径。
+if ([string]::IsNullOrWhiteSpace($IconPath)) {
+    $IconPath = Join-Path $IconDirectory $IconFileName
+}
+
+$iconFile = Resolve-FullPath -Path $IconPath -BasePath $scriptRoot
+
 if (-not (Test-Path -Path $projectFile -PathType Leaf)) {
     throw "Project file not found: $projectFile"
 }
 
 if (-not (Test-Path -Path $installerScript -PathType Leaf)) {
     throw "Installer script not found: $installerScript"
+}
+
+if (-not (Test-Path -Path $iconFile -PathType Leaf)) {
+    throw "Icon file not found: $iconFile"
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -119,7 +133,7 @@ New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 if (-not $SkipPublish) {
     $selfContainedValue = if ($SelfContained -eq $true) { 'true' } else { 'false' }
-    & $dotnetCommand publish $projectFile -c $Configuration -r $Runtime --self-contained $selfContainedValue -o $publishDirectory
+    & $dotnetCommand publish $projectFile -c $Configuration -r $Runtime --self-contained $selfContainedValue -o $publishDirectory "-p:ApplicationIcon=$iconFile"
 
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish failed."
@@ -140,6 +154,7 @@ $arguments = @(
     "/DMyAppVersion=$Version",
     "/DMyAppSourceDir=$publishDirectory",
     "/DMyOutputDir=$outputDirectory",
+    "/DMySetupIconFile=$iconFile",
     $installerScript
 )
 

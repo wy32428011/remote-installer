@@ -15,7 +15,9 @@
 #endif
 
 #define MyLicenseFile "..\\LICENSE"
-#define MySetupIconFile "..\\RemoteInstaller\\Assets\\Brand\\remoteinstaller-icon.ico"
+#ifndef MySetupIconFile
+  #define MySetupIconFile "..\\RemoteInstaller\\Assets\\Brand\\zending.ico"
+#endif
 #define MyAppPublisher "Leon"
 #define MyAppExeName MyAppName + ".exe"
 
