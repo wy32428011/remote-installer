@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RemoteInstaller.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+532587e221137da4d651a73f5a437953e2b22903")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3a3ab5ce2b61b39c06453acf3382fe884d0f8343")]
 [assembly: System.Reflection.AssemblyProductAttribute("RemoteInstaller.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RemoteInstaller.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

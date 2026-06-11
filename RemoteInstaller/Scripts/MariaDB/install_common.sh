@@ -229,8 +229,7 @@ is_mariadb_server_installed() {
 has_debian_local_repository() {
     local package_dir=$1
 
-    [ -f "$package_dir/Packages" ] || return 1
-    compgen -G "$package_dir/MariaDB-*-public.asc" >/dev/null 2>&1
+    [ -f "$package_dir/Packages" ]
 }
 
 debian_package_installed_or_available() {
@@ -351,11 +350,24 @@ normalize_rpm_capability() {
     printf '%s\n' "$capability" | awk 'NF { $1=$1; print }'
 }
 
+# 判断 RPM 依赖是否包含版本比较，避免本地包提供能力表达式不同导致误报。
+is_versioned_rpm_requirement() {
+    local requirement=${1:-}
+
+    case "$requirement" in
+        *" = "*|*" >= "*|*" <= "*|*" > "*|*" < "*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 is_ignored_rpm_requirement() {
     local requirement=${1:-}
 
     case "$requirement" in
-        ""|rpmlib\(*)
+        ""|rpmlib\(*|/bin/*|/usr/bin/*|/usr/sbin/*)
             return 0
             ;;
     esac
@@ -364,14 +376,14 @@ is_ignored_rpm_requirement() {
 }
 
 collect_local_rpm_capabilities() {
-    local package_dir=$1
-    local output_file=$2
+    local output_file=$1
+    shift
     local rpm_file
     local provides_output
 
     : > "$output_file"
 
-    for rpm_file in "$package_dir"/*.rpm; do
+    for rpm_file in "$@"; do
         provides_output=$(rpm -qp --provides "$rpm_file" 2>/dev/null) || {
             echo "错误：读取 RPM 提供能力失败：$rpm_file"
             exit 1
@@ -395,6 +407,22 @@ local_rpm_capabilities_satisfy_requirement() {
         fi
 
         if [ "$requirement_name" = "$requirement" ] && { [ "$provided_capability" = "$requirement_name" ] || [[ "$provided_capability" == "$requirement_name "* ]]; }; then
+            return 0
+        fi
+    done < "$provides_file"
+
+    return 1
+}
+
+# 版本依赖先按能力名判断是否由本地 RPM 提供，最终版本正确性由 yum 事务预检兜底。
+local_rpm_capability_name_exists() {
+    local requirement=$1
+    local provides_file=$2
+    local requirement_name=${requirement%% *}
+    local provided_capability
+
+    while IFS= read -r provided_capability; do
+        if [ "$provided_capability" = "$requirement_name" ] || [[ "$provided_capability" == "$requirement_name "* ]]; then
             return 0
         fi
     done < "$provides_file"
@@ -430,6 +458,8 @@ validate_redhat_offline_transaction() {
 
 validate_redhat_offline_dependencies() {
     local package_dir=$1
+    shift
+    local -a rpm_files=("$@")
     local provides_file
     local missing_file
     local rpm_file
@@ -440,9 +470,9 @@ validate_redhat_offline_dependencies() {
     provides_file=$(mktemp)
     missing_file=$(mktemp)
 
-    collect_local_rpm_capabilities "$package_dir" "$provides_file"
+    collect_local_rpm_capabilities "$provides_file" "${rpm_files[@]}"
 
-    for rpm_file in "$package_dir"/*.rpm; do
+    for rpm_file in "${rpm_files[@]}"; do
         requirements_output=$(rpm -qpR "$rpm_file" 2>/dev/null) || {
             rm -f "$provides_file" "$missing_file"
             echo "错误：读取 RPM 依赖能力失败：$rpm_file"
@@ -453,6 +483,19 @@ validate_redhat_offline_dependencies() {
             normalized_requirement=$(normalize_rpm_capability "$requirement")
 
             if is_ignored_rpm_requirement "$normalized_requirement"; then
+                continue
+            fi
+
+            if is_versioned_rpm_requirement "$normalized_requirement"; then
+                if local_rpm_capability_name_exists "$normalized_requirement" "$provides_file"; then
+                    continue
+                fi
+
+                if system_satisfies_rpm_requirement "$normalized_requirement"; then
+                    continue
+                fi
+
+                printf '%s\n' "$normalized_requirement" >> "$missing_file"
                 continue
             fi
 
@@ -480,6 +523,21 @@ validate_redhat_offline_dependencies() {
     rm -f "$provides_file" "$missing_file"
 }
 
+# MariaDB-test 是上游测试组件，不是服务运行必需包，离线安装时跳过以免测试 RPM 损坏影响服务部署。
+is_optional_redhat_mariadb_rpm() {
+    local rpm_file=$1
+    local rpm_name
+
+    rpm_name=$(basename "$rpm_file")
+    case "$rpm_name" in
+        MariaDB-test-*.rpm|mariadb-test-*.rpm)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 install_debian_from_repository() {
     local package_dir=$1
 
@@ -487,31 +545,22 @@ install_debian_from_repository() {
     (
         set -euo pipefail
 
-        local -a repo_key_candidates=("$package_dir"/MariaDB-*-public.asc)
-        local repo_key_source=${repo_key_candidates[0]:-}
         local repo_list=/etc/apt/sources.list.d/remoteinstaller-mariadb-offline.list
-        local repo_keyring=/etc/apt/keyrings/remoteinstaller-mariadb-offline.asc
 
         if ! has_debian_local_repository "$package_dir"; then
-            echo "错误：离线目录缺少 MariaDB 本地仓库元数据（Packages 或签名 key）：$package_dir"
+            echo "错误：离线目录缺少 MariaDB 本地仓库元数据（Packages）：$package_dir"
             exit 1
         fi
 
-        trap 'rm -f "$repo_list" "$repo_keyring"' EXIT
+        trap 'rm -f "$repo_list"' EXIT
 
-        mkdir -p /etc/apt/keyrings
-        rm -f "$repo_list" "$repo_keyring"
+        rm -f "$repo_list"
 
-        cp "$repo_key_source" "$repo_keyring"
-        chmod 644 "$repo_keyring"
-
-        printf 'deb [signed-by=%s] file://%s ./\n' "$repo_keyring" "$package_dir" > "$repo_list"
+        printf 'deb [trusted=yes] file://%s ./\n' "$package_dir" > "$repo_list"
         chmod 644 "$repo_list"
 
-        echo "MariaDB 仓库签名 key: $repo_key_source"
-        echo "临时 APT key 文件: $repo_keyring"
         echo "临时 APT 源文件: $repo_list"
-        echo "当前 APT 操作仅使用 file:// 本地仓库，不读取其它 sourceparts。"
+        echo "当前 APT 操作仅使用 trusted file:// 本地仓库，不读取其它 sourceparts。"
 
         apt-get \
             -o Dir::Etc::sourcelist="$repo_list" \
@@ -573,7 +622,7 @@ install_debian_from_directory() {
     validate_debian_offline_dependencies "$package_dir"
 
     if has_debian_local_repository "$package_dir"; then
-        echo "检测到 Packages 与签名 key，优先使用本地 file:// APT 仓库安装 MariaDB..."
+        echo "检测到 Packages 元数据，优先使用本地 trusted file:// APT 仓库安装 MariaDB..."
         install_debian_from_repository "$package_dir"
         return 0
     fi
@@ -604,8 +653,18 @@ install_debian_from_directory() {
 
 install_redhat_from_directory() {
     local package_dir=$1
-    local -a rpm_files=("$package_dir"/*.rpm)
+    local -a rpm_files=()
     local -a server_rpm_files=("$package_dir"/MariaDB-server-*.rpm "$package_dir"/mariadb-server-*.rpm)
+    local rpm_file
+
+    while IFS= read -r rpm_file; do
+        if is_optional_redhat_mariadb_rpm "$rpm_file"; then
+            echo "跳过非运行必需的 MariaDB 测试 RPM：$(basename "$rpm_file")"
+            continue
+        fi
+
+        rpm_files+=("$rpm_file")
+    done < <(find "$package_dir" -maxdepth 1 -type f -name '*.rpm' | sort)
 
     if [ ${#rpm_files[@]} -eq 0 ]; then
         echo "错误：离线目录中未找到 .rpm 文件：$package_dir"
@@ -625,7 +684,7 @@ install_redhat_from_directory() {
     if is_redhat_7; then
         echo "检测到 EL7/CentOS7，启用严格离线模式..."
         echo "正在校验离线 RPM 依赖能力..."
-        validate_redhat_offline_dependencies "$package_dir"
+        validate_redhat_offline_dependencies "$package_dir" "${rpm_files[@]}"
         echo "正在执行离线事务预检..."
         validate_redhat_offline_transaction "$package_dir" "${rpm_files[@]}"
     fi

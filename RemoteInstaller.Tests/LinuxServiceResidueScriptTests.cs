@@ -137,7 +137,7 @@ public class LinuxServiceResidueScriptTests
     [Fact]
     public void MySqlInstallScript_DoesNotPrintRootPassword()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_linux.sh");
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_common.sh");
         var logOutputLines = script
             .Split('\n')
             .Select(line => line.TrimStart())
@@ -161,7 +161,7 @@ public class LinuxServiceResidueScriptTests
     [Fact]
     public void MariaDbInstallScript_DoesNotPrintRootPassword()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MariaDB", "install_linux.sh");
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MariaDB", "install_common.sh");
         var logOutputLines = script
             .Split('\n')
             .Select(line => line.TrimStart())
@@ -176,7 +176,7 @@ public class LinuxServiceResidueScriptTests
     [Fact]
     public void MySqlInstallScript_PreparesOnlyResolvedSafeCustomDataDirectoryBeforeSettingDatadir()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_linux.sh");
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_common.sh");
 
         Assert.Contains("resolve_safe_custom_data_directory()", script);
         Assert.Contains("realpath -m \"$path\"", script);
@@ -261,7 +261,7 @@ public class LinuxServiceResidueScriptTests
     [Fact]
     public void MySqlInstallScript_LeavesVersionedRpmRequirementsToYumTransactionTest()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_linux.sh");
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MySQL", "install_common.sh");
 
         Assert.Contains("\"\"|rpmlib\\(*|/bin/sh|/bin/bash|/usr/bin/*|/usr/sbin/*)", script);
         Assert.Contains("带版本比较的 capability 交给 yum 事务预检判断", script);
@@ -276,7 +276,7 @@ public class LinuxServiceResidueScriptTests
     [Fact]
     public void MariaDbInstallScript_PreflightsDebianOfflineDependenciesBeforeAptInstall()
     {
-        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MariaDB", "install_linux.sh");
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MariaDB", "install_common.sh");
 
         Assert.Contains("validate_debian_offline_dependencies()", script);
         Assert.Contains("debian_package_installed_or_available()", script);
@@ -296,13 +296,30 @@ public class LinuxServiceResidueScriptTests
         Assert.Contains("lsof", script);
         Assert.Contains("rsync", script);
         Assert.Contains("错误：严格离线模式下，MariaDB 离线目录缺少以下 Debian 依赖包，且目标系统未安装", script);
-        Assert.Contains("printf 'deb [signed-by=%s] file://%s ./\\n'", script);
+        Assert.Contains("printf 'deb [trusted=yes] file://%s ./\\n'", script);
         Assert.Contains("-o Dir::Etc::sourcelist=\"$repo_list\"", script);
         Assert.Contains("-o Dir::Etc::sourceparts=/dev/null", script);
-        Assert.Contains("当前 APT 操作仅使用 file:// 本地仓库，不读取其它 sourceparts。", script);
+        Assert.Contains("检测到 Packages 元数据，优先使用本地 trusted file:// APT 仓库安装 MariaDB...", script);
+        Assert.Contains("当前 APT 操作仅使用 trusted file:// 本地仓库，不读取其它 sourceparts。", script);
+        Assert.DoesNotContain("检测到 Packages 与签名 key", script);
         Assert.Contains("apt-get -y -qq --no-install-recommends", script);
         Assert.True(script.IndexOf("validate_debian_offline_dependencies \"$package_dir\"", StringComparison.Ordinal) <
                     script.IndexOf("install_debian_from_repository \"$package_dir\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MariaDbInstallScript_SkipsOptionalRedhatTestRpm()
+    {
+        var script = ReadProjectFile("RemoteInstaller", "Scripts", "MariaDB", "install_common.sh");
+
+        Assert.Contains("is_optional_redhat_mariadb_rpm()", script);
+        Assert.Contains("MariaDB-test-*.rpm|mariadb-test-*.rpm)", script);
+        Assert.Contains("跳过非运行必需的 MariaDB 测试 RPM", script);
+        Assert.Contains("validate_redhat_offline_dependencies \"$package_dir\" \"${rpm_files[@]}\"", script);
+        Assert.Contains("validate_redhat_offline_transaction \"$package_dir\" \"${rpm_files[@]}\"", script);
+        Assert.Contains("yum --disablerepo='*' localinstall -y \"${rpm_files[@]}\"", script);
+        Assert.True(script.IndexOf("if is_optional_redhat_mariadb_rpm \"$rpm_file\";", StringComparison.Ordinal) <
+                    script.IndexOf("validate_redhat_offline_dependencies \"$package_dir\" \"${rpm_files[@]}\"", StringComparison.Ordinal));
     }
 
     [Fact]

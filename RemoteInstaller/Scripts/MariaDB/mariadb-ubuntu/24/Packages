@@ -939,3 +939,167 @@ Description: MariaDB client common configuration files package (e.g. /etc/mysql/
  This package includes files needed by all versions of the client library
  (e.g. /etc/mysql/my.cnf).
 
+Package: libconfig-inifiles-perl
+Version: 3.000003-2
+Architecture: all
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Original-Maintainer: Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>
+Installed-Size: 116
+Section: perl
+Priority: optional
+Multi-Arch: foreign
+Homepage: https://metacpan.org/release/Config-IniFiles/
+Description: read .ini-style configuration files
+ Config::IniFiles provides a way to have readable configuration files
+ outside your Perl script. Configurations can be imported (inherited,
+ stacked, ...), sections can be grouped, and settings can be accessed
+ from a tied hash.
+Filename: ./libconfig-inifiles-perl_3.000003-2_all.deb
+Size: 39366
+MD5sum: 30f411767e64a317ad70c6f680660895
+SHA1: ab1aa85924b461d2de93db5dab298adb68ebc303
+SHA256: 7945252fea17c49e0977bdfe6c050d1beee82d82197219efddffd95ddcae5886
+SHA512: b89b964d5877cf11fd6a81d0e15ad21ff6f9fe423d4749eadb5fb57afbf6b58215cb955cbd1a75e9254f522e0a75b7314ecc963b7cba0bac420101d2e6d27f38
+
+Package: libdbi-perl
+Version: 1.643-4build3
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 2097
+Depends: perl (>= 5.38.2-3.2build1), perlapi-5.38.2, libc6 (>= 2.38)
+Suggests: libclone-perl, libmldbm-perl, libnet-daemon-perl, libsql-statement-perl
+Breaks: libdbd-anydata-perl (<< 0.11+)
+Provides: dh-sequence-perl-dbi, perl-dbdabi-94
+Section: perl
+Priority: optional
+Multi-Arch: same
+Homepage: https://dbi.perl.org/
+Description: Perl Database Interface (DBI)
+ DBI (DataBase Interface) is a Perl framework that provides a common interface
+ to access various backend databases in a uniform manner. DBD (DataBase Driver)
+ modules provide implementations for various backend data storage mechanisms
+ including networked relational databases (particularly SQL databases) and even
+ web services such as the Google search engine.
+ .
+ It is extremely portable and available for a wide range of operating systems,
+ architectures and data stores, including:
+ .
+  * Oracle
+  * Microsoft SQL Server
+  * IBM DB2
+  * SQLite
+  * PostgreSQL
+  * Firebird
+  * MySQL
+Original-Maintainer: Debian Perl Group <pkg-perl-maintainers@lists.alioth.debian.org>
+Filename: ./libdbi-perl_1.643-4build3_amd64.deb
+Size: 720722
+MD5sum: d22fc1ef97295039812ae985e7ce9fa7
+SHA1: 86e70f09028c23e51bca91312ff29bd4e8713aab
+SHA256: 173b4eaed8ee6413446cf98f48d3324acdaa5ede13c8195db81ffc27c44af0bc
+SHA512: ecc85a63b277024b09d7ceba89a0af78722fdef7917323a79820a49ea554d1b2c089e85acf279f63c517bb2d137e9cf6cacd231e787d82bd1e25c207fa2e5946
+
+Package: lsof
+Version: 4.95.0-1build3
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 475
+Depends: libc6 (>= 2.34), libselinux1 (>= 3.1~), libtirpc3t64 (>= 1.0.2)
+Section: utils
+Priority: standard
+Homepage: https://github.com/lsof-org/lsof
+Description: utility to list open files
+ Lsof is a Unix-specific diagnostic tool.  Its name stands
+ for LiSt Open Files, and it does just that.  It lists
+ information about any files that are open, by processes
+ currently running on the system.
+Original-Maintainer: Andres Salomon <dilinger@debian.org>
+Filename: ./lsof_4.95.0-1build3_amd64.deb
+Size: 246736
+MD5sum: ce934cf1f36717332981a74e0ce1f798
+SHA1: bb3bf112beca33c6e051a1f1e91c549168bf1dc8
+SHA256: 46165f06b9568f9e2718f1fdd3d3a8db46aa597f5ff163c1d21c0d1daa12191d
+SHA512: 71d5b5f75c24acb7ffa9726fa84d0f88fcae2e8970b8c2bf0935600fcddfe3040e39aed92485370c09a35f0fec8841ffa47a814a7cfd4ee8b29d06595a45500a
+
+Package: rsync
+Version: 3.2.7-1ubuntu1.4
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 801
+Pre-Depends: init-system-helpers (>= 1.54~)
+Depends: lsb-base, libacl1 (>= 2.2.23), libc6 (>= 2.38), liblz4-1 (>= 0.0~r130), libpopt0 (>= 1.14), libssl3t64 (>= 3.0.0), libxxhash0 (>= 0.8.0), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)
+Suggests: openssh-client, openssh-server, python3, python3-braceexpand
+Section: net
+Priority: optional
+Multi-Arch: foreign
+Homepage: https://rsync.samba.org/
+Description: fast, versatile, remote (and local) file-copying tool
+ rsync is a fast and versatile file-copying tool which can copy locally
+ and to/from a remote host. It offers many options to control its behavior,
+ and its remote-update protocol can minimize network traffic to make
+ transferring updates between machines fast and efficient.
+ .
+ It is widely used for backups and mirroring and as an improved copy
+ command for everyday use.
+ .
+ This package provides both the rsync command line tool and optional
+ daemon functionality.
+Original-Maintainer: Paul Slootman <paul@debian.org>
+Filename: ./rsync_3.2.7-1ubuntu1.4_amd64.deb
+Size: 442294
+MD5sum: 48940bc8bea800cfe8a2f9e7096cde46
+SHA1: 89dba896feeb4d9f3a26a6a97bc300cdb08442dc
+SHA256: a2c92fc69ef4f646f2b267dacb456dbfec022bd32d5394e819c147548059627f
+SHA512: 603f38cffda0f1431e1dbe4efc5e5ee6d4e578b3764310833646ea816170f62fbf7ce2e80a578cd0cfd18755cc9da2524110c2b615df232931102aa37ae62aff
+
+Package: libncurses6
+Source: ncurses
+Version: 6.5-2
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Original-Maintainer: Ncurses Maintainers <ncurses@packages.debian.org>
+Installed-Size: 336
+Depends: libtinfo6 (= 6.5-2), libc6 (>= 2.34)
+Recommends: libgpm2
+Breaks: cowdancer (<< 0.89~)
+Section: libs
+Priority: optional
+Multi-Arch: same
+Homepage: https://invisible-island.net/ncurses/
+Description: shared libraries for terminal handling
+ The ncurses library routines are a terminal-independent method of
+ updating character screens with reasonable optimization.
+ .
+ This package contains the shared libraries necessary to run programs
+ compiled with ncurses.
+Filename: ./libncurses6_6.5-2_amd64.deb
+Size: 111756
+MD5sum: 8c076aa223ec495afef9350579cd0158
+SHA1: 567c3b01489a140adcdfb4e2322264f2461b3dba
+SHA256: 1233c9c5572d3f5e31ed7239238b54a646c78bb842ad6f30b2f4319d49bb9cbb
+SHA512: 4f8046095a51451ca586f1a602c6c57206b89e8caebbf225383a2a78c21212e1c4f791f7ee63ff29463482093139398f5bb473d9d9ac5363eaa9894fcdf57990
+
+Package: libtinfo6
+Source: ncurses
+Version: 6.5-2
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Original-Maintainer: Ncurses Maintainers <ncurses@packages.debian.org>
+Installed-Size: 557
+Depends: libc6 (>= 2.34)
+Breaks: tmux (<< 3.3a-4)
+Section: libs
+Priority: optional
+Multi-Arch: same
+Homepage: https://invisible-island.net/ncurses/
+Description: shared low-level terminfo library for terminal handling
+ The ncurses library routines are a terminal-independent method of
+ updating character screens with reasonable optimization.
+ .
+ This package contains the shared low-level terminfo library.
+Filename: ./libtinfo6_6.5-2_amd64.deb
+Size: 108216
+MD5sum: 6c0fe3ed0a622b76b34cab95ce36707b
+SHA1: eda56ef9717a89e7bf3b72c73b2784f8977068ad
+SHA256: ac28aac905a28eea26cf54c81a32ced7925725880049288d0427378d232b06a7
+SHA512: ac508698fb72b813ac4d2ffbd77f9db9ff52999fe4e8ae943db1cf631cda6637f4694af2774f056c1b4964e3d9837453d636830d50b3cf13f2753805ddb90243

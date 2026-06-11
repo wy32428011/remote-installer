@@ -32,7 +32,7 @@
 > Nacos 已按当前需求从应用配置、脚本、UI 回退入口、数据库内置种子、测试和当前说明文档中移除，不再作为内置应用或待补离线资源目标。
 > 批量安装会按队列全局串行执行，同一时间只安装一个“服务器 + 应用”任务，避免多台主机并行安装时争用 SSH、上传或本地离线资源；系统设置中的最大并发任务数不影响批量安装。
 >
-> 最近验证：2026-05-13 已完成全应用与主要 WPF UI 冒烟测试，后续修复复验后 `dotnet build` 0 警告、0 错误且完整测试 280 个通过；Nacos 移除后，剩余 24 个“主机 + 应用”真实链路组合当前为 15 个 PASS、0 个 FAIL、9 个 BLOCKED，CentOS 7 MySQL、Nginx、Elasticsearch 已完成真实安装、检测、卸载和残留复验；Ubuntu 24 MariaDB 已补充严格离线 Debian 依赖预检、`nullglob` 下的本地包存在性判断和安装完成输出脱敏，当前明确阻塞于离线目录缺少 `libconfig-inifiles-perl`、`libdbi-perl`、`lsof`、`rsync` 等 DEB 依赖，卸载清理后残留为 `CLEAN`；Nginx 已补充主 RPM 元数据校验、防火墙状态文件回收边界和跨发行版运行目录处理，Elasticsearch 已补充参数白名单与主包元数据校验；脚本管理、安装入口和配置入口已补充稳定 `AutomationProperties.AutomationId`，并由结构测试覆盖关键标识与静态重复检查；`SSH.NET` 已升级到 `2025.1.0` 且漏洞包检查清零；详细记录见 [`docs/full-smoke-validation-2026-05-13.md`](./docs/full-smoke-validation-2026-05-13.md)，操作管线专项记录见 [`docs/operation-validation-2026-05-13.md`](./docs/operation-validation-2026-05-13.md)。
+> 最近验证：2026-05-13 已完成全应用与主要 WPF UI 冒烟测试，后续修复复验后 `dotnet build` 0 警告、0 错误且完整测试 280 个通过；Nacos 移除后，剩余 24 个“主机 + 应用”真实链路组合当前为 15 个 PASS、0 个 FAIL、9 个 BLOCKED，CentOS 7 MySQL、Nginx、Elasticsearch 已完成真实安装、检测、卸载和残留复验；2026-06-02 已补齐 CentOS 7 Mosquitto、CentOS 7 MariaDB 与 Ubuntu 24 MariaDB 离线依赖，并完成安装、状态、卸载、状态复查冒烟；Nginx 已补充主 RPM 元数据校验、防火墙状态文件回收边界和跨发行版运行目录处理，Elasticsearch 已补充参数白名单与主包元数据校验；脚本管理、安装入口和配置入口已补充稳定 `AutomationProperties.AutomationId`，并由结构测试覆盖关键标识与静态重复检查；`SSH.NET` 已升级到 `2025.1.0` 且漏洞包检查清零；详细记录见 [`docs/full-smoke-validation-2026-05-13.md`](./docs/full-smoke-validation-2026-05-13.md)，操作管线专项记录见 [`docs/operation-validation-2026-05-13.md`](./docs/operation-validation-2026-05-13.md)。
 >
 > 当前 MQTT 相关能力已切换为 **Mosquitto**，要求使用离线资源安装；参数仅保留 `MQTT Port`、`Username`、`Password`，不再包含 WebSocket 端口；用户名与密码可同时留空以启用匿名访问，但不能只填写其中一项。
 >
@@ -167,6 +167,9 @@ Scripts/                应用安装配置与脚本资源
 - 状态检测脚本的 `PORT` 字段只表示应用配置或默认端口，不再作为“正在运行”的证据；如需明确上报端口监听事实，应输出 `PORT_LISTENING:true|false`，运行态仍以 `RUNNING:true|false`、进程或 active 服务为准。若配置中的检测命令没有输出机器可读状态协议，程序会回退到内置检测逻辑，避免旧式命令被静默解析成未安装。
 - Mosquitto 在 Debian/Ubuntu 上只把 dpkg 精确状态 `install ok installed` 作为完整安装证据，`unpacked`、`half-configured` 等依赖缺失后的残留状态不会再被当作安装成功。
 - RabbitMQ 状态检测只认可 RabbitMQ 服务端二进制、`rabbitmq-server` 完整包、RabbitMQ 专属 Erlang 命令行进程、active 的 RabbitMQ 服务或 `rabbitmqctl status` 成功。单独的 Erlang 进程、默认端口被其他进程占用、`rabbitmqctl` 残留命令、inactive 服务定义和配置目录残留不会再被判定为已安装或运行中。
+- 2026-06-02 在 CentOS 7 与 Ubuntu 24 测试机执行 Linux 脚本安装、状态、卸载、状态复查冒烟：Consul、Traefik、Redis、Nginx、RabbitMQ、Elasticsearch、MySQL 已完成可用性闭环；Ubuntu 上 Redis 与 Mosquitto 因基线已有安装/运行而跳过破坏性卸载；JDK 系列因仓库没有本地离线包未纳入真实安装冒烟。
+- 2026-06-02 已修复同次冒烟的问题 2/3/4/5：`RemoteInstaller/Scripts/**/*.sh` 已统一为 LF 并由 `.gitattributes` 固化；CentOS 7 Mosquitto 已补入 `libwebsockets-3.0.1-2.el7` 与 `libuv-1.44.2-1.el7`；CentOS 7 MariaDB 已补入 `galera-4`、`Judy`、`libzstd`、`unixODBC`、`lsof`、`rsync`、`pv`、`python3`、Java、Perl 与 NSS/NSPR 等离线依赖；Ubuntu 24 MariaDB 已补入 `libconfig-inifiles-perl`、`libdbi-perl`、`lsof`、`rsync`，并针对实际 Ubuntu 24.10 测试机补入 `libncurses6`、`libtinfo6`。
+- 本轮复验结论：CentOS 7 Mosquitto `1.6.10` 安装、状态、卸载、卸载后状态均通过；CentOS 7 MariaDB `11.4.3` 安装、状态、卸载、卸载后状态均通过；Ubuntu 测试机实际为 Ubuntu 24.10，使用 `mariadb-ubuntu/24` 目录安装 MariaDB `11.4.7`，安装、状态、卸载、卸载后状态均通过。
 
 ---
 
