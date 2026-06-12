@@ -46,6 +46,11 @@ public partial class TerminalViewModel : ObservableObject
     private const int OutputBatchFlushThreshold = 16_384;
     private const int UiFlushIntervalMs = 33;
 
+    // 终端可视区域尺寸（列/行），由 View 测量后同步。
+    // 连接前记录初值，连接后变化时向远端发送 window-change。
+    private uint _terminalColumns = 120;
+    private uint _terminalRows = 40;
+
     [ObservableProperty]
     private string _currentCommand = string.Empty;
 
@@ -137,6 +142,31 @@ public partial class TerminalViewModel : ObservableObject
         OnPropertyChanged(nameof(CanReconnect));
     }
 
+    /// <summary>
+    /// 由 View 在输出区域尺寸变化时调用，同步终端 PTY 列数和行数。
+    /// 连接前仅记录初值；连接后向远端发送 window-change，让 shell 按新宽度排版。
+    /// </summary>
+    public void UpdateTerminalSize(uint columns, uint rows)
+    {
+        if (columns == 0 || rows == 0)
+        {
+            return;
+        }
+
+        if (columns == _terminalColumns && rows == _terminalRows)
+        {
+            return;
+        }
+
+        _terminalColumns = columns;
+        _terminalRows = rows;
+
+        if (IsConnected)
+        {
+            _ = _sshService.ChangeTerminalSizeAsync(columns, rows);
+        }
+    }
+
     partial void OnCurrentDirectoryChanged(string value)
     {
         OnPropertyChanged(nameof(CommandPrompt));
@@ -152,13 +182,22 @@ public partial class TerminalViewModel : ObservableObject
             StatusMessage = "连接中...";
             AddSystemLine($"正在连接到 {HostViewModel?.Name} ({HostViewModel?.IpAddress})...");
 
-            await _sshService.StartTerminalSessionAsync(_remoteHost, OnTerminalOutput, _connectCts.Token);
+            await _sshService.StartTerminalSessionAsync(
+                _remoteHost,
+                OnTerminalOutput,
+                _connectCts.Token,
+                _terminalColumns,
+                _terminalRows);
             await _sshService.SendTerminalInputAsync(string.Empty, appendNewLine: true, cancellationToken: _connectCts.Token);
 
             IsConnected = true;
             StatusMessage = "已连接";
             AddSystemLine($"已使用 {HostViewModel?.Username} 登录");
             AddSystemLine($"会话已就绪（{ShellLabel}）");
+
+            // 连接成功后再同步一次当前可视尺寸：
+            // View 的首次测量可能发生在 PTY 创建之后，此处补发 window-change 防止初始列数过期。
+            await _sshService.ChangeTerminalSizeAsync(_terminalColumns, _terminalRows);
 
             if (FilePane != null)
             {

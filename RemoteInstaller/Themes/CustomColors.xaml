@@ -127,8 +127,8 @@
         <GradientStop Color="#20314C" Offset="1"/>
     </LinearGradientBrush>
 
-    <!-- 阴影效果 - 鲜明版 -->
-    <DropShadowEffect x:Key="CardShadow" Color="#020617" Opacity="0.24" BlurRadius="24" ShadowDepth="6"/>
+    <!-- 阴影效果 - 性能优化版：降低模糊半径和不透明度，减少 WPF 逐像素渲染成本 -->
+    <DropShadowEffect x:Key="CardShadow" Color="#020617" Opacity="0.14" BlurRadius="12" ShadowDepth="3"/>
     <DropShadowEffect x:Key="CardHoverShadow" Color="#0EA5E9" Opacity="0.18" BlurRadius="28" ShadowDepth="10"/>
     <DropShadowEffect x:Key="PrimaryButtonShadow" Color="#0369A1" Opacity="0.32" BlurRadius="18" ShadowDepth="4"/>
     <DropShadowEffect x:Key="GlowEffect" Color="#22D3EE" Opacity="0.3" BlurRadius="28" ShadowDepth="0"/>

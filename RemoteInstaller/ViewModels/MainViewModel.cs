@@ -56,6 +56,11 @@ namespace RemoteInstaller.ViewModels
         private readonly ConcurrentDictionary<string, TaskViewModel> _pendingOperationTaskBindings = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Timers.Timer _operationEventFlushTimer;
         private const int OperationEventFlushThrottleMs = 120;
+        /// <summary>
+        /// 批量状态检测的主机级并发上限。
+        /// 每台主机内部仍有应用级状态检测并发，外层必须限流以避免 SSH 连接风暴。
+        /// </summary>
+        private const int BatchStatusHostConcurrency = 3;
         private bool _isReorderingTasks;
 
         #region 属性
@@ -105,7 +110,7 @@ namespace RemoteInstaller.ViewModels
         private ObservableCollection<ApplicationCardViewModel> _applications = new();
 
         [ObservableProperty]
-        private ObservableCollection<ApplicationCardViewModel> _filteredApplications = new();
+        private ObservableRangeCollection<ApplicationCardViewModel> _filteredApplications = new();
 
         [ObservableProperty]
         private ObservableCollection<CustomAppViewModel> _customApps = new();
@@ -285,9 +290,10 @@ namespace RemoteInstaller.ViewModels
         public bool CanCheckForUpdates => !IsCheckingForUpdates;
 
         /// <summary>
-        /// 过滤后的服务器列表
+        /// 过滤后的服务器列表。
+        /// 使用批量集合减少搜索和分组切换时的 UI 通知次数。
         /// </summary>
-        public System.Collections.ObjectModel.ObservableCollection<HostViewModel> FilteredHosts { get; } = new();
+        public ObservableRangeCollection<HostViewModel> FilteredHosts { get; } = new();
 
         /// <summary>
         /// 任务筛选项
@@ -295,9 +301,10 @@ namespace RemoteInstaller.ViewModels
         public ObservableCollection<string> TaskFilters { get; } = new() { "全部", "进行中", "失败", "已完成", "已取消" };
 
         /// <summary>
-        /// 过滤后的任务列表
+        /// 过滤后的任务列表。
+        /// 使用批量集合减少任务进度刷新和排序时的 UI 通知次数。
         /// </summary>
-        public ObservableCollection<TaskViewModel> FilteredTasks { get; } = new();
+        public ObservableRangeCollection<TaskViewModel> FilteredTasks { get; } = new();
 
         /// <summary>
         /// 当前任务空状态提示文案
@@ -378,6 +385,22 @@ namespace RemoteInstaller.ViewModels
         private void SelectedHosts_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             UpdateSelectedServersStatus();
+        }
+
+        /// <summary>
+        /// 任务集合变化时刷新任务统计和过滤视图。
+        /// 独立方法便于任务重排时解绑旧集合，避免匿名事件无法释放。
+        /// </summary>
+        private void Tasks_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            TaskCount = Tasks.Count;
+            if (!_isReorderingTasks)
+            {
+                ApplyTaskFilter();
+                OnPropertyChanged(nameof(TaskEmptyStateText));
+                OnPropertyChanged(nameof(HasFilteredTasks));
+                OnPropertyChanged(nameof(ShowTaskEmptyState));
+            }
         }
 
         partial void OnSelectedApplicationChanged(ApplicationCardViewModel? value)
@@ -997,17 +1020,30 @@ namespace RemoteInstaller.ViewModels
             _batchCheckCts = new CancellationTokenSource();
 
             IsBatchChecking = true;
-            AddLog($"开始批量检测 {SelectedHosts.Count} 台服务器的应用状态...", LogLevel.Info);
+            var selectedHosts = SelectedHosts.ToList();
+            AddLog($"开始批量检测 {selectedHosts.Count} 台服务器的应用状态（主机级并发 {BatchStatusHostConcurrency}）...", LogLevel.Info);
 
             try
             {
                 var token = _batchCheckCts.Token;
-                var tasks = SelectedHosts.Select(host =>
-                    RequestHostStatusRefreshAsync(
-                        host,
-                        HostStatusRefreshReason.BatchRefresh,
-                        forceRefresh: true,
-                        cancellationToken: token)).ToList();
+                using var semaphore = new SemaphoreSlim(BatchStatusHostConcurrency);
+                var tasks = selectedHosts.Select(async host =>
+                {
+                    await semaphore.WaitAsync(token);
+                    try
+                    {
+                        await RequestHostStatusRefreshAsync(
+                            host,
+                            HostStatusRefreshReason.BatchRefresh,
+                            forceRefresh: true,
+                            cancellationToken: token);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }).ToList();
+
                 await Task.WhenAll(tasks);
                 AddLog($"批量检测完成", LogLevel.Success);
             }
@@ -1572,14 +1608,9 @@ namespace RemoteInstaller.ViewModels
             _isReorderingTasks = true;
             try
             {
-                for (var i = 0; i < orderedTasks.Count; i++)
-                {
-                    var currentIndex = Tasks.IndexOf(orderedTasks[i]);
-                    if (currentIndex >= 0 && currentIndex != i)
-                    {
-                        Tasks.Move(currentIndex, i);
-                    }
-                }
+                Tasks.CollectionChanged -= Tasks_CollectionChanged;
+                Tasks = new ObservableCollection<TaskViewModel>(orderedTasks);
+                Tasks.CollectionChanged += Tasks_CollectionChanged;
             }
             finally
             {
@@ -1592,6 +1623,7 @@ namespace RemoteInstaller.ViewModels
             }
 
             ApplyTaskFilter();
+            TaskCount = Tasks.Count;
         }
 
         #endregion
@@ -1603,17 +1635,15 @@ namespace RemoteInstaller.ViewModels
         /// </summary>
         private void ApplyServerFilterCore()
         {
-            FilteredHosts.Clear();
-
             var filtered = Hosts.AsEnumerable();
 
             if (!string.IsNullOrWhiteSpace(ServerSearchText))
             {
-                var searchText = ServerSearchText.ToLower();
+                var searchText = ServerSearchText.Trim().ToLowerInvariant();
                 filtered = filtered.Where(h =>
-                    h.Name.ToLower().Contains(searchText) ||
-                    h.IpAddress.ToLower().Contains(searchText) ||
-                    h.Username.ToLower().Contains(searchText));
+                    h.Name.ToLowerInvariant().Contains(searchText) ||
+                    h.IpAddress.ToLowerInvariant().Contains(searchText) ||
+                    h.Username.ToLowerInvariant().Contains(searchText));
             }
 
             if (!string.IsNullOrWhiteSpace(SelectedGroup) && SelectedGroup != "全部")
@@ -1621,12 +1651,7 @@ namespace RemoteInstaller.ViewModels
                 filtered = filtered.Where(h => h.GroupName == SelectedGroup);
             }
 
-            foreach (var host in filtered)
-            {
-                FilteredHosts.Add(host);
-            }
-
-            OnPropertyChanged(nameof(FilteredHosts));
+            FilteredHosts.ReplaceRange(filtered);
         }
 
         /// <summary>
@@ -1646,8 +1671,6 @@ namespace RemoteInstaller.ViewModels
         /// </summary>
         private void ApplyAppFilterCore()
         {
-            FilteredApplications.Clear();
-
             var filtered = Applications.AsEnumerable();
 
             if (!string.IsNullOrWhiteSpace(SelectedAppCategory) && SelectedAppCategory != "全部")
@@ -1657,12 +1680,12 @@ namespace RemoteInstaller.ViewModels
 
             if (!string.IsNullOrWhiteSpace(AppSearchText))
             {
-                var searchText = AppSearchText.ToLower();
+                var searchText = AppSearchText.Trim().ToLowerInvariant();
                 filtered = filtered.Where(a =>
-                    a.Name.ToLower().Contains(searchText) ||
-                    a.Description.ToLower().Contains(searchText) ||
-                    a.Version.ToLower().Contains(searchText) ||
-                    a.Versions.Any(version => version.ToLower().Contains(searchText)));
+                    a.Name.ToLowerInvariant().Contains(searchText) ||
+                    a.Description.ToLowerInvariant().Contains(searchText) ||
+                    a.Version.ToLowerInvariant().Contains(searchText) ||
+                    a.Versions.Any(version => version.ToLowerInvariant().Contains(searchText)));
             }
 
             filtered = filtered
@@ -1671,12 +1694,7 @@ namespace RemoteInstaller.ViewModels
                 .ThenByDescending(a => a.Id.StartsWith("jdk", StringComparison.OrdinalIgnoreCase))
                 .ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase);
 
-            foreach (var app in filtered)
-            {
-                FilteredApplications.Add(app);
-            }
-
-            OnPropertyChanged(nameof(FilteredApplications));
+            FilteredApplications.ReplaceRange(filtered);
         }
 
         /// <summary>
@@ -1696,8 +1714,6 @@ namespace RemoteInstaller.ViewModels
         /// </summary>
         private void ApplyTaskFilter()
         {
-            FilteredTasks.Clear();
-
             var filtered = Tasks.AsEnumerable();
             filtered = SelectedTaskFilter switch
             {
@@ -1708,17 +1724,13 @@ namespace RemoteInstaller.ViewModels
                 _ => filtered
             };
 
-            foreach (var task in filtered)
-            {
-                FilteredTasks.Add(task);
-            }
+            FilteredTasks.ReplaceRange(filtered);
 
             if (SelectedTask != null && !FilteredTasks.Contains(SelectedTask))
             {
                 SelectedTask = null;
             }
 
-            OnPropertyChanged(nameof(FilteredTasks));
             OnPropertyChanged(nameof(TaskEmptyStateText));
             OnPropertyChanged(nameof(HasFilteredTasks));
             OnPropertyChanged(nameof(ShowTaskEmptyState));
@@ -1783,17 +1795,7 @@ namespace RemoteInstaller.ViewModels
                 RunOnUiThread(FlushOperationEvents);
             };
 
-            Tasks.CollectionChanged += (s, e) =>
-            {
-                TaskCount = Tasks.Count;
-                if (!_isReorderingTasks)
-                {
-                    ApplyTaskFilter();
-                    OnPropertyChanged(nameof(TaskEmptyStateText));
-                    OnPropertyChanged(nameof(HasFilteredTasks));
-                    OnPropertyChanged(nameof(ShowTaskEmptyState));
-                }
-            };
+            Tasks.CollectionChanged += Tasks_CollectionChanged;
             SelectedHosts.CollectionChanged += SelectedHosts_CollectionChanged;
 
             LoadSettings();
@@ -1820,8 +1822,12 @@ namespace RemoteInstaller.ViewModels
         {
             var selectedHostList = selectedHosts.Distinct().ToList();
 
-            SelectedHosts.Clear();
-            foreach (var host in selectedHostList)
+            foreach (var host in SelectedHosts.Except(selectedHostList).ToList())
+            {
+                SelectedHosts.Remove(host);
+            }
+
+            foreach (var host in selectedHostList.Where(host => !SelectedHosts.Contains(host)))
             {
                 SelectedHosts.Add(host);
             }

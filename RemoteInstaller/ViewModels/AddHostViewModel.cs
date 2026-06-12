@@ -283,7 +283,7 @@ public partial class AddHostViewModel : ObservableObject
     /// </summary>
     private void InitializeCommands()
     {
-        TestConnectionCommand = new RelayCommand(async () => await TestConnectionAsync(), () => CanTestConnection);
+        TestConnectionCommand = new AsyncRelayCommand(TestConnectionAsync, () => CanTestConnection);
         BrowseKeyPathCommand = new RelayCommand(BrowseKeyPath);
         SaveCommand = new RelayCommand(Save, () => CanSave);
         CancelCommand = new RelayCommand(Cancel);
@@ -292,7 +292,7 @@ public partial class AddHostViewModel : ObservableObject
     /// <summary>
     /// 测试连接命令
     /// </summary>
-    public ICommand TestConnectionCommand { get; private set; } = null!;
+    public IAsyncRelayCommand TestConnectionCommand { get; private set; } = null!;
 
     /// <summary>
     /// 保存命令
@@ -373,6 +373,7 @@ public partial class AddHostViewModel : ObservableObject
                      && (AuthType != AuthType.PrivateKey || !string.IsNullOrWhiteSpace(KeyPath));
         
         CanTestConnection = isValid && !IsTesting;
+        TestConnectionCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -658,6 +659,7 @@ public class RelayCommand<T> : ICommand
 {
     private readonly Func<Task> _execute;
     private readonly Func<bool> _canExecute;
+    private bool _isExecuting;
 
     public RelayCommand(Func<Task> execute, Func<bool> canExecute)
     {
@@ -673,9 +675,27 @@ public class RelayCommand<T> : ICommand
         remove => CommandManager.RequerySuggested -= value;
     }
 
-    public bool CanExecute(object? parameter) => _canExecute();
+    public bool CanExecute(object? parameter) => !_isExecuting && _canExecute();
 
-    public void Execute(object? parameter) => _execute().GetAwaiter().GetResult();
+    public async void Execute(object? parameter)
+    {
+        if (!CanExecute(parameter))
+        {
+            return;
+        }
+
+        _isExecuting = true;
+        RaiseCanExecuteChanged();
+        try
+        {
+            await _execute();
+        }
+        finally
+        {
+            _isExecuting = false;
+            RaiseCanExecuteChanged();
+        }
+    }
 
     public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
 }

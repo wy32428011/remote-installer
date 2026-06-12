@@ -46,6 +46,44 @@
             <Setter Property="Background" Value="{DynamicResource DarkSurfaceLightBrush}"/>
         </Style>
 
+        <DrawingBrush x:Key="TerminalStripeBackgroundBrush"
+                      TileMode="Tile"
+                      Viewport="0,0,1,36"
+                      ViewportUnits="Absolute"
+                      Stretch="None">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#17191D">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="0,0,1,18"/>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#202226">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="0,18,1,18"/>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+
+        <Style x:Key="TerminalInlineCommandTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Background="{TemplateBinding Background}"
+                                      Focusable="False"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <HierarchicalDataTemplate x:Key="RemoteFileTreeTemplate" ItemsSource="{Binding Children}">
             <StackPanel Margin="2,3" ToolTip="{Binding TooltipText}">
                 <StackPanel Orientation="Horizontal">
@@ -292,7 +330,6 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <DockPanel Grid.Row="0" Margin="16,14,16,10">
@@ -311,94 +348,76 @@
                                    VerticalAlignment="Center"/>
                     </DockPanel>
 
-                    <RichTextBox x:Name="OutputRichTextBox"
-                                 Grid.Row="1"
-                                 Margin="14,0,14,14"
-                                 IsReadOnly="True"
-                                 IsDocumentEnabled="False"
-                                 IsUndoEnabled="False"
-                                 ToolTip="终端视图仅保留最近输出以保证流畅，导出仍包含完整日志。"
-                                 FontFamily="Cascadia Mono, Consolas"
-                                 FontSize="13"
-                                 Background="Transparent"
-                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                 BorderThickness="0"
-                                 Padding="0"
-                                 VerticalScrollBarVisibility="Auto"
-                                 HorizontalScrollBarVisibility="Auto"
-                                 SpellCheck.IsEnabled="False"
-                                 Cursor="IBeam"
-                                 SelectionBrush="#3B82F6"
-                                 ContextMenu="{StaticResource TerminalContextMenu}"/>
-
-                    <Border Grid.Row="2"
+                    <Border Grid.Row="1"
                             Margin="14,0,14,14"
-                            Padding="10,8"
-                            Background="{DynamicResource TerminalBackgroundBrush}"
+                            Background="{StaticResource TerminalStripeBackgroundBrush}"
                             BorderBrush="{DynamicResource DarkBorderLightBrush}"
                             BorderThickness="1"
                             CornerRadius="8"
-                            MouseLeftButtonDown="TerminalInputBar_MouseLeftButtonDown">
+                            ClipToBounds="True">
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Column="0"
-                                       Text="{Binding CommandPrompt}"
-                                       FontFamily="Cascadia Mono, Consolas"
-                                       FontSize="13"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource SuccessBrush}"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,6,0"/>
+                            <RichTextBox x:Name="OutputRichTextBox"
+                                         Grid.Row="0"
+                                         Margin="0"
+                                         IsReadOnly="True"
+                                         IsDocumentEnabled="False"
+                                         IsUndoEnabled="False"
+                                         ToolTip="终端视图仅保留最近输出以保证流畅，导出仍包含完整日志。"
+                                         FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="13"
+                                         Background="Transparent"
+                                         Foreground="{DynamicResource TerminalForegroundBrush}"
+                                         BorderThickness="0"
+                                         Padding="8,8,8,0"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Disabled"
+                                         SpellCheck.IsEnabled="False"
+                                         Cursor="IBeam"
+                                         SelectionBrush="#3B82F6"
+                                         ContextMenu="{StaticResource TerminalContextMenu}"/>
 
-                            <TextBox x:Name="CommandInput"
-                                     Grid.Column="1"
-                                     Text="{Binding CurrentCommand, UpdateSourceTrigger=PropertyChanged}"
-                                     FontFamily="Cascadia Mono, Consolas"
-                                     FontSize="13"
-                                     Background="Transparent"
-                                     Foreground="{DynamicResource TerminalForegroundBrush}"
-                                     CaretBrush="{DynamicResource TerminalBrightForegroundBrush}"
-                                     BorderThickness="0"
-                                     Padding="0"
-                                     MinHeight="24"
-                                     VerticalContentAlignment="Center"
-                                     VerticalAlignment="Center"
-                                     IsReadOnly="{Binding IsExecuting}"
-                                     AutomationProperties.AutomationId="TerminalCommandInput"
-                                     KeyDown="CommandInput_KeyDown"/>
+                            <Border Grid.Row="1"
+                                    Padding="8,2,8,8"
+                                    Background="Transparent"
+                                    MouseLeftButtonDown="TerminalCommandLine_MouseLeftButtonDown">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                            <Button Grid.Column="2"
-                                    Style="{StaticResource ToolButtonStyle}"
-                                    Command="{Binding ExecuteCommandCommand}"
-                                    IsEnabled="{Binding IsExecuting, Converter={StaticResource InverseBoolConverter}}"
-                                    Width="30"
-                                    Height="30"
-                                    Padding="0"
-                                    Margin="8,0,0,0"
-                                    AutomationProperties.AutomationId="TerminalExecuteCommandButton"
-                                    ToolTip="执行命令">
-                                <materialDesign:PackIcon Kind="Play" Width="16" Height="16"/>
-                            </Button>
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding CommandPrompt}"
+                                               FontFamily="Cascadia Mono, Consolas"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TerminalBrightInfoBrush}"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxWidth="360"
+                                               Margin="0,0,4,0"/>
 
-                            <Button Grid.Column="3"
-                                    Style="{StaticResource ToolButtonStyle}"
-                                    Command="{Binding CancelCommandCommand}"
-                                    IsEnabled="{Binding IsExecuting}"
-                                    Visibility="{Binding IsExecuting, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    Width="30"
-                                    Height="30"
-                                    Padding="0"
-                                    Margin="6,0,0,0"
-                                    AutomationProperties.AutomationId="TerminalCancelCommandButton"
-                                    ToolTip="中断命令">
-                                <materialDesign:PackIcon Kind="Stop" Width="16" Height="16"/>
-                            </Button>
+                                    <TextBox x:Name="CommandInput"
+                                             Grid.Column="1"
+                                             Style="{StaticResource TerminalInlineCommandTextBoxStyle}"
+                                             Text="{Binding CurrentCommand, UpdateSourceTrigger=PropertyChanged}"
+                                             FontFamily="Cascadia Mono, Consolas"
+                                             FontSize="13"
+                                             Foreground="{DynamicResource TerminalForegroundBrush}"
+                                             CaretBrush="{DynamicResource TerminalBrightForegroundBrush}"
+                                             MinHeight="18"
+                                             VerticalContentAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             IsReadOnly="{Binding IsExecuting}"
+                                             AutomationProperties.AutomationId="TerminalCommandInput"
+                                             KeyDown="CommandInput_KeyDown"/>
+                                </Grid>
+                            </Border>
                         </Grid>
                     </Border>
                 </Grid>

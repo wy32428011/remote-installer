@@ -34,6 +34,17 @@ public class SshService : IDisposable
     private Action<string>? _terminalOutputHandler;
     private readonly object _terminalLock = new();
     private readonly SemaphoreSlim _terminalWriteLock = new(1, 1);
+
+    // 终端 PTY 尺寸默认值与安全范围。
+    // 列数/行数用于远端程序排版（如 docker ps、top），像素尺寸按等宽字符近似换算。
+    private const uint DefaultTerminalColumns = 120;
+    private const uint DefaultTerminalRows = 40;
+    private const uint MinTerminalColumns = 40;
+    private const uint MaxTerminalColumns = 500;
+    private const uint MinTerminalRows = 10;
+    private const uint MaxTerminalRows = 200;
+    private const uint TerminalCharPixelWidth = 8;
+    private const uint TerminalCharPixelHeight = 16;
     
     // 连接超时时间（秒）
     private const int ConnectionTimeoutSeconds = 10;
@@ -666,7 +677,12 @@ public class SshService : IDisposable
         _logger = logger;
     }
 
-    public async Task StartTerminalSessionAsync(RemoteHost host, Action<string> onOutput, CancellationToken cancellationToken = default)
+    public async Task StartTerminalSessionAsync(
+        RemoteHost host,
+        Action<string> onOutput,
+        CancellationToken cancellationToken = default,
+        uint columns = DefaultTerminalColumns,
+        uint rows = DefaultTerminalRows)
     {
         if (onOutput == null)
         {
@@ -681,7 +697,16 @@ public class SshService : IDisposable
             throw new InvalidOperationException("SSH 未连接，无法启动终端会话");
         }
 
-        var shellStream = _sshClient.CreateShellStream("xterm-256color", 120, 40, 1280, 720, 4096);
+        // 按调用方提供的可视区域大小创建 PTY，远端程序（如 docker、systemctl）会按该列数排版输出。
+        var safeColumns = ClampTerminalDimension(columns, MinTerminalColumns, MaxTerminalColumns);
+        var safeRows = ClampTerminalDimension(rows, MinTerminalRows, MaxTerminalRows);
+        var shellStream = _sshClient.CreateShellStream(
+            "xterm-256color",
+            safeColumns,
+            safeRows,
+            safeColumns * TerminalCharPixelWidth,
+            safeRows * TerminalCharPixelHeight,
+            4096);
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         lock (_terminalLock)
@@ -691,6 +716,52 @@ public class SshService : IDisposable
             _terminalOutputHandler = onOutput;
             _terminalReadTask = Task.Run(() => ReadTerminalLoopAsync(linkedCts.Token), linkedCts.Token);
         }
+    }
+
+    /// <summary>
+    /// 调整当前终端会话的 PTY 尺寸（发送 SSH window-change 请求）。
+    /// 终端窗口缩放后调用，远端 shell 会收到 SIGWINCH 并按新列数重新排版输出。
+    /// 会话不存在或已关闭时静默忽略。
+    /// </summary>
+    public Task ChangeTerminalSizeAsync(uint columns, uint rows)
+    {
+        ShellStream? stream;
+        lock (_terminalLock)
+        {
+            stream = _terminalShellStream;
+        }
+
+        if (stream == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var safeColumns = ClampTerminalDimension(columns, MinTerminalColumns, MaxTerminalColumns);
+        var safeRows = ClampTerminalDimension(rows, MinTerminalRows, MaxTerminalRows);
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                stream.ChangeWindowSize(
+                    safeColumns,
+                    safeRows,
+                    safeColumns * TerminalCharPixelWidth,
+                    safeRows * TerminalCharPixelHeight);
+            }
+            catch
+            {
+                // 会话可能正在关闭或连接已断开，调整尺寸失败不影响主流程。
+            }
+        });
+    }
+
+    /// <summary>
+    /// 将终端尺寸限制在安全范围内，避免异常值传给远端 PTY。
+    /// </summary>
+    private static uint ClampTerminalDimension(uint value, uint min, uint max)
+    {
+        return Math.Min(max, Math.Max(min, value));
     }
 
     public async Task SendTerminalInputAsync(string input, bool appendNewLine = true, CancellationToken cancellationToken = default)

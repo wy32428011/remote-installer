@@ -15,7 +15,9 @@ public partial class TerminalDialog : Window
 {
     private readonly TerminalViewModel _viewModel;
     private const int VisibleOutputHardLimit = 350_000;
+    private const int ResizeDebounceMs = 200;
     private int _visibleDocumentLength;
+    private System.Windows.Threading.DispatcherTimer? _resizeDebounceTimer;
 
     public TerminalDialog(TerminalViewModel viewModel)
     {
@@ -28,13 +30,163 @@ public partial class TerminalDialog : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         Loaded += TerminalDialog_Loaded;
+        OutputRichTextBox.SizeChanged += OutputRichTextBox_SizeChanged;
         FileTreeView.AddHandler(TreeViewItem.ExpandedEvent, new RoutedEventHandler(FileTreeViewItem_Expanded));
     }
 
     private void TerminalDialog_Loaded(object sender, RoutedEventArgs e)
     {
         ReloadVisibleOutput();
+        ApplyOutputDocumentWidth();
+        SyncTerminalSizeToViewModel();
         FocusCommandInput();
+    }
+
+    /// <summary>
+    /// 输出区域尺寸变化时防抖同步 PTY 尺寸，避免拖拽缩放过程中高频发送 window-change。
+    /// </summary>
+    private void OutputRichTextBox_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_resizeDebounceTimer == null)
+        {
+            _resizeDebounceTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(ResizeDebounceMs)
+            };
+            _resizeDebounceTimer.Tick += (_, _) =>
+            {
+                _resizeDebounceTimer!.Stop();
+                ApplyOutputDocumentWidth();
+                SyncTerminalSizeToViewModel();
+            };
+        }
+
+        _resizeDebounceTimer.Stop();
+        _resizeDebounceTimer.Start();
+    }
+
+    /// <summary>
+    /// 按当前输出区可视宽高和等宽字符尺寸计算终端列数/行数，并同步给 ViewModel。
+    /// 远端 PTY 将按该列数排版，保证输出铺满整个可视区域而不是固定 120 列。
+    /// </summary>
+    private void SyncTerminalSizeToViewModel()
+    {
+        var cellSize = MeasureTerminalCellSize();
+        if (cellSize.Width <= 0 || cellSize.Height <= 0)
+        {
+            return;
+        }
+
+        var viewportSize = GetEffectiveOutputViewportSize();
+
+        if (viewportSize.Width <= 0 || viewportSize.Height <= 0)
+        {
+            return;
+        }
+
+        var columns = (uint)Math.Max(1, Math.Floor(viewportSize.Width / cellSize.Width));
+        var rows = (uint)Math.Max(1, Math.Floor(viewportSize.Height / cellSize.Height));
+        _viewModel.UpdateTerminalSize(columns, rows);
+    }
+
+    /// <summary>
+    /// 获取终端输出区的有效可视尺寸。
+    /// 宽度优先使用控件实际宽度，避免 FlowDocument 旧页面宽度反向污染 ViewportWidth。
+    /// </summary>
+    private Size GetEffectiveOutputViewportSize()
+    {
+        var width = OutputRichTextBox.ActualWidth;
+        if (double.IsNaN(width) || width <= 0)
+        {
+            width = OutputRichTextBox.ViewportWidth;
+        }
+
+        var height = OutputRichTextBox.ViewportHeight;
+        if (double.IsNaN(height) || height <= 0)
+        {
+            height = OutputRichTextBox.ActualHeight;
+        }
+
+        width -= OutputRichTextBox.Padding.Left + OutputRichTextBox.Padding.Right;
+        height -= OutputRichTextBox.Padding.Top + OutputRichTextBox.Padding.Bottom;
+
+        if (double.IsNaN(width) || width <= 0)
+        {
+            width = 1;
+        }
+
+        if (double.IsNaN(height) || height <= 0)
+        {
+            height = 1;
+        }
+
+        return new Size(Math.Max(1, width), Math.Max(1, height));
+    }
+
+    /// <summary>
+    /// 将当前文档宽度同步到终端输出区，保证 FlowDocument 按窗口宽度重排。
+    /// </summary>
+    private void ApplyOutputDocumentWidth()
+    {
+        if (OutputRichTextBox.Document == null)
+        {
+            return;
+        }
+
+        ApplyOutputDocumentWidth(OutputRichTextBox.Document);
+        OutputRichTextBox.InvalidateMeasure();
+    }
+
+    /// <summary>
+    /// 设置 FlowDocument 的页面宽度和列宽，避免 RichTextBox 使用默认窄页面宽度。
+    /// </summary>
+    private void ApplyOutputDocumentWidth(FlowDocument document)
+    {
+        var width = GetEffectiveOutputViewportSize().Width;
+
+        if (document.MinPageWidth > width)
+        {
+            document.MinPageWidth = width;
+        }
+
+        if (document.MaxPageWidth < width)
+        {
+            document.MaxPageWidth = width;
+        }
+
+        document.PageWidth = width;
+        document.ColumnWidth = width;
+        document.ColumnGap = 0;
+        document.IsColumnWidthFlexible = false;
+        document.MinPageWidth = width;
+        document.MaxPageWidth = width;
+    }
+
+    /// <summary>
+    /// 测量终端等宽字体的单字符渲染尺寸。
+    /// 行高取文档段落 LineHeight（18）与字体实际高度的较大值，与 CreateDocument 保持一致。
+    /// </summary>
+    private Size MeasureTerminalCellSize()
+    {
+        var typeface = new Typeface(
+            OutputRichTextBox.FontFamily,
+            FontStyles.Normal,
+            FontWeights.Normal,
+            FontStretches.Normal);
+
+        var formatted = new FormattedText(
+            "W",
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            OutputRichTextBox.FontSize,
+            Brushes.Black,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+        const double documentLineHeight = 18d;
+        return new Size(
+            formatted.WidthIncludingTrailingWhitespace,
+            Math.Max(formatted.Height, documentLineHeight));
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -170,12 +322,17 @@ public partial class TerminalDialog : Window
             paragraph.Inlines.Add(CreateRun(span));
         }
 
-        return new FlowDocument(paragraph)
+        var document = new FlowDocument(paragraph)
         {
             PagePadding = new Thickness(0),
             TextAlignment = TextAlignment.Left,
-            Background = Brushes.Transparent
+            Background = Brushes.Transparent,
+            ColumnGap = 0,
+            IsColumnWidthFlexible = false
         };
+
+        ApplyOutputDocumentWidth(document);
+        return document;
     }
 
     private Run CreateRun(TerminalOutputSpan span)
@@ -293,6 +450,11 @@ public partial class TerminalDialog : Window
 
         if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control && _viewModel.IsExecuting)
         {
+            if (OutputRichTextBox.IsKeyboardFocusWithin && !OutputRichTextBox.Selection.IsEmpty)
+            {
+                return;
+            }
+
             _viewModel.CancelCommandCommand.Execute(null);
             e.Handled = true;
             return;
@@ -306,7 +468,7 @@ public partial class TerminalDialog : Window
     }
 
     /// <summary>
-    /// 将键盘焦点放回命令输入框，并把光标移动到输入末尾。
+    /// 将键盘焦点放回终端命令行输入区域，并把光标移动到输入末尾。
     /// </summary>
     private void FocusCommandInput()
     {
@@ -320,7 +482,7 @@ public partial class TerminalDialog : Window
         CommandInput.CaretIndex = CommandInput.Text.Length;
     }
 
-    private void TerminalInputBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void TerminalCommandLine_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         FocusCommandInput();
     }
@@ -333,6 +495,8 @@ public partial class TerminalDialog : Window
 
     protected override async void OnClosing(CancelEventArgs e)
     {
+        _resizeDebounceTimer?.Stop();
+        OutputRichTextBox.SizeChanged -= OutputRichTextBox_SizeChanged;
         _viewModel.OutputAppended -= OnOutputAppended;
         _viewModel.OutputReloadRequested -= OnOutputReloadRequested;
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;

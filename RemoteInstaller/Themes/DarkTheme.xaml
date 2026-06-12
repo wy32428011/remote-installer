@@ -753,6 +753,9 @@
                                 Background="{TemplateBinding Foreground}"
                                 CornerRadius="{StaticResource CornerRadiusSmall}"
                                 HorizontalAlignment="Left">
+                            <Border.RenderTransform>
+                                <TranslateTransform X="0"/>
+                            </Border.RenderTransform>
                             <Border.Effect>
                                 <DropShadowEffect Color="{StaticResource CustomPrimary}" Opacity="0.4" BlurRadius="8" ShadowDepth="0"/>
                             </Border.Effect>
@@ -765,7 +768,7 @@
                                 <BeginStoryboard>
                                     <Storyboard RepeatBehavior="Forever">
                                         <DoubleAnimation Storyboard.TargetName="PART_Track"
-                                                         Storyboard.TargetProperty="LayoutTransform.(TranslateTransform.X)"
+                                                         Storyboard.TargetProperty="RenderTransform.(TranslateTransform.X)"
                                                          From="-100" To="200"
                                                          Duration="0:0:2"/>
                                     </Storyboard>
